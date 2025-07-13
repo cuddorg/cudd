@@ -19,7 +19,11 @@ set(DDDMP_SOURCES
 "${CMAKE_CURRENT_SOURCE_DIR}/dddmpStoreBdd.c"
 )
 
-add_library(dddmp ${DDDMP_SOURCES})
+if(CUDD_BUILD_SHARED_LIBS)
+  add_library(dddmp SHARED ${DDDMP_SOURCES})
+else()
+  add_library(dddmp STATIC ${DDDMP_SOURCES})
+endif()
 
 target_include_directories(dddmp PUBLIC
   $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/cudd>

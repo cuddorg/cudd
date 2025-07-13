@@ -30,19 +30,18 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Settings
 # ============================================================================ #
 
-option(BUILD_CPP_API "Build C++ API" ON)
-option(BUILD_SHARED_LIBS "Build CUDD as a shared library" ON)
-option(BUILD_WITH_STATS "Build CUDD with statistics" OFF)
-option(BUILD_DDDMP "Build DDDMP Library" OFF)
-option(BUILD_TESTS "Build CUDD tests" OFF)
-option(BUILD_WITH_SYSTEM_QSORT "Build with system qsort" OFF)
-option(BUILD_TESTING "Enable testing via CTest" ON)
+option(CUDD_BUILD_CPP_API "Build C++ API" ON)
+option(CUDD_BUILD_SHARED_LIBS "Build CUDD as a shared library" OFF)
+option(CUDD_BUILD_WITH_STATS "Build CUDD with statistics" OFF)
+option(CUDD_BUILD_DDDMP "Build DDDMP Library" OFF)
+option(CUDD_BUILD_TESTS "Build CUDD tests" OFF)
+option(CUDD_BUILD_WITH_SYSTEM_QSORT "Build with system qsort" OFF)
 
 # option(BUILD_API_DOCS "Build API documentation with Doxygen" OFF)
 # option(BUILD_USER_GUIDES "Build user guides with LaTeX" OFF)
 # option(BUILD_NANOTRAV_EXAMPLE "Build Nanotrav Example" OFF)
 
-if(BUILD_CPP_API)
+if(CUDD_BUILD_CPP_API)
   include(CheckCXXCompilerFlag)
   CHECK_CXX_COMPILER_FLAG("-std=c++11" COMPILER_SUPPORTS_CXX11)
   if(NOT COMPILER_SUPPORTS_CXX11)
@@ -59,7 +58,7 @@ endif()
 
 include(CheckCXXCompilerFlag)
 
-if(BUILD_WITH_SYSTEM_QSORT)
+if(CUDD_BUILD_WITH_SYSTEM_QSORT)
   set(USE_SYSTEM_QSORT TRUE)
 endif()
 
@@ -267,7 +266,7 @@ set(CUDD_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/util/ucbqsort.c"
 )
 
-if(BUILD_CPP_API)
+if(CUDD_BUILD_CPP_API)
   add_subdirectory(cplusplus)
 endif()
 
@@ -276,7 +275,11 @@ endif()
 ###
 
 # Define the cudd library target
-add_library(cudd ${CUDD_SOURCES})
+if(CUDD_BUILD_SHARED_LIBS)
+  add_library(cudd SHARED ${CUDD_SOURCES})
+else()
+  add_library(cudd STATIC ${CUDD_SOURCES})
+endif()
 
 # Link the math library (libm)
 find_library(MATH_LIBRARY m REQUIRED)
@@ -305,7 +308,7 @@ set_target_properties(cudd PROPERTIES
 )
 
 # Optional compilation flags
-if(BUILD_WITH_STATS)
+if(CUDD_BUILD_WITH_STATS)
   target_compile_definitions(cudd PUBLIC DD_STATS)
 endif()
 
@@ -351,13 +354,13 @@ install(FILES
 )
 
 # DDDMP Target
-if(BUILD_DDDMP)
+if(CUDD_BUILD_DDDMP)
   add_subdirectory(dddmp)
 endif()
 
 # Test Build
 include(CTest)
-if(BUILD_TESTS)
+if(CUDD_BUILD_TESTS)
   add_subdirectory(nanotrav)
 endif()
 

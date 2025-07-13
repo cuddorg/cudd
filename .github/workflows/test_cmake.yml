@@ -38,10 +38,10 @@ jobs:
       - name: Configure
         run: |
           cmake -S . -B /tmp/build \
-            -DBUILD_WITH_STATS=ON \
-            -DBUILD_DDDMP=ON \
-            -DBUILD_TESTS=ON \
-            -DBUILD_SHARED_LIBS=${{ matrix.build_shared_libs }}
+            -DCUDD_BUILD_WITH_STATS=ON \
+            -DCUDD_BUILD_DDDMP=ON \
+            -DCUDD_BUILD_TESTS=ON \
+            -DCUDD_BUILD_SHARED_LIBS=${{ matrix.build_shared_libs }}
 
       - name: Build
         run: cmake --build /tmp/build

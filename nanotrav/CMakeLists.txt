@@ -11,6 +11,7 @@ set(NANOTRAV_SOURCES
 )
 
 add_executable(nanotrav ${NANOTRAV_SOURCES})
+
 target_link_libraries(nanotrav PRIVATE cudd dddmp)
 target_include_directories(nanotrav PUBLIC
   $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/nanotrav>
