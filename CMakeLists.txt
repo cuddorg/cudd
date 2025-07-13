@@ -33,7 +33,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(BUILD_CPP_API "Build C++ API" ON)
 option(BUILD_SHARED_LIBS "Build CUDD as a shared library" ON)
-option(BUILD_CUDD_STATS "Build CUDD with statistics" OFF)
+option(BUILD_WITH_STATS "Build CUDD with statistics" OFF)
 option(BUILD_DDDMP "Build DDDMP Library" OFF)
 option(BUILD_TESTS "Build CUDD tests" OFF)
 option(BUILD_WITH_SYSTEM_QSORT "Build with system qsort" OFF)
@@ -306,7 +306,7 @@ set_target_properties(cudd PROPERTIES
 )
 
 # Optional compilation flags
-if(BUILD_CUDD_STATS)
+if(BUILD_WITH_STATS)
   target_compile_definitions(cudd PUBLIC DD_STATS)
 endif()
 

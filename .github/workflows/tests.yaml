@@ -12,6 +12,7 @@ jobs:
     strategy:
       matrix:
         cmake-version: ['3.22', '3.25', '3.25', '3.30', 'latest']
+        build_shared_libs: ['ON', 'OFF']
 
     steps:
       - name: Checkout code
@@ -22,5 +23,19 @@ jobs:
         with:
           cmake-version: ${{ matrix.cmake-version }}
 
-      - name: Use cmake
-        run: cmake --version
+      - name: Configure
+        run: |
+          cmake -S . -B /tmp/build \
+            -DBUILD_SHARED_LIBS=${{ matrix.build_shared_libs }}
+            -DBUILD_WITH_STATS=ON \
+            -DBUILD_DDDMP=ON \
+            -DBUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build /tmp/build
+
+      - name: Test 
+        run: ctest --test-dir /tmp/build --output-on-failure
+
+      - name: Install
+        run: cmake --install /tmp/build --prefix /tmp/install
