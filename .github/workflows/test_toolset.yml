@@ -17,14 +17,19 @@ jobs:
         toolset-version: ['10', '11', '12', '13', '14', '15']
         build_shared_libs: ['ON', 'OFF']
 
+    env:
+        CMAKE_C_COMPILER: gcc
+        CMAKE_CXX_COMPILER: g++
+        CMAKE_GENERATOR: Ninja
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
       - name: Setup cmake
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake
+          apt-get update
+          apt-get install -y cmake ninja-build
 
       - name: Check version
         run: cmake --version
