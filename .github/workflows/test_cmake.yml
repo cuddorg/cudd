@@ -32,6 +32,9 @@ jobs:
         with:
           cmake-version: ${{ matrix.cmake-version }}
 
+      - name: Check version
+        run: cmake --version
+
       - name: Configure
         run: |
           cmake -S . -B /tmp/build \
