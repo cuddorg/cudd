@@ -1,4 +1,4 @@
-name: cudd
+name: CMake Test
 
 on:
     pull_request:
