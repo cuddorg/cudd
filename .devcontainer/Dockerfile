@@ -1,0 +1,22 @@
+FROM ghcr.io/almalinux/almalinux:8
+ARG TARGETARCH TARGETOS TARGETPLATFORM TARGETVARIANT
+
+RUN dnf install -y \
+      dnf-plugins-core \
+      dnf-plugin-config-manager \
+      && \
+    dnf config-manager --enable powertools && \
+    dnf install -y \
+      git \
+      wget \
+      make \
+      cmake \
+      ninja-build \
+      gcc-toolset-14-gcc \
+      gcc-toolset-14-gcc-c++ \
+      python3.12 \
+      python3.12-pip \
+      pkgconf-pkg-config \
+      && \
+    dnf clean all
+
