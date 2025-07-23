@@ -495,6 +495,7 @@ public:
     ZDD zddVar(int index) const;
     ZDD zddOne(int i) const;
     ZDD zddZero(void) const;
+    ZDD makeZddNode(int index, ZDD low, ZDD high) const;
     ADD addNewVarAtLevel(int level) const;
     BDD bddNewVarAtLevel(int level) const;
     void zddVarsFromBddVars(int multiplicity) const;

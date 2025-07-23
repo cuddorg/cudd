@@ -1572,6 +1572,19 @@ Cudd::zddZero() const
 } // Cudd::zddZero
 
 
+ZDD
+Cudd::makeZddNode(
+  int index,
+  ZDD T,
+  ZDD E) const
+{
+  if (T == zddZero()) { return E;}
+  DdNode *result = cuddUniqueInterZdd(p->manager, index, T.node, E.node);
+  checkReturnValue(result);
+  return ZDD(p, result);
+} // Cudd::makeZddNode
+
+
 void
 defaultError(
   string message)
