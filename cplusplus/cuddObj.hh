@@ -375,6 +375,8 @@ public:
     ADD Triangle(const ADD& g, std::vector<ADD> z) const;
     ADD Eval(int * inputs) const;
     bool EqualSupNorm(const ADD& g, CUDD_VALUE_TYPE tolerance, int pr) const;
+    void PickOneCube(char * string) const;
+    ADD PickOneMintermSet(const ADD& choice) const;
 
 }; // ADD
 

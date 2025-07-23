@@ -1301,7 +1301,7 @@ Cudd_CountLeaves(
 
   @sideeffect None
 
-  @see Cudd_bddPickOneMinterm
+  @see Cudd_addPickOneCube Cudd_bddPickOneMinterm
 
 */
 int
@@ -1352,6 +1352,63 @@ Cudd_bddPickOneCube(
     return(1);
 
 } /* end of Cudd_bddPickOneCube */
+
+
+/**
+  @brief Picks one on-set cube randomly from the given %DD.
+
+  @details The cube corresponds to a path to a non-zero terminal. The cube is
+  written into an array of characters.  The array must have at least as many
+  entries as there are variables.
+
+  @return 1 if successful; 0 otherwise.
+
+  @sideeffect None
+
+  @see Cudd_bddPickOneCube
+
+*/
+int
+Cudd_addPickOneCube(
+  DdManager * ddm,
+  DdNode * node,
+  char * string)
+{
+    DdNode *T, *E;
+    DdNode *zero;
+    char   dir;
+    int    i;
+
+    if (string == NULL || node == NULL) return(0);
+
+    /* The constant 0 function has no on-set cubes. */
+    zero = DD_ZERO(ddm);
+    if (node == zero) {
+        ddm->errorCode = CUDD_INVALID_ARG;
+        return(0);
+    }
+
+    for (i = 0; i < ddm->size; i++) string[i] = 2;
+
+    for (;;) {
+        if (Cudd_IsConstant(node)) break;
+
+        T = cuddT(node); E = cuddE(node);
+        if (T == zero) {
+          string[node->index] = 0;
+          node = E;
+        } else if (E == zero) {
+            string[node->index] = 1;
+            node = T;
+        } else {
+            dir = (char) ((Cudd_Random(ddm) & 0x2000) >> 13);
+            string[node->index] = dir;
+            node = dir ? T : E;
+        }
+    }
+    return(1);
+
+} /* end of Cudd_addPickOneCube */
 
 
 /**
@@ -1452,6 +1509,94 @@ Cudd_bddPickOneMinterm(
     return(old);
 
 }  /* end of Cudd_bddPickOneMinterm */
+
+
+/**
+
+
+  @brief Picks one on-set minterm from the given %DD.
+
+
+
+
+
+  @details The minterm is represented as a decision diagram. Whenever there is
+
+
+  a choice for a variable (i.e., neither of the children is the 0-terminal), the
+
+
+  value taken from the cube <code>choice</code>, or it is false if
+
+
+  <code>choice</code> is independent of that variable. If <code>f</code> is the
+
+
+  constant function 0 (i.e., there is no cube), this function simply returns the
+
+
+  0-terminal.
+
+
+
+
+
+  @return a pointer to the %BDD for the minterm if successful; NULL if the
+
+
+  procedure ran out of memory.
+
+
+
+
+
+  @sideeffect None
+
+
+
+
+
+  @see Cudd_bddPickOneCube Cudd_bddPickOneMinterm
+
+
+
+
+
+*/
+
+
+DdNode *
+Cudd_addPickOneMintermSet(
+  DdManager * dd /**< manager */,
+  DdNode * f /**< function from which to pick one minterm */,
+  DdNode * choice /**< cube describing the choice */)
+{
+    if (f->index == CUDD_CONST_INDEX) return f;
+
+    DdNode *T = cuddT(f), *E = cuddE(f);
+    DdNode *zero = DD_ZERO(dd);
+
+    while (choice->index < f->index) {
+      choice = cuddT(choice) != zero ? cuddT(choice) : cuddE(choice);
+    }
+
+    int this_choice = 0;
+
+    if (T != zero) {
+        if (E == zero || (choice->index == f->index && cuddT(choice) == zero)) {
+            this_choice = 1;
+        }
+    }
+
+    DdNode *sub = Cudd_addPickOneMintermSet(dd, this_choice ? T : E, choice);
+
+    if (sub == NULL) return NULL;
+
+    DdNode *new_T = this_choice ? sub : zero;
+    DdNode *new_E = this_choice ? zero : sub;
+    return cuddUniqueInter(dd, f->index, new_T, new_E);
+
+}  /* end of Cudd_addPickOneMintermSet */
 
 
 /**

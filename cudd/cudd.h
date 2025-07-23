@@ -695,6 +695,8 @@ extern DdNode * Cudd_addNegate(DdManager *dd, DdNode *f);
 extern DdNode * Cudd_addRoundOff(DdManager *dd, DdNode *f, int N);
 extern DdNode * Cudd_addWalsh(DdManager *dd, DdNode **x, DdNode **y, int n);
 extern DdNode * Cudd_addResidue(DdManager *dd, int n, int m, int options, int top);
+extern int Cudd_addPickOneCube(DdManager *ddm, DdNode *node, char *string);
+extern DdNode * Cudd_addPickOneMintermSet(DdManager *dd, DdNode *f, DdNode *choice);
 extern DdNode * Cudd_bddAndAbstract(DdManager *manager, DdNode *f, DdNode *g, DdNode *cube);
 extern DdNode * Cudd_bddAndAbstractLimit(DdManager *manager, DdNode *f, DdNode *g, DdNode *cube, unsigned int limit);
 extern int Cudd_ApaNumberOfDigits(int binaryDigits);
