@@ -1510,6 +1510,20 @@ Cudd::addZero() const
 
 
 ADD
+Cudd::makeAddNode(
+  int index,
+  ADD T,
+  ADD E) const
+{
+  // Reduction Rule 1
+  if (T == E) { return T; }
+  DdNode *r = cuddUniqueInter(p->manager, index, T.node, E.node);
+  checkReturnValue(r);
+  return ADD(p, r);
+} // Cudd::makeAddNode
+
+
+ADD
 Cudd::constant(
   CUDD_VALUE_TYPE c) const
 {

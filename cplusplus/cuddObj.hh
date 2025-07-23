@@ -489,6 +489,7 @@ public:
     ADD addVar(int index) const;
     ADD addOne(void) const;
     ADD addZero(void) const;
+    ADD makeAddNode(int index, ADD T, ADD E) const;
     ADD constant(CUDD_VALUE_TYPE c) const;
     ADD plusInfinity(void) const;
     ADD minusInfinity(void) const;
