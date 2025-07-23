@@ -1,0 +1,32 @@
+# Build directories
+build/
+install/
+out/
+bin/
+lib/
+
+# CMake-generated files and folders
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+CTestTestfile.cmake
+install_manifest.txt
+compile_commands.json
+CMakeLists.txt.user
+Testing/
+
+# Compilation database (common typo fixed)
+compile_commands.json
+
+# OS or editor-specific files (optional, but recommended)
+*.swp
+*.swo
+*.bak
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
+
+# Optional: Ignore all top-level build/ variants
+[Bb]uild*/

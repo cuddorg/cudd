@@ -1,0 +1,53 @@
+name: CMake Test
+
+on:
+    pull_request:
+    push:
+        branches:
+            - main
+
+jobs:
+  cmake-test:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        cmake-version: 
+          - '3.18' # debian11
+          - '3.22' # ubuntu22.04
+          - '3.25' # debian12
+          - '3.26' # rhel8, rhel9
+          - '3.28' # ubuntu24.04, leap15.6
+          - '3.30' # rhel10
+          - '3.31' # debian13
+          - 'latest'
+        build_shared_libs: ['ON', 'OFF']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup cmake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: ${{ matrix.cmake-version }}
+
+      - name: Check version
+        run: cmake --version
+
+      - name: Configure
+        run: |
+          cmake -S . -B /tmp/build \
+            -DCUDD_BUILD_WITH_STATS=ON \
+            -DCUDD_BUILD_DDDMP=ON \
+            -DCUDD_BUILD_TESTS=ON \
+            -DCUDD_BUILD_SHARED_LIBS=${{ matrix.build_shared_libs }}
+
+      - name: Build
+        run: cmake --build /tmp/build
+
+      - name: Test 
+        run: ctest --test-dir /tmp/build --output-on-failure
+
+      - name: Install
+        run: cmake --install /tmp/build --prefix /tmp/install

@@ -1,0 +1,52 @@
+name: Toolset Test
+
+on:
+    pull_request:
+    push:
+        branches:
+            - main
+
+jobs:
+  cmake-test:
+    runs-on: ubuntu-24.04
+    container:
+      image: docker.io/gcc:${{ matrix.toolset-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        toolset-version: ['10', '11', '12', '13', '14', '15']
+        build_shared_libs: ['ON', 'OFF']
+
+    env:
+        CMAKE_C_COMPILER: gcc
+        CMAKE_CXX_COMPILER: g++
+        CMAKE_GENERATOR: Ninja
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup cmake
+        run: |
+          apt-get update
+          apt-get install -y cmake ninja-build
+
+      - name: Check version
+        run: cmake --version
+
+      - name: Configure
+        run: |
+          cmake -S . -B /tmp/build \
+            -DCUDD_BUILD_WITH_STATS=ON \
+            -DCUDD_BUILD_DDDMP=ON \
+            -DCUDD_BUILD_TESTS=ON \
+            -DCUDD_BUILD_SHARED_LIBS=${{ matrix.build_shared_libs }}
+
+      - name: Build
+        run: cmake --build /tmp/build
+
+      - name: Test 
+        run: ctest --test-dir /tmp/build --output-on-failure
+
+      - name: Install
+        run: cmake --install /tmp/build --prefix /tmp/install

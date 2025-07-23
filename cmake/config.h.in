@@ -1,0 +1,186 @@
+/* Configurations to be filled by CMake. */
+
+/* Define if building universal (internal helper macro) */
+#cmakedefine AC_APPLE_UNIVERSAL_BUILD
+
+/* Define to 1 if you have the <assert.h> header file. */
+#cmakedefine01 HAVE_ASSERT_H
+
+/* Define to 1 if you have the <dlfcn.h> header file. */
+#cmakedefine01 HAVE_DLFCN_H
+
+/* Define to 1 if you have the <float.h> header file. */
+#cmakedefine01 HAVE_FLOAT_H
+
+/* Define to 1 if you have the `gethostname' function. */
+#cmakedefine01 HAVE_GETHOSTNAME
+
+/* Define to 1 if you have the `getrlimit' function. */
+#cmakedefine01 HAVE_GETRLIMIT
+
+/* Define to 1 if you have the `getrusage' function. */
+#cmakedefine01 HAVE_GETRUSAGE
+
+/* Define if you have working floating-point infinities */
+#cmakedefine HAVE_IEEE_754
+
+/* Define to 1 if you have the <inttypes.h> header file. */
+#cmakedefine01 HAVE_INTTYPES_H
+
+/* Define to 1 if you have the <limits.h> header file. */
+#cmakedefine01 HAVE_LIMITS_H
+
+/* Define to 1 if you have the <math.h> header file. */
+#cmakedefine01 HAVE_MATH_H
+
+/* Define to 1 if you have the <memory.h> header file. */
+#cmakedefine01 HAVE_MEMORY_H
+
+/* Define to 1 if your compiler supports enough C++11 */
+#cmakedefine01 HAVE_MODERN_CXX
+
+/* Define to 1 if you have the `pow' function. */
+#cmakedefine01 HAVE_POW
+
+/* Define to 1 if you have the `powl' function. */
+#cmakedefine01 HAVE_POWL
+
+/* Define to 1 if the system has the type `ptrdiff_t'. */
+#cmakedefine01 HAVE_PTRDIFF_T
+
+/* Define to 1 if you have the `sqrt' function. */
+#cmakedefine01 HAVE_SQRT
+
+/* Define to 1 if you have the <stddef.h> header file. */
+#cmakedefine01 HAVE_STDDEF_H
+
+/* Define to 1 if you have the <stdint.h> header file. */
+#cmakedefine01 HAVE_STDINT_H
+
+/* Define to 1 if you have the <stdlib.h> header file. */
+#cmakedefine01 HAVE_STDLIB_H
+
+/* Define to 1 if you have the `strchr' function. */
+#cmakedefine01 HAVE_STRCHR
+
+/* Define to 1 if you have the <strings.h> header file. */
+#cmakedefine01 HAVE_STRINGS_H
+
+/* Define to 1 if you have the <string.h> header file. */
+#cmakedefine01 HAVE_STRING_H
+
+/* Define to 1 if you have the `strstr' function. */
+#cmakedefine01 HAVE_STRSTR
+
+/* Define to 1 if you have the `sysconf' function. */
+#cmakedefine01 HAVE_SYSCONF
+
+/* Define to 1 if you have the <sys/resource.h> header file. */
+#cmakedefine01 HAVE_SYS_RESOURCE_H
+
+/* Define to 1 if you have the <sys/stat.h> header file. */
+#cmakedefine01 HAVE_SYS_STAT_H
+
+/* Define to 1 if you have the <sys/times.h> header file. */
+#cmakedefine01 HAVE_SYS_TIMES_H
+
+/* Define to 1 if you have the <sys/time.h> header file. */
+#cmakedefine01 HAVE_SYS_TIME_H
+
+/* Define to 1 if you have the <sys/types.h> header file. */
+#cmakedefine01 HAVE_SYS_TYPES_H
+
+/* Define to 1 if you have the <sys/wait.h> header file. */
+#cmakedefine01 HAVE_SYS_WAIT_H
+
+/* Define to 1 if you have the <unistd.h> header file. */
+#cmakedefine01 HAVE_UNISTD_H
+
+/* Define to 1 if C++ thread header is usable */
+#cmakedefine01 HAVE_WORKING_THREAD
+
+/* Define to 1 if the system has the type `_Bool'. */
+#cmakedefine01 HAVE__BOOL
+
+/* Define to the sub-directory in which libtool stores uninstalled libraries.
+   */
+#cmakedefine LT_OBJDIR "@LT_OBJDIR@"
+
+/* Name of package */
+#define PACKAGE "@CMAKE_PROJECT_NAME@"
+
+/* Define to the address where bug reports for this package should be sent. */
+#define PACKAGE_BUGREPORT "Fabio@Colorado.EDU"
+
+/* Define to the full name of this package. */
+#define PACKAGE_NAME "@CMAKE_PROJECT_NAME@"
+
+/* Define to the full name and version of this package. */
+#define PACKAGE_STRING "@CMAKE_PROJECT_NAME@ @VERSION@"
+
+/* Define to the one symbol short name of this package. */
+#define PACKAGE_TARNAME "@CMAKE_PROJECT_NAME@"
+
+/* Define to the home page for this package. */
+#define PACKAGE_URL "@PACKAGE_URL@"
+
+/* Define to the version of this package. */
+#define PACKAGE_VERSION "@PROJECT_VERSION@"
+
+/* The size of `int', as computed by sizeof. */
+#define SIZEOF_INT @SIZEOF_INT@
+
+/* The size of `long', as computed by sizeof. */
+#define SIZEOF_LONG @SIZEOF_LONG@
+
+/* The size of `long double', as computed by sizeof. */
+#define SIZEOF_LONG_DOUBLE @SIZEOF_LONG_DOUBLE@
+
+/* The size of `void *', as computed by sizeof. */
+#define SIZEOF_VOID_P @SIZEOF_VOID_P@
+
+/* Define to 1 if you have the ANSI C header files. */
+#cmakedefine01 STDC_HEADERS
+
+/* Define to use system qsort */
+#cmakedefine USE_SYSTEM_QSORT
+
+/* Version number of package */
+#define VERSION "@VERSION@"
+
+/* Define WORDS_BIGENDIAN to 1 if your processor stores words with the most
+   significant byte first (like Motorola and SPARC, unlike Intel). */
+#if defined AC_APPLE_UNIVERSAL_BUILD
+# if defined __BIG_ENDIAN__
+#  define WORDS_BIGENDIAN 1
+# endif
+#else
+# ifndef WORDS_BIGENDIAN
+#cmakedefine WORDS_BIGENDIAN
+# endif
+#endif
+
+/* Define for Solaris 2.5.1 so the uint32_t typedef from <sys/synch.h>,
+   <pthread.h>, or <semaphore.h> is not used. If the typedef were allowed, the
+   #define below would cause a syntax error. */
+#cmakedefine _UINT32_T
+
+/* Define to 1 to enable C99-compliant printf on MinGW-w64 */
+#cmakedefine __USE_MINGW_ANSI_STDIO
+
+/* Define to `__inline__' or `__inline' if that's what the C compiler
+   calls it, or to nothing if 'inline' is not supported under any name.  */
+#ifndef __cplusplus
+#cmakedefine inline
+#endif
+
+/* Define to `unsigned int' if <sys/types.h> does not define. */
+#cmakedefine size_t
+
+/* Define to the type of an unsigned integer type of width exactly 16 bits if
+   such a type exists and the standard includes do not define it. */
+#cmakedefine uint16_t
+
+/* Define to the type of an unsigned integer type of width exactly 32 bits if
+   such a type exists and the standard includes do not define it. */
+#cmakedefine uint32_t

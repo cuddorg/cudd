@@ -1,0 +1,15 @@
+@PACKAGE_INIT@
+
+if(@COMPONET_TARGETS_ENABLED@)
+  set(_supported_components Runtime Development)
+
+  foreach(_comp ${MathFunctions_FIND_COMPONENTS})
+    if(NOT _comp IN_LIST _supported_components)
+      set(CUDD_FOUND False)
+      set(CUDD_NOT_FOUND_MESSAGE "Unsupported component: ${_comp}")
+    endif()
+    include("${CMAKE_CURRENT_LIST_DIR}/cudd${_comp}Targets.cmake")
+  endforeach()
+else()
+  include("${CMAKE_CURRENT_LIST_DIR}/cuddTargets.cmake")
+endif()
