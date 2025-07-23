@@ -485,6 +485,7 @@ public:
     BDD bddVar(int index) const;
     BDD bddOne(void) const;
     BDD bddZero(void) const;
+    BDD makeBddNode(int index, BDD low, BDD high) const;
     ADD addVar(void) const;
     ADD addVar(int index) const;
     ADD addOne(void) const;
