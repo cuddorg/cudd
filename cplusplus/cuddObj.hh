@@ -323,6 +323,8 @@ public:
     ADD operator&=(const ADD& other);
     ADD operator|(const ADD& other) const;
     ADD operator|=(const ADD& other);
+    ADD operator^(const ADD& other) const;
+    ADD operator^=(const ADD& other);
     bool IsZero() const;
     ADD ExistAbstract(const ADD& cube) const;
     ADD UnivAbstract(const ADD& cube) const;
