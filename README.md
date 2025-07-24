@@ -10,12 +10,12 @@ In 2025, we established a dedicated GitHub organization, @cuddorg, to collaborat
 
 ## Road to Release 4.0
 
-Ongoing development takes place on the develop branch, which already includes several fixes and API enhancements contributed by decision diagram researchers.
+Ongoing development takes place on the develop branch, which already includes several fixes and API enhancements contributed by decision diagram researchers. We aim to release a `4.0` release with these improvements and layout refactoring without a major change affecting functionality.
 
 The primary focus, however, is on modernizing the repository layout and build system. The proposed CMake-based workflow is as follows:
 
 ```
-git clone --branch 4.0.0-rc.1 https://github.com/cuddorg/cudd
+git clone --branch 4.0.0-rc1 https://github.com/cuddorg/cudd
 
 cmake -S ./cudd -B /tmp/cudd/build
 cmake --build /tmp/cudd/build
@@ -31,9 +31,7 @@ include(FetchContent)
 FetchContent_Declare(
   cudd
   GIT_REPOSITORY https://github.com/cuddorg/cudd.git
-  GIT_TAG        4.0.0-rc.1
+  GIT_TAG        4.0.0-rc1
 )
 FetchContent_MakeAvailable(cudd)
 ```
-
-We aim to release a 4.0 release with these improvements and layout refactoring without a major change affecting functionality.
