@@ -20,3 +20,4 @@ RUN dnf install -y \
       && \
     dnf clean all
 
+RUN echo "source /opt/rh/gcc-toolset-14/enable" >> /etc/bashrc

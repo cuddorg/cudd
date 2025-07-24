@@ -34,6 +34,7 @@ option(CUDD_CONFIGURE_SYSTEM "Configure system variables" OFF)
 option(CUDD_BUILD_CPP_API "Build C++ API" ON)
 option(CUDD_BUILD_SHARED_LIBS "Build CUDD as a shared library" OFF)
 option(CUDD_BUILD_WITH_STATS "Build CUDD with statistics" OFF)
+option(CUDD_BUILD_DDDMP "Build DDDMP Library)" OFF)
 option(CUDD_BUILD_TESTS "Build CUDD tests" OFF)
 option(CUDD_BUILD_WITH_SYSTEM_QSORT "Build with system qsort" OFF)
 
@@ -41,7 +42,7 @@ option(CUDD_BUILD_WITH_SYSTEM_QSORT "Build with system qsort" OFF)
 # option(BUILD_USER_GUIDES "Build user guides with LaTeX" OFF)
 # option(BUILD_NANOTRAV_EXAMPLE "Build Nanotrav Example" OFF)
 
-if(CUDD_BUILD_WITH_SYSTEM_QSORT)
+if(CUDD_USE_SYSTEM_QSORT)
   set(USE_SYSTEM_QSORT TRUE)
 endif()
 
