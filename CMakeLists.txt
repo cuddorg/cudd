@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.10)
 
+# The default build type must be set before project()
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+  set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
+endif()
+
 project(cudd
   VERSION 4.0.0
   DESCRIPTION "CUDD Decision Diagram Library"
@@ -213,12 +219,7 @@ endif()
 ###
 
 include(GNUInstallDirs)
-include(GenerateExportHeader)
 include(CMakePackageConfigHelpers)
-
-generate_export_header(cudd
-  EXPORT_MACRO_NAME CUDD_API
-)
 
 # Install the cudd library
 install(TARGETS cudd

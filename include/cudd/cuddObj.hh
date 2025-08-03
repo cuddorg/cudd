@@ -10,6 +10,7 @@
 
   @copyright@parblock
   Copyright (c) 1995-2015, Regents of the University of Colorado
+  Copyright (c) 2025,      CUDD Maintainers (github.com/cuddorg)
 
   All rights reserved.
 
@@ -43,6 +44,25 @@
   @endparblock
 
 */
+
+#ifndef CUDD_EXPORT_H
+#define CUDD_EXPORT_H
+
+#if defined(_WIN32) || defined(__CYGWIN__)
+  #ifdef CUDD_EXPORTS
+    #define CUDD_API __declspec(dllexport)
+  #else
+    #define CUDD_API __declspec(dllimport)
+  #endif
+#else
+  #if __GNUC__ >= 4
+    #define CUDD_API __attribute__((visibility("default")))
+  #else
+    #define CUDD_API
+  #endif
+#endif
+
+#endif /* CUDD_EXPORT_H */
 
 #ifndef CUDD_OBJ_H_
 #define CUDD_OBJ_H_
@@ -80,7 +100,7 @@ class Capsule;
   @see Cudd ABDD ADD BDD ZDD
 
 */
-class DD {
+class CUDD_API DD {
 protected:
     Capsule *p;
     DdNode *node;
@@ -112,7 +132,7 @@ public:
   @see Cudd ADD BDD
 
 */
-class ABDD : public DD {
+class CUDD_API ABDD : public DD {
     friend class Cudd;
 protected:
     ABDD();
@@ -159,7 +179,7 @@ public:
   @see Cudd
 
 */
-class BDD : public ABDD {
+class CUDD_API BDD : public ABDD {
     friend class Cudd;
 public:
     BDD();
@@ -297,7 +317,7 @@ public:
   @see Cudd
 
 */
-class ADD : public ABDD {
+class CUDD_API ADD : public ABDD {
     friend class Cudd;
 public:
     ADD();
@@ -388,7 +408,7 @@ public:
   @see Cudd
 
 */
-class ZDD : public DD {
+class CUDD_API ZDD : public DD {
     friend class Cudd;
 public:
     ZDD(Capsule *cap, DdNode *bddNode);
@@ -452,7 +472,7 @@ extern void defaultError(std::string message);
   @see DD
 
 */
-class Cudd {
+class CUDD_API Cudd {
     friend class DD;
     friend class ABDD;
     friend class BDD;
