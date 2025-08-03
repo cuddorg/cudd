@@ -667,6 +667,7 @@ BDD::operator-=(
 } // BDD::operator-=
 
 
+CUDD_API 
 ostream & operator<<(ostream & os, BDD const & f)
 {
     if (!f.node) defaultError("empty DD.");

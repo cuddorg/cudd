@@ -205,7 +205,7 @@ public:
     BDD operator^=(const BDD& other);
     BDD operator-(const BDD& other) const;
     BDD operator-=(const BDD& other);
-    friend std::ostream & operator<<(std::ostream & os, BDD const & f);
+    friend CUDD_API std::ostream & operator<<(std::ostream & os, BDD const & f);
     bool IsZero() const;
     bool IsVar() const;
     BDD AndAbstract(const BDD& g, const BDD& cube, unsigned int limit = 0)
@@ -478,7 +478,7 @@ class CUDD_API Cudd {
     friend class BDD;
     friend class ADD;
     friend class ZDD;
-    friend std::ostream & operator<<(std::ostream & os, BDD const & f);
+    friend CUDD_API std::ostream & operator<<(std::ostream & os, BDD const & f);
 private:
     Capsule *p;
 public:
