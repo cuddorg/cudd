@@ -168,7 +168,7 @@ if(CUDD_BUILD_SHARED_LIBS)
 else()
   add_library(cudd STATIC ${CUDD_SOURCES})
 endif()
-add_library(Cudd::cudd ALIAS cudd)
+add_library(cudd::cudd ALIAS cudd)
 
 # Link the math library (libm)
 # find_library(MATH_LIBRARY m REQUIRED)
