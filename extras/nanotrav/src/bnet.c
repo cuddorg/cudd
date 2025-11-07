@@ -210,15 +210,16 @@ Bnet_ReadNetwork(
 		    (net->ninputs + n) * sizeof(char *));
 		for (i = 0; i < n; i++)
 		    net->inputs[net->ninputs + i] = list[i];
+		FREE(list); /* List element pointers have been transferred, free the list array itself. */
 	    }
 	    else
-		net->inputs = list;
+		net->inputs = list; /* Ownership of list transferred to net->inputs. */
 	    /* Create a node for each primary input. */
 	    for (i = 0; i < n; i++) {
 		newnode = ALLOC(BnetNode,1);
 		memset((char *) newnode, 0, sizeof(BnetNode));
 		if (newnode == NULL) goto failure;
-		newnode->name = list[i];
+		newnode->name = net->inputs[net->ninputs + i];
 		newnode->inputs = NULL;
 		newnode->type = BNET_INPUT_NODE;
 		newnode->active = FALSE;

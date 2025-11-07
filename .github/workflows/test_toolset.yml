@@ -5,6 +5,11 @@ on:
     push:
         branches:
             - main
+            - 4.0.0
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   cmake-test:
@@ -24,28 +29,46 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup cmake
         run: |
           apt-get update
           apt-get install -y cmake ninja-build
 
-      - name: Check version
-        run: cmake --version
+      - name: Check version and determine test compatibility
+        id: check-tests
+        run: |
+          # Get CMake version and parse it
+          CMAKE_VERSION=$(cmake --version | head -n1 | sed 's/cmake version //')
+          echo "Detected CMake version: $CMAKE_VERSION"
+          
+          # Extract major.minor version for comparison
+          MAJOR_MINOR=$(echo $CMAKE_VERSION | sed 's/\([0-9]\+\.[0-9]\+\).*/\1/')
+          echo "Major.Minor version: $MAJOR_MINOR"
+          
+          # Check if version is >= 3.28 using version comparison
+          if printf '%s\n%s\n' "3.28" "$MAJOR_MINOR" | sort -V -C; then
+            echo "tests_enabled=true" >> $GITHUB_OUTPUT
+            echo "✅ CMake $CMAKE_VERSION >= 3.28: Tests will be enabled"
+          else
+            echo "tests_enabled=false" >> $GITHUB_OUTPUT
+            echo "⚠️  CMake $CMAKE_VERSION < 3.28: dddmp requires CMake 3.28+, tests disabled"
+          fi
 
       - name: Configure
         run: |
           cmake -S . -B /tmp/build \
             -DCUDD_BUILD_WITH_STATS=ON \
             -DCUDD_BUILD_DDDMP=ON \
-            -DCUDD_BUILD_TESTS=ON \
+            -DCUDD_BUILD_TESTS=${{ steps.check-tests.outputs.tests_enabled }} \
             -DCUDD_BUILD_SHARED_LIBS=${{ matrix.build_shared_libs }}
 
       - name: Build
         run: cmake --build /tmp/build
 
       - name: Test 
+        if: steps.check-tests.outputs.tests_enabled == 'true'
         run: ctest --test-dir /tmp/build --output-on-failure
 
       - name: Install

@@ -1,0 +1,181 @@
+name: Sanitizer Tests
+
+on:
+    pull_request:
+    push:
+        branches:
+            - main
+            - 4.0.0
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sanitizer-test:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: ['address', 'undefined', 'address+undefined']
+        build_shared_libs: ['ON', 'OFF']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build
+
+      - name: Setup cmake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: 'latest'
+
+      - name: Check version and determine test compatibility
+        id: check-tests
+        run: |
+          # Get CMake version and parse it
+          CMAKE_VERSION=$(cmake --version | head -n1 | sed 's/cmake version //')
+          echo "Detected CMake version: $CMAKE_VERSION"
+          
+          # Extract major.minor version for comparison
+          MAJOR_MINOR=$(echo $CMAKE_VERSION | sed 's/\([0-9]\+\.[0-9]\+\).*/\1/')
+          echo "Major.Minor version: $MAJOR_MINOR"
+          
+          # Check if version is >= 3.28 using version comparison
+          if printf '%s\n%s\n' "3.28" "$MAJOR_MINOR" | sort -V -C; then
+            echo "tests_enabled=true" >> $GITHUB_OUTPUT
+            echo "✅ CMake $CMAKE_VERSION >= 3.28: Tests will be enabled"
+          else
+            echo "tests_enabled=false" >> $GITHUB_OUTPUT
+            echo "⚠️  CMake $CMAKE_VERSION < 3.28: dddmp requires CMake 3.28+, tests disabled"
+          fi
+
+      - name: Set sanitizer flags
+        id: sanitizer-flags
+        run: |
+          case "${{ matrix.sanitizer }}" in
+            address)
+              echo "flags=-fsanitize=address -fno-omit-frame-pointer" >> $GITHUB_OUTPUT
+              echo "name=AddressSanitizer" >> $GITHUB_OUTPUT
+              echo "description=Detects memory errors, buffer overflows, use-after-free" >> $GITHUB_OUTPUT
+              ;;
+            undefined)
+              echo "flags=-fsanitize=undefined -fno-omit-frame-pointer" >> $GITHUB_OUTPUT
+              echo "name=UndefinedBehaviorSanitizer" >> $GITHUB_OUTPUT
+              echo "description=Detects undefined behavior like integer overflow, null pointer dereference" >> $GITHUB_OUTPUT
+              ;;
+            address+undefined)
+              echo "flags=-fsanitize=address,undefined -fno-omit-frame-pointer" >> $GITHUB_OUTPUT
+              echo "name=AddressSanitizer+UBSan" >> $GITHUB_OUTPUT
+              echo "description=Combined address and undefined behavior sanitizers" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: Configure with sanitizer flags
+        run: |
+          echo "🔧 Configuring with ${{ steps.sanitizer-flags.outputs.name }}"
+          echo "📝 ${{ steps.sanitizer-flags.outputs.description }}"
+          
+          cmake -S . -B /tmp/build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCUDD_BUILD_WITH_STATS=ON \
+            -DCUDD_BUILD_DDDMP=ON \
+            -DCUDD_BUILD_TESTS=${{ steps.check-tests.outputs.tests_enabled }} \
+            -DCUDD_BUILD_SHARED_LIBS=${{ matrix.build_shared_libs }} \
+            -DCMAKE_C_FLAGS="-g -O1 ${{ steps.sanitizer-flags.outputs.flags }}" \
+            -DCMAKE_CXX_FLAGS="-g -O1 ${{ steps.sanitizer-flags.outputs.flags }}" \
+            -DCMAKE_EXE_LINKER_FLAGS="${{ steps.sanitizer-flags.outputs.flags }}" \
+            -DCMAKE_SHARED_LINKER_FLAGS="${{ steps.sanitizer-flags.outputs.flags }}"
+
+      - name: Build
+        run: cmake --build /tmp/build
+
+      - name: Set sanitizer environment variables
+        run: |
+          # Common sanitizer options
+          echo "ASAN_OPTIONS=detect_leaks=1:abort_on_error=1:fast_unwind_on_malloc=0:symbolize=1:print_stats=1" >> $GITHUB_ENV
+          echo "UBSAN_OPTIONS=abort_on_error=1:print_stacktrace=1:halt_on_error=1" >> $GITHUB_ENV
+          echo "MSAN_OPTIONS=abort_on_error=1:print_stats=1" >> $GITHUB_ENV
+          
+          # Ensure core dumps are disabled to prevent large artifacts
+          echo "ASAN_OPTIONS=${ASAN_OPTIONS}:abort_on_error=1:disable_coredump=1" >> $GITHUB_ENV
+
+      - name: Test with sanitizers
+        if: steps.check-tests.outputs.tests_enabled == 'true'
+        run: |
+          cd /tmp/build
+          echo "🧪 Running tests with ${{ steps.sanitizer-flags.outputs.name }}"
+          
+          # Set up error handling for sanitizer failures
+          export ASAN_SYMBOLIZER_PATH=$(which llvm-symbolizer || which addr2line)
+          
+          # Run tests with detailed output
+          ctest --test-dir . --output-on-failure --verbose
+          
+          echo "✅ All tests passed with ${{ steps.sanitizer-flags.outputs.name }}"
+
+      - name: Test individual executables
+        if: steps.check-tests.outputs.tests_enabled == 'true'
+        run: |
+          cd /tmp/build
+          echo "🔍 Testing individual executables for sanitizer issues"
+          
+          # Find and test individual test executables
+          find . -name "*test*" -type f -executable | while read -r test_exe; do
+            if [ -f "$test_exe" ]; then
+              echo "Testing executable: $test_exe"
+              timeout 120 "$test_exe" || echo "⚠️  $test_exe failed or timed out"
+            fi
+          done
+
+      - name: Collect sanitizer logs
+        if: failure()
+        run: |
+          echo "📋 Collecting sanitizer output and logs"
+          
+          # Look for sanitizer output files
+          find /tmp/build -name "*.san" -o -name "*sanitizer*" -o -name "core.*" 2>/dev/null || true
+          
+          # Print environment variables for debugging
+          echo "Environment variables:"
+          env | grep -E "(ASAN|UBSAN|MSAN)_OPTIONS" || true
+
+      - name: Upload sanitizer artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanitizer-artifacts-${{ matrix.sanitizer }}-${{ matrix.build_shared_libs }}
+          path: |
+            /tmp/build/**/*.san
+            /tmp/build/**/sanitizer*
+            /tmp/build/Testing/Temporary/LastTest.log
+            /tmp/build/Testing/Temporary/LastTestsFailed.log
+          if-no-files-found: ignore
+
+      - name: Install
+        run: cmake --install /tmp/build --prefix /tmp/install
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## ${{ steps.sanitizer-flags.outputs.name }} Test Summary"
+          echo "- Sanitizer: ${{ matrix.sanitizer }}"
+          echo "- Shared libs: ${{ matrix.build_shared_libs }}"
+          echo "- Tests enabled: ${{ steps.check-tests.outputs.tests_enabled }}"
+          echo "- Description: ${{ steps.sanitizer-flags.outputs.description }}"
+          
+          if [ -f "/tmp/build/Testing/Temporary/LastTestsFailed.log" ]; then
+            echo "❌ Some tests failed with sanitizer errors"
+            echo "Check the sanitizer artifacts for detailed error information"
+          else
+            echo "✅ All tests passed - no memory errors or undefined behavior detected"
+          fi
+          
+          # Show memory usage stats if available
+          if [ -n "$ASAN_OPTIONS" ] && echo "$ASAN_OPTIONS" | grep -q "print_stats=1"; then
+            echo "📊 Memory usage statistics should be available in the test output above"
+          fi

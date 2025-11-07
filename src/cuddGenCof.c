@@ -1878,13 +1878,13 @@ MarkCacheHash(
   void const * ptr,
   int  modulus)
 {
-    int val = 0;
+    unsigned int val = 0;
     MarkCacheKey const *entry = (MarkCacheKey const *) ptr;
 
-    val = (int) (ptrint) entry->f;
-    val = val * 997 + (int) (ptrint) entry->c;
+    val = (unsigned int) (ptrint) entry->f;
+    val = val * 997u + (unsigned int) (ptrint) entry->c;
 
-    return ((val < 0) ? -val : val) % modulus;
+    return (int)(val % (unsigned int)modulus);
 
 } /* end of MarkCacheHash */
 

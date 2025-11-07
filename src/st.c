@@ -915,18 +915,17 @@ st_foreach(st_table *table, st_foreach_t func, void *arg)
 int
 st_strhash(void const *string, int modulus)
 {
-    int val = 0;
+    unsigned int val = 0;
     int c;
-    char const * s = (char const *) string;
+    unsigned char const * s = (unsigned char const *) string;
     
     while ((c = *s++) != '\0') {
-	val = val*997 + c;
+	val = val*997u + (unsigned int)c;
     }
 
-    return ((val < 0) ? -val : val)%modulus;
+    return (int)(val % (unsigned int)modulus);
 
 } /* st_strhash */
-
 
 /**
   @brief Integral number hash function.
