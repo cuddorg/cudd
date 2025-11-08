@@ -91,13 +91,13 @@ array_cmp(void const * key1, void const * key2, void const *arg)
 int
 array_hash(void const * key, int modulus, void const * arg)
 {
-    int const *a = (int const *) key;
+    unsigned int const *a = (unsigned int const *) key;
     size_t const size = (size_t) arg;
     int val = 0;
     for (size_t i = 0; i < size; i++) {
-        val = val * 997 + a[i]; // Simple polynomial-style hash
+        val = val * 997u + a[i];
     }
-    return ((val < 0) ? -val : val) % modulus;
+    return (int)(val % (unsigned int)modulus);
 }
 
 } // end extern "C"
