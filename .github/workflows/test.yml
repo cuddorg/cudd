@@ -1,0 +1,37 @@
+name: Test
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cmake-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup cmake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: "3.31"
+
+      - name: Configure
+        run: |
+          cmake -S . -B /tmp/build \
+            -DCUDD_BUILD_WITH_STATS=ON \
+            -DCUDD_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build /tmp/build
+
+      - name: Test 
+        run: ctest --test-dir /tmp/build --output-on-failure
