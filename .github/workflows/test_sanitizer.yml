@@ -59,7 +59,7 @@ jobs:
             -DCMAKE_C_FLAGS="-g -O1 ${{ steps.sanitizer-flags.outputs.flags }}" \
             -DCMAKE_CXX_FLAGS="-g -O1 ${{ steps.sanitizer-flags.outputs.flags }}" \
             -DCMAKE_EXE_LINKER_FLAGS="${{ steps.sanitizer-flags.outputs.flags }}" \
-            -DCMAKE_SHARED_LINKER_FLAGS="${{ steps.sanitizer-flags.outputs.flags }}"
+            -DCMAKE_SHARED_LINKER_FLAGS="${{ steps.sanitizer-flags.outputs.flags }}" \
             -DCUDD_BUILD_TESTS=ON \
             -DCUDD_BUILD_SHARED_LIBS=OFF \
             -DCUDD_BUILD_WITH_STATS=ON

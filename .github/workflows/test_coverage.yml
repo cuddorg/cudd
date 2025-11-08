@@ -31,10 +31,10 @@ jobs:
             -DCMAKE_C_FLAGS="-g -O0 --coverage -fprofile-arcs -ftest-coverage" \
             -DCMAKE_CXX_FLAGS="-g -O0 --coverage -fprofile-arcs -ftest-coverage" \
             -DCMAKE_EXE_LINKER_FLAGS="--coverage" \
-            -DCMAKE_SHARED_LINKER_FLAGS="--coverage"
+            -DCMAKE_SHARED_LINKER_FLAGS="--coverage" \
             -DCUDD_BUILD_TESTS=ON \
             -DCUDD_BUILD_SHARED_LIBS=OFF \
-            -DCUDD_BUILD_WITH_STATS=ON \
+            -DCUDD_BUILD_WITH_STATS=ON
 
       - name: Build
         run: cmake --build /tmp/build
