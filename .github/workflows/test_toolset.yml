@@ -15,7 +15,7 @@ jobs:
   gcc-test:
     runs-on: ubuntu-24.04
     container:
-      image: docker.io/gcc:${{ matrix.toolset-version }}
+      image: docker.io/gcc:${{ matrix.gcc-version }}
     strategy:
       fail-fast: false
       matrix:
