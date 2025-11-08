@@ -28,13 +28,13 @@ jobs:
         run: |
           cmake -S . -B /tmp/build \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DCUDD_BUILD_WITH_STATS=ON \
-            -DCUDD_BUILD_TESTS=${{ steps.check-tests.outputs.tests_enabled }} \
-            -DCUDD_BUILD_SHARED_LIBS=OFF \
             -DCMAKE_C_FLAGS="-g -O0 --coverage -fprofile-arcs -ftest-coverage" \
             -DCMAKE_CXX_FLAGS="-g -O0 --coverage -fprofile-arcs -ftest-coverage" \
             -DCMAKE_EXE_LINKER_FLAGS="--coverage" \
             -DCMAKE_SHARED_LINKER_FLAGS="--coverage"
+            -DCUDD_BUILD_TESTS=ON \
+            -DCUDD_BUILD_SHARED_LIBS=OFF \
+            -DCUDD_BUILD_WITH_STATS=ON \
 
       - name: Build
         run: cmake --build /tmp/build
@@ -111,7 +111,6 @@ jobs:
         run: |
           echo "## Code Coverage Summary"
           echo "- Build type: Debug with coverage flags"
-          echo "- Tests enabled: ${{ steps.check-tests.outputs.tests_enabled }}"
           if [ -f "/tmp/build/coverage_filtered.info" ]; then
             echo "✅ Coverage data generated successfully"
             lcov --summary /tmp/build/coverage_filtered.info --ignore-errors unused
