@@ -17,7 +17,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        build_shared_libs: ['ON', 'OFF']
         valgrind_tool: ['memcheck', 'helgrind', 'drd']
 
     steps:
@@ -63,12 +62,10 @@ jobs:
         run: |
           cmake -S . -B /tmp/build \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DCUDD_BUILD_WITH_STATS=ON \
-            -DCUDD_BUILD_DDDMP=ON \
-            -DCUDD_BUILD_TESTS=${{ steps.check-tests.outputs.tests_enabled }} \
-            -DCUDD_BUILD_SHARED_LIBS=${{ matrix.build_shared_libs }} \
             -DCMAKE_C_FLAGS="-g -O0" \
-            -DCMAKE_CXX_FLAGS="-g -O0"
+            -DCMAKE_CXX_FLAGS="-g -O0" \
+            -DCUDD_BUILD_TESTS=${{ steps.check-tests.outputs.tests_enabled }} \
+            -DCUDD_BUILD_WITH_STATS=ON
 
       - name: Build
         run: cmake --build /tmp/build

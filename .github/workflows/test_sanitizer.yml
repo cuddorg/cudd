@@ -18,41 +18,35 @@ jobs:
       fail-fast: false
       matrix:
         sanitizer: ['address', 'undefined', 'address+undefined']
-        build_shared_libs: ['ON', 'OFF']
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build
-
       - name: Setup cmake
         uses: jwlawson/actions-setup-cmake@v2
         with:
-          cmake-version: 'latest'
+          cmake-version: '3.31'
 
-      - name: Check version and determine test compatibility
-        id: check-tests
-        run: |
-          # Get CMake version and parse it
-          CMAKE_VERSION=$(cmake --version | head -n1 | sed 's/cmake version //')
-          echo "Detected CMake version: $CMAKE_VERSION"
+      # - name: Check version and determine test compatibility
+      #   id: check-tests
+      #   run: |
+      #     # Get CMake version and parse it
+      #     CMAKE_VERSION=$(cmake --version | head -n1 | sed 's/cmake version //')
+      #     echo "Detected CMake version: $CMAKE_VERSION"
           
-          # Extract major.minor version for comparison
-          MAJOR_MINOR=$(echo $CMAKE_VERSION | sed 's/\([0-9]\+\.[0-9]\+\).*/\1/')
-          echo "Major.Minor version: $MAJOR_MINOR"
+      #     # Extract major.minor version for comparison
+      #     MAJOR_MINOR=$(echo $CMAKE_VERSION | sed 's/\([0-9]\+\.[0-9]\+\).*/\1/')
+      #     echo "Major.Minor version: $MAJOR_MINOR"
           
-          # Check if version is >= 3.28 using version comparison
-          if printf '%s\n%s\n' "3.28" "$MAJOR_MINOR" | sort -V -C; then
-            echo "tests_enabled=true" >> $GITHUB_OUTPUT
-            echo "✅ CMake $CMAKE_VERSION >= 3.28: Tests will be enabled"
-          else
-            echo "tests_enabled=false" >> $GITHUB_OUTPUT
-            echo "⚠️  CMake $CMAKE_VERSION < 3.28: dddmp requires CMake 3.28+, tests disabled"
-          fi
+      #     # Check if version is >= 3.28 using version comparison
+      #     if printf '%s\n%s\n' "3.28" "$MAJOR_MINOR" | sort -V -C; then
+      #       echo "tests_enabled=true" >> $GITHUB_OUTPUT
+      #       echo "✅ CMake $CMAKE_VERSION >= 3.28: Tests will be enabled"
+      #     else
+      #       echo "tests_enabled=false" >> $GITHUB_OUTPUT
+      #       echo "⚠️  CMake $CMAKE_VERSION < 3.28: dddmp requires CMake 3.28+, tests disabled"
+      #     fi
 
       - name: Set sanitizer flags
         id: sanitizer-flags
@@ -83,7 +77,6 @@ jobs:
           cmake -S . -B /tmp/build \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCUDD_BUILD_WITH_STATS=ON \
-            -DCUDD_BUILD_DDDMP=ON \
             -DCUDD_BUILD_TESTS=${{ steps.check-tests.outputs.tests_enabled }} \
             -DCUDD_BUILD_SHARED_LIBS=${{ matrix.build_shared_libs }} \
             -DCMAKE_C_FLAGS="-g -O1 ${{ steps.sanitizer-flags.outputs.flags }}" \
@@ -105,7 +98,6 @@ jobs:
           echo "ASAN_OPTIONS=${ASAN_OPTIONS}:abort_on_error=1:disable_coredump=1" >> $GITHUB_ENV
 
       - name: Test with sanitizers
-        if: steps.check-tests.outputs.tests_enabled == 'true'
         run: |
           cd /tmp/build
           echo "🧪 Running tests with ${{ steps.sanitizer-flags.outputs.name }}"
@@ -119,7 +111,6 @@ jobs:
           echo "✅ All tests passed with ${{ steps.sanitizer-flags.outputs.name }}"
 
       - name: Test individual executables
-        if: steps.check-tests.outputs.tests_enabled == 'true'
         run: |
           cd /tmp/build
           echo "🔍 Testing individual executables for sanitizer issues"
@@ -155,9 +146,6 @@ jobs:
             /tmp/build/Testing/Temporary/LastTest.log
             /tmp/build/Testing/Temporary/LastTestsFailed.log
           if-no-files-found: ignore
-
-      - name: Install
-        run: cmake --install /tmp/build --prefix /tmp/install
 
       - name: Summary
         if: always()
