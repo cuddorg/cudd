@@ -27,50 +27,22 @@ jobs:
       - name: Configure with coverage flags
         run: |
           cmake -S . -B /tmp/build \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_C_FLAGS="-g -O0 --coverage -fprofile-arcs -ftest-coverage" \
-            -DCMAKE_CXX_FLAGS="-g -O0 --coverage -fprofile-arcs -ftest-coverage" \
-            -DCMAKE_EXE_LINKER_FLAGS="--coverage" \
-            -DCMAKE_SHARED_LINKER_FLAGS="--coverage" \
-            -DCUDD_BUILD_TESTS=ON \
             -DCUDD_BUILD_SHARED_LIBS=OFF \
-            -DCUDD_BUILD_WITH_STATS=ON
-
+            -DCUDD_BUILD_WITH_STATS=ON \
+            -DCUDD_BUILD_TESTS=ON \
+            -DCUDD_BUILD_COVERAGE=ON
+            
       - name: Build
         run: cmake --build /tmp/build
 
-      - name: Initialize coverage baseline
-        run: |
-          cd /tmp/build
-          lcov --capture --initial --directory src --output-file coverage_base.info --ignore-errors unused
-          lcov --list coverage_base.info --ignore-errors unused
-
-      - name: Run tests
-        run: ctest --test-dir /tmp/build --output-on-failure
-
-      - name: Capture coverage data
-        run: |
-          cd /tmp/build
-          # Capture coverage data after running tests
-          lcov --capture --directory . --output-file coverage_test.info --ignore-errors unused
-          
-          # Combine baseline and test coverage
-          lcov --add-tracefile coverage_base.info --add-tracefile coverage_test.info --output-file coverage_combined.info --ignore-errors unused
-          
-          # Filter out system headers, test files, extras, and tmp directories
-          lcov --remove coverage_combined.info '/usr/*' '/tmp/build/_deps/*' '*/tests/*' '*/extras/*' '*/tmp/*' '/tmp/*' --output-file coverage_filtered.info --ignore-errors unused
-          
-          # Generate HTML report for local viewing
-          genhtml coverage_filtered.info --output-directory coverage_html --ignore-errors unused
-          
-          # Show coverage summary
-          lcov --summary coverage_filtered.info --ignore-errors unused
+      - name: Capture test coverage data
+        run: cmake --build /tmp/build --target coverage
 
       - name: Upload coverage to Coveralls
         uses: coverallsapp/github-action@v2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          file: /tmp/build/coverage_filtered.info
+          file: /tmp/build/coverage.info
           format: lcov
 
       - name: Upload coverage HTML report
@@ -82,7 +54,7 @@ jobs:
       - name: Coverage summary comment
         run: |
           # Extract coverage percentage from lcov summary
-          COVERAGE=$(lcov --summary /tmp/build/coverage_filtered.info 2>&1 | grep -o 'lines......: [0-9.]*%' | grep -o '[0-9.]*')
+          COVERAGE=$(lcov --summary /tmp/build/coverage.info 2>&1 | grep -o 'lines......: [0-9.]*%' | grep -o '[0-9.]*')
           
           # Create coverage badge color based on percentage
           if (( $(echo "$COVERAGE >= 80" | bc -l) )); then
@@ -111,9 +83,9 @@ jobs:
         run: |
           echo "## Code Coverage Summary"
           echo "- Build type: Debug with coverage flags"
-          if [ -f "/tmp/build/coverage_filtered.info" ]; then
+          if [ -f "/tmp/build/coverage.info" ]; then
             echo "✅ Coverage data generated successfully"
-            lcov --summary /tmp/build/coverage_filtered.info --ignore-errors unused
+            lcov --summary /tmp/build/coverage.info --ignore-errors unused
           else
             echo "⚠️  Coverage data not available"
           fi

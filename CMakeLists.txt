@@ -25,7 +25,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-include(CTest)
 include(GNUInstallDirs)
 
 # ============================================================================ #
@@ -37,6 +36,7 @@ option(CUDD_BUILD_CPP_API "Build C++ API" ON)
 option(CUDD_BUILD_SHARED_LIBS "Build CUDD as a shared library" OFF)
 option(CUDD_BUILD_WITH_STATS "Build CUDD with statistics" OFF)
 option(CUDD_BUILD_TESTS "Build CUDD tests" OFF)
+option(CUDD_BUILD_COVERAGE "Enable code coverage instrumentation" OFF)
 
 # option(BUILD_API_DOCS "Build API documentation with Doxygen" OFF)
 # option(BUILD_USER_GUIDES "Build user guides with LaTeX" OFF)
@@ -173,6 +173,11 @@ else()
 endif()
 add_library(cudd::cudd ALIAS cudd)
 
+target_compile_options(cudd PRIVATE
+  $<$<BOOL:${CUDD_BUILD_COVERAGE}>:-O0>
+  $<$<BOOL:${CUDD_BUILD_COVERAGE}>:--coverage>
+)
+
 # Include directories (build and install time)
 target_include_directories(cudd PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
@@ -215,7 +220,7 @@ install(TARGETS cudd
   PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/cudd
 )
 
-install( #7
+install(
   EXPORT cuddTargets
   NAMESPACE cudd::
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cudd
