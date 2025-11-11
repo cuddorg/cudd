@@ -1,0 +1,31 @@
+name: Windows Test
+
+on:
+    pull_request:
+    push:
+        branches:
+            - main
+
+jobs:
+  cmake-test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [ 'Release', 'Debug' ]
+        build_shared_libs: ['OFF']  # Only static libraries supported on Windows
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -DCUDD_BUILD_WITH_STATS=ON -DCUDD_BUILD_DDDMP=ON -DCUDD_BUILD_TESTS=ON -DCUDD_BUILD_SHARED_LIBS=${{ matrix.build_shared_libs }}
+
+      - name: Build
+        run: cmake --build build --config ${{ matrix.configuration }}
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -C ${{ matrix.configuration }}
+

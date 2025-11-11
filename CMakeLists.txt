@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.10)
 
+# Note: While this project supports CMake 3.10+, some features (like external
+# dependencies via FetchContent) work best with CMake 3.14+. Compatibility
+# workarounds are provided for older versions using ExternalProject.
+
 # The default build type must be set before project()
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -31,7 +35,7 @@ include(GNUInstallDirs)
 # Settings
 # ============================================================================ #
 
-option(CUDD_RECONFIGURE_SYSTEM "Configure system variables" OFF)
+option(CUDD_RECONFIGURE_SYSTEM "Configure system variables" ON)
 option(CUDD_BUILD_CPP_API "Build C++ API" ON)
 option(CUDD_BUILD_SHARED_LIBS "Build CUDD as a shared library" OFF)
 option(CUDD_BUILD_WITH_STATS "Build CUDD with statistics" OFF)
@@ -40,6 +44,16 @@ option(CUDD_BUILD_COVERAGE "Enable code coverage instrumentation" OFF)
 
 # option(BUILD_API_DOCS "Build API documentation with Doxygen" OFF)
 # option(BUILD_USER_GUIDES "Build user guides with LaTeX" OFF)
+
+# Include platform-specific configuration
+if(WIN32)
+  include(cmake/windows.cmake)
+else()
+  include(cmake/unix.cmake)
+endif()
+
+# Check platform-specific shared library constraints
+cudd_check_shared_libs()
 
 # Use ucbqsort by default
 set(USE_SYSTEM_QSORT FALSE)
@@ -170,6 +184,8 @@ if(CUDD_BUILD_SHARED_LIBS)
   add_library(cudd SHARED ${CUDD_SOURCES})
 else()
   add_library(cudd STATIC ${CUDD_SOURCES})
+  # For static library builds, disable symbol import/export
+  target_compile_definitions(cudd PUBLIC CUDD_STATIC_DEFINE)
 endif()
 add_library(cudd::cudd ALIAS cudd)
 
@@ -178,12 +194,15 @@ target_compile_options(cudd PRIVATE
   $<$<BOOL:${CUDD_BUILD_COVERAGE}>:--coverage>
 )
 
+cudd_configure_libraries(cudd)
+
 # Include directories (build and install time)
 target_include_directories(cudd PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/include>  
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+  $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/src>  
 )
 
 # Define properties for the library
@@ -253,12 +272,5 @@ if(CUDD_BUILD_TESTS)
   # add_subdirectory(extras/nanotrav)
 endif()
 
-# Compile Commands
-if (PROJECT_IS_TOP_LEVEL AND UNIX)
-  # Create symlink to compile_commands.json for IDE to pick it up
-  execute_process(
-    COMMAND ${CMAKE_COMMAND} -E create_symlink
-      ${CMAKE_BINARY_DIR}/compile_commands.json
-      ${CMAKE_CURRENT_SOURCE_DIR}/compile_commands.json
-  )
-endif()
+# Configure platform-specific development tools
+cudd_configure_dev_tools()
