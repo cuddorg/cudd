@@ -66,7 +66,7 @@ if(CUDD_BUILD_COVERAGE)
                       --quiet
 
       COMMAND ${LCOV} --remove coverage.info
-                      '/usr/*' '/opt/*' '*/_deps/*' '*/tests/*' '*/external/*'
+                      '/usr/*' '*/_deps/*' '*/tests/*' '*/external/*'
                       --output-file coverage.info
                       --quiet
 
