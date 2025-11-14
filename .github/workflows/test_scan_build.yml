@@ -32,7 +32,7 @@ jobs:
         run: scan-build-${{ env.clang-tools-version }} cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Debug 
 
       - name: Build with scan-build
-        run: scan-build-${{ env.clang-tools-version }} -o /tmp/scan-build --status-bugs cmake --build /tmp/build 
+        run: scan-build-${{ env.clang-tools-version }} -v -o /tmp/scan-build --status-bugs cmake --build /tmp/build 
 
       - name: Archive scan-build reports
         uses: actions/upload-artifact@v3
