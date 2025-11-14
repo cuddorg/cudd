@@ -1,0 +1,42 @@
+FROM ghcr.io/almalinux/almalinux:8
+ARG TARGETARCH TARGETOS TARGETPLATFORM TARGETVARIANT
+
+RUN dnf install -y \
+      dnf-plugins-core \
+      dnf-plugin-config-manager \
+      epel-release \
+      && \
+    dnf config-manager --enable powertools && \
+    dnf install -y \
+      git \
+      wget \
+      make \
+      cmake \
+      ninja-build \
+      gcc-toolset-14-gcc \
+      gcc-toolset-14-gcc-c++ \
+      python3.12 \
+      python3.12-pip \
+      pkgconf-pkg-config \
+      && \
+    dnf clean all
+
+RUN dnf install -y \
+      clang \
+      clang-devel \
+      clang-tools-extra \
+      clang-analyzer \
+      lcov \
+      valgrind \
+      && \
+    dnf clean all
+
+RUN git clone --depth 1 --branch v3.4.0 https://github.com/catchorg/Catch2.git /tmp/catch2 && \
+    cmake -S/tmp/catch2 -B/tmp/catch2/build \
+      -DBUILD_TESTING=OFF \
+      -DCATCH_INSTALL_DOCS=OFF \
+      && \
+    cmake --build /tmp/catch2/build/ --target install -j$(nproc) && \
+    rm -rf /tmp/catch2
+
+RUN echo "source /opt/rh/gcc-toolset-14/enable" >> /etc/bashrc
