@@ -26,14 +26,3 @@ jobs:
 
       - name: Build with scan-build
         run: scan-build -v -o /tmp/scan-build cmake --build /tmp/build
-
-      - name: Count scan-build bugs
-        id: bugcount
-        run: |
-          BUGS=$(find /tmp/scan-build -type d -name "report-*" | wc -l)
-          echo "bugs=$BUGS" >> $GITHUB_OUTPUT
-
-          echo "### 🔍 Scan-Build Bug Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Bugs found:** $BUGS" >> $GITHUB_STEP_SUMMARY
-          echo "- Reports located in: \`/tmp/scan-build\`" >> $GITHUB_STEP_SUMMARY
