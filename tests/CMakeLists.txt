@@ -1,12 +1,4 @@
-set(CUDD_CATCH2_VERSION "3.11.0" CACHE STRING "Catch2 version to fetch for tests")
-
-include(FetchContent)
-FetchContent_Declare(
-  Catch2
-  GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-  GIT_TAG v${CUDD_CATCH2_VERSION}
-)
-FetchContent_MakeAvailable(Catch2)
+find_package(Catch2 CONFIG REQUIRED)
 
 add_executable(
   cudd_tests

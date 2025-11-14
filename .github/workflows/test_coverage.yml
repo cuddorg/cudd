@@ -22,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build lcov
+          sudo apt-get install -y cmake ninja-build catch2 lcov
 
       - name: Configure with coverage flags
         run: |

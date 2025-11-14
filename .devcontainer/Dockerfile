@@ -31,4 +31,12 @@ RUN dnf install -y \
       && \
     dnf clean all
 
+RUN git clone --depth 1 --branch v3.4.0 https://github.com/catchorg/Catch2.git /tmp/catch2 && \
+    cmake -S/tmp/catch2 -B/tmp/catch2/build \
+      -DBUILD_TESTING=OFF \
+      -DCATCH_INSTALL_DOCS=OFF \
+      && \
+    cmake --build /tmp/catch2/build/ --target install -j$(nproc) && \
+    rm -rf /tmp/catch2
+
 RUN echo "source /opt/rh/gcc-toolset-14/enable" >> /etc/bashrc
