@@ -29,7 +29,7 @@ jobs:
           sudo apt-get install -y cmake ninja-build
 
       - name: Configure with scan-build
-        run: scan-build-${{ env.clang-tools-version }} cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Debug 
+        run: scan-build-${{ env.clang-tools-version }} cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Debug
 
       - name: Build with scan-build
         run: scan-build-${{ env.clang-tools-version }} -v -o /tmp/scan-build --status-bugs cmake --build /tmp/build 
