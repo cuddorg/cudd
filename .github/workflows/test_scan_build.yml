@@ -1,0 +1,28 @@
+name: Scan Build Analysis
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan-build-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang-tools
+
+      - name: Configure with scan-build
+        run: scan-build cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build with scan-build
+        run: scan-build -v -o /tmp/scan-build cmake --build /tmp/build
