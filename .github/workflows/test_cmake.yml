@@ -46,7 +46,7 @@ jobs:
         run: cmake --build /tmp/build
 
       - name: Install
-        run: cmake --install /tmp/build
+        run: sudo cmake --install /tmp/build
 
       - name: Verify Installation
         run: |
