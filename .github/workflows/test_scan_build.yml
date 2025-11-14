@@ -1,0 +1,42 @@
+name: Scan Build Analysis
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - 4.0.0
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  valgrind-test:
+    runs-on: ubuntu-24.04
+    env:
+      clang-tools-version: 19
+    container:
+      image: xianpengshen/clang-tools:${{ env.clang-tools-version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build
+
+      - name: Configure with scan-build
+        run: scan-build-${{ env.clang-tools-version }} cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Debug 
+
+      - name: Build with scan-build
+        run: scan-build-${{ env.clang-tools-version }} -o /tmp/scan-build --status-bugs cmake --build /tmp/build 
+
+      - name: Archive scan-build reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: scan-build-reports
+          path: /tmp/scan-build
+          if-no-files-found: ignore

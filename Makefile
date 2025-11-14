@@ -19,5 +19,10 @@ coverage:
 	@cmake --build /tmp/build 
 	@cmake --build /tmp/build --target coverage
 
+scan:
+	@rm -rf /tmp/build
+	@scan-build cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Debug
+	@scan-build -v --status-bugs cmake --build /tmp/build
+
 clean:
 	@rm -rf /tmp/build
