@@ -9,11 +9,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  clang-tools-version: 19
+
 jobs:
   valgrind-test:
     runs-on: ubuntu-24.04
-    env:
-      clang-tools-version: 19
     container:
       image: xianpengshen/clang-tools:${{ env.clang-tools-version }}
 
