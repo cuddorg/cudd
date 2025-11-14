@@ -9,14 +9,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  clang-tools-version: 19
-
 jobs:
   valgrind-test:
     runs-on: ubuntu-24.04
     container:
-      image: xianpengshen/clang-tools:${{ env.clang-tools-version }}
+      image: xianpengshen/clang-tools:19
 
     steps:
       - name: Checkout code
@@ -28,10 +25,10 @@ jobs:
           sudo apt-get install -y cmake ninja-build
 
       - name: Configure with scan-build
-        run: scan-build-${{ env.clang-tools-version }} cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Debug
+        run: scan-build-19 cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Debug
 
       - name: Build with scan-build
-        run: scan-build-${{ env.clang-tools-version }} -v -o /tmp/scan-build --status-bugs cmake --build /tmp/build 
+        run: scan-build-19 -v -o /tmp/scan-build --status-bugs cmake --build /tmp/build 
 
       - name: Archive scan-build reports
         uses: actions/upload-artifact@v4
