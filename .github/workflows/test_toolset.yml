@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         gcc-version: ['10', '11', '12', '13', '14', '15']
-        build_shared_libs: ['ON', 'OFF']
+        build-shared-libs: ['ON', 'OFF']
 
     env:
       CMAKE_C_COMPILER: gcc
@@ -33,39 +33,15 @@ jobs:
       - name: Setup cmake
         uses: jwlawson/actions-setup-cmake@v2
         with:
-          cmake-version: "3.31"
-
-      # - name: Check version and determine test compatibility
-      #   id: check-tests
-      #   run: |
-      #     # Get CMake version and parse it
-      #     CMAKE_VERSION=$(cmake --version | head -n1 | sed 's/cmake version //')
-      #     echo "Detected CMake version: $CMAKE_VERSION"
-          
-      #     # Extract major.minor version for comparison
-      #     MAJOR_MINOR=$(echo $CMAKE_VERSION | sed 's/\([0-9]\+\.[0-9]\+\).*/\1/')
-      #     echo "Major.Minor version: $MAJOR_MINOR"
-          
-      #     # Check if version is >= 3.28 using version comparison
-      #     if printf '%s\n%s\n' "3.28" "$MAJOR_MINOR" | sort -V -C; then
-      #       echo "tests_enabled=true" >> $GITHUB_OUTPUT
-      #       echo "✅ CMake $CMAKE_VERSION >= 3.28: Tests will be enabled"
-      #     else
-      #       echo "tests_enabled=false" >> $GITHUB_OUTPUT
-      #       echo "⚠️  CMake $CMAKE_VERSION < 3.28: dddmp requires CMake 3.28+, tests disabled"
-      #     fi
+          cmake-version: "3.26"
 
       - name: Configure
         run: |
           cmake -S . -B /tmp/build \
-            -DCUDD_BUILD_SHARED_LIBS=${{ matrix.build_shared_libs }}
+            -DCUDD_BUILD_SHARED_LIBS=${{ matrix.build-shared-libs }}
 
       - name: Build
         run: cmake --build /tmp/build
-
-      # - name: Test 
-      #   if: steps.check-tests.outputs.tests_enabled == 'true'
-      #   run: ctest --test-dir /tmp/build --output-on-failure
 
       - name: Install
         run: cmake --install /tmp/build --prefix /tmp/install

@@ -1,12 +1,17 @@
-all: test
+default: build
 
 configure:
-	@cmake -S . -B /tmp/build . -DCUDD_BUILD_TESTS=ON
+	@cmake -S . -B /tmp/build . -DCMAKE_BUILD_TYPE=Release
 
 build: configure
 	@cmake --build /tmp/build
 
-test: build
+install: build
+	@cmake --install /tmp/build
+
+test:
+	@cmake -S . -B /tmp/build . -DCUDD_BUILD_TESTS=ON
+	@cmake --build /tmp/build
 	@ctest --test-dir /tmp/build --output-on-failure
 
 coverage:

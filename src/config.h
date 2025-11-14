@@ -1,3 +1,12 @@
+#define CUDD_VERSION_MAJOR 4
+#define CUDD_VERSION_MINOR 0
+#define CUDD_VERSION_PATCH 0
+
+#define STRINGIFY(x) #x
+#define TOSTRING(x) STRINGIFY(x)
+
+#define CUDD_VERSION TOSTRING(CUDD_VERSION_MAJOR) "." TOSTRING(CUDD_VERSION_MINOR) "." TOSTRING(CUDD_VERSION_PATCH)
+
 /* Define to 1 if you have the <assert.h> header file. */
 #define HAVE_ASSERT_H 1
 
@@ -100,27 +109,6 @@
 /* Define to the sub-directory in which libtool stores uninstalled libraries.
    */
 /* #undef LT_OBJDIR */
-
-/* Name of package */
-#define PACKAGE "cudd"
-
-/* Define to the address where bug reports for this package should be sent. */
-#define PACKAGE_BUGREPORT "Fabio@Colorado.EDU"
-
-/* Define to the full name of this package. */
-#define PACKAGE_NAME "cudd"
-
-/* Define to the full name and version of this package. */
-#define PACKAGE_STRING "cudd "
-
-/* Define to the one symbol short name of this package. */
-#define PACKAGE_TARNAME "cudd"
-
-/* Define to the home page for this package. */
-#define PACKAGE_URL ""
-
-/* Define to the version of this package. */
-#define PACKAGE_VERSION "3.0.0"
 
 /* The size of `int', as computed by sizeof. */
 #define SIZEOF_INT 4

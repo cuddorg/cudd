@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.18)
 
 # The default build type must be set before project()
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -6,8 +6,19 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND NOT CMAKE_BUILD_TYPE A
   set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
 endif()
 
+file(READ "${CMAKE_SOURCE_DIR}/src/config.h" cfg)
+
+string(REGEX MATCH "CUDD_VERSION_MAJOR ([0-9]*)" _ ${cfg})
+set(cudd_version_major ${CMAKE_MATCH_1})
+
+string(REGEX MATCH "CUDD_VERSION_MINOR ([0-9]*)" _ ${cfg})
+set(cudd_version_minor ${CMAKE_MATCH_1})
+
+string(REGEX MATCH "CUDD_VERSION_PATCH ([0-9]*)" _ ${cfg})
+set(cudd_version_patch ${CMAKE_MATCH_1})
+
 project(cudd
-  VERSION 4.0.0
+  VERSION "${cudd_version_major}.${cudd_version_minor}.${cudd_version_patch}"
   DESCRIPTION "CUDD Decision Diagram Library"
   HOMEPAGE_URL "https://github.com/cuddorg/cudd"
   LANGUAGES C CXX
@@ -31,12 +42,13 @@ include(GNUInstallDirs)
 # Settings
 # ============================================================================ #
 
-option(CUDD_RECONFIGURE_SYSTEM "Configure system variables" OFF)
 option(CUDD_BUILD_CPP_API "Build C++ API" ON)
-option(CUDD_BUILD_SHARED_LIBS "Build CUDD as a shared library" OFF)
 option(CUDD_BUILD_WITH_STATS "Build CUDD with statistics" OFF)
+option(CUDD_BUILD_SHARED_LIBS "Build CUDD as a shared library" OFF)
 option(CUDD_BUILD_TESTS "Build CUDD tests" OFF)
 option(CUDD_BUILD_COVERAGE "Enable code coverage instrumentation" OFF)
+option(CUDD_INSTALL "Enable installation of CUDD targets" ON)
+option(CUDD_RECONFIGURE_SYSTEM "Configure system variables" OFF)
 
 # option(BUILD_API_DOCS "Build API documentation with Doxygen" OFF)
 # option(BUILD_USER_GUIDES "Build user guides with LaTeX" OFF)
@@ -204,53 +216,16 @@ if(CUDD_BUILD_WITH_STATS)
   target_compile_definitions(cudd PUBLIC DD_STATS)
 endif()
 
-###
-### Export and Install
-###
-
-include(CMakePackageConfigHelpers)
-
-# Install the cudd library
-install(TARGETS cudd
-  EXPORT cuddTargets
-  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-  PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/cudd
-)
-
-install(
-  EXPORT cuddTargets
-  NAMESPACE cudd::
-  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cudd
-  FILE cuddTargets.cmake
-)
-
-# Install version/config files for find_package
-write_basic_package_version_file(
-  "${CMAKE_CURRENT_BINARY_DIR}/cuddConfigVersion.cmake"
-  VERSION ${PROJECT_VERSION}
-  COMPATIBILITY SameMajorVersion
-)
-
-configure_package_config_file(
-  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cuddConfig.cmake.in"
-  "${CMAKE_CURRENT_BINARY_DIR}/cuddConfig.cmake"
-  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cudd
-)
-
-install(FILES
-  "${CMAKE_CURRENT_BINARY_DIR}/cuddConfig.cmake"
-  "${CMAKE_CURRENT_BINARY_DIR}/cuddConfigVersion.cmake"
-  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cudd
-)
-
 # Test Build
 if(CUDD_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
   # add_subdirectory(extras/nanotrav)
+endif()
+
+# Install
+if(CUDD_INSTALL)
+  include(cmake/install.cmake)
 endif()
 
 # Compile Commands

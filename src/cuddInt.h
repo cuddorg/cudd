@@ -64,8 +64,6 @@
 /* Constant declarations                                                     */
 /*---------------------------------------------------------------------------*/
 
-#define CUDD_VERSION		PACKAGE_VERSION
-
 #define DD_MAXREF		((DdHalfWord) ~0)
 
 #define DD_DEFAULT_RESIZE	10	/* how many extra variables */
