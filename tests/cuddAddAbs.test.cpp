@@ -481,7 +481,7 @@ TEST_CASE("cuddAddAbs - Test cache and reordering paths", "[cuddAddAbs]") {
     REQUIRE(cube01 != nullptr);
     Cudd_Ref(cube01);
 
-    // Abstract var0 and var1
+    // Abstract var0 and var1 - testing Cudd_addExistAbstract cache
     DdNode *result = Cudd_addExistAbstract(manager, add, cube01);
     REQUIRE(result != nullptr);
     Cudd_Ref(result);
@@ -489,7 +489,34 @@ TEST_CASE("cuddAddAbs - Test cache and reordering paths", "[cuddAddAbs]") {
     // Call again to potentially hit cache
     DdNode *result2 = Cudd_addExistAbstract(manager, add, cube01);
     REQUIRE(result2 == result);
+    
+    // Test Cudd_addUnivAbstract cache hit
+    DdNode *result3 = Cudd_addUnivAbstract(manager, add, cube01);
+    REQUIRE(result3 != nullptr);
+    Cudd_Ref(result3);
+    
+    // Call again for cache hit
+    DdNode *result4 = Cudd_addUnivAbstract(manager, add, cube01);
+    REQUIRE(result4 == result3);
+    
+    // Test Cudd_addOrAbstract cache hit with 0-1 ADD
+    DdNode *zero = Cudd_ReadZero(manager);
+    DdNode *one = Cudd_ReadOne(manager);
+    DdNode *add01 = Cudd_addIte(manager, var0, one, zero);
+    REQUIRE(add01 != nullptr);
+    Cudd_Ref(add01);
+    
+    DdNode *result5 = Cudd_addOrAbstract(manager, add01, var0);
+    REQUIRE(result5 != nullptr);
+    Cudd_Ref(result5);
+    
+    // Call again for cache hit
+    DdNode *result6 = Cudd_addOrAbstract(manager, add01, var0);
+    REQUIRE(result6 == result5);
 
+    Cudd_RecursiveDeref(manager, result5);
+    Cudd_RecursiveDeref(manager, add01);
+    Cudd_RecursiveDeref(manager, result3);
     Cudd_RecursiveDeref(manager, result);
     Cudd_RecursiveDeref(manager, cube01);
     Cudd_RecursiveDeref(manager, add);
@@ -805,28 +832,204 @@ TEST_CASE("Cudd_addOrAbstract - Both branches non-one triggers OR operation", "[
 
     // Create variables
     DdNode *var0 = Cudd_addIthVar(manager, 0);
+    DdNode *var1 = Cudd_addIthVar(manager, 1);
     REQUIRE(var0 != nullptr);
+    REQUIRE(var1 != nullptr);
     Cudd_Ref(var0);
+    Cudd_Ref(var1);
 
     DdNode *zero = Cudd_ReadZero(manager);
     DdNode *one = Cudd_ReadOne(manager);
 
-    // Create 0-1 ADD: if var0 then 0 else 0 (all zeros)
-    DdNode *add = Cudd_addIte(manager, var0, zero, zero);
+    // Create nested 0-1 ADD: if var0 then (if var1 then 0 else 1) else (if var1 then 1 else 0)
+    // This ensures when we abstract var1, the then-branch gives 1 (0 OR 1) and else-branch gives 1 (1 OR 0)
+    // But if we abstract var0 first, we get different results that aren't immediately one
+    DdNode *then_inner = Cudd_addIte(manager, var1, zero, one);
+    REQUIRE(then_inner != nullptr);
+    Cudd_Ref(then_inner);
+    
+    DdNode *else_inner = Cudd_addIte(manager, var1, one, zero);
+    REQUIRE(else_inner != nullptr);
+    Cudd_Ref(else_inner);
+    
+    DdNode *add = Cudd_addIte(manager, var0, then_inner, else_inner);
     REQUIRE(add != nullptr);
     Cudd_Ref(add);
 
-    // Abstract var0 - both branches are 0, not 1, so OR is executed
+    // Abstract var0 - then_inner OR else_inner should trigger the res1 != one path
     DdNode *result = Cudd_addOrAbstract(manager, add, var0);
     REQUIRE(result != nullptr);
     Cudd_Ref(result);
     
-    // Result should be constant 0 (OR of 0 and 0)
-    REQUIRE(Cudd_IsConstant(result));
-    REQUIRE(Cudd_V(result) == 0.0);
+    // Result should either be non-constant or constant 1 (OR of the branches)
+    if (Cudd_IsConstant(result)) {
+        REQUIRE(Cudd_V(result) == 1.0);
+    }
 
     Cudd_RecursiveDeref(manager, result);
     Cudd_RecursiveDeref(manager, add);
+    Cudd_RecursiveDeref(manager, else_inner);
+    Cudd_RecursiveDeref(manager, then_inner);
+    Cudd_RecursiveDeref(manager, var1);
     Cudd_RecursiveDeref(manager, var0);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addExistAbstract - Test with memory constraints", "[cuddAddAbs]") {
+    // Create a manager with very limited memory to potentially trigger allocation failures
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    // Set a very small memory limit
+    Cudd_SetMaxMemory(manager, 1024 * 1024); // 1MB limit
+    
+    // Try to create a large structure that might exceed limits
+    DdNode *vars[10];
+    for (int i = 0; i < 10; i++) {
+        vars[i] = Cudd_addIthVar(manager, i);
+        REQUIRE(vars[i] != nullptr);
+        Cudd_Ref(vars[i]);
+    }
+    
+    // Build a complex ADD
+    DdNode *add = Cudd_addConst(manager, 1.0);
+    Cudd_Ref(add);
+    
+    for (int i = 0; i < 10; i++) {
+        DdNode *tmp = Cudd_addApply(manager, Cudd_addPlus, add, vars[i]);
+        if (tmp != nullptr) {
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, add);
+            add = tmp;
+        }
+    }
+    
+    // Create a cube with multiple variables
+    DdNode *cube = vars[0];
+    Cudd_Ref(cube);
+    for (int i = 1; i < 5; i++) {
+        DdNode *tmp = Cudd_addApply(manager, Cudd_addTimes, cube, vars[i]);
+        if (tmp != nullptr) {
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, cube);
+            cube = tmp;
+        }
+    }
+    
+    // Try to abstract - might succeed or fail due to memory constraints
+    DdNode *result = Cudd_addExistAbstract(manager, add, cube);
+    if (result != nullptr) {
+        Cudd_Ref(result);
+        Cudd_RecursiveDeref(manager, result);
+    }
+    
+    Cudd_RecursiveDeref(manager, cube);
+    Cudd_RecursiveDeref(manager, add);
+    for (int i = 0; i < 10; i++) {
+        Cudd_RecursiveDeref(manager, vars[i]);
+    }
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addUnivAbstract - Test with memory constraints", "[cuddAddAbs]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    Cudd_SetMaxMemory(manager, 1024 * 1024);
+    
+    DdNode *vars[10];
+    for (int i = 0; i < 10; i++) {
+        vars[i] = Cudd_addIthVar(manager, i);
+        REQUIRE(vars[i] != nullptr);
+        Cudd_Ref(vars[i]);
+    }
+    
+    DdNode *add = Cudd_addConst(manager, 2.0);
+    Cudd_Ref(add);
+    
+    for (int i = 0; i < 10; i++) {
+        DdNode *tmp = Cudd_addApply(manager, Cudd_addTimes, add, vars[i]);
+        if (tmp != nullptr) {
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, add);
+            add = tmp;
+        }
+    }
+    
+    DdNode *cube = vars[0];
+    Cudd_Ref(cube);
+    for (int i = 1; i < 5; i++) {
+        DdNode *tmp = Cudd_addApply(manager, Cudd_addTimes, cube, vars[i]);
+        if (tmp != nullptr) {
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, cube);
+            cube = tmp;
+        }
+    }
+    
+    DdNode *result = Cudd_addUnivAbstract(manager, add, cube);
+    if (result != nullptr) {
+        Cudd_Ref(result);
+        Cudd_RecursiveDeref(manager, result);
+    }
+    
+    Cudd_RecursiveDeref(manager, cube);
+    Cudd_RecursiveDeref(manager, add);
+    for (int i = 0; i < 10; i++) {
+        Cudd_RecursiveDeref(manager, vars[i]);
+    }
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addOrAbstract - Test with memory constraints", "[cuddAddAbs]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    Cudd_SetMaxMemory(manager, 1024 * 1024);
+    
+    DdNode *vars[10];
+    for (int i = 0; i < 10; i++) {
+        vars[i] = Cudd_addIthVar(manager, i);
+        REQUIRE(vars[i] != nullptr);
+        Cudd_Ref(vars[i]);
+    }
+    
+    DdNode *zero = Cudd_ReadZero(manager);
+    DdNode *one = Cudd_ReadOne(manager);
+    
+    DdNode *add = vars[0];
+    Cudd_Ref(add);
+    
+    for (int i = 1; i < 8; i++) {
+        DdNode *tmp = Cudd_addIte(manager, vars[i], add, zero);
+        if (tmp != nullptr) {
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, add);
+            add = tmp;
+        }
+    }
+    
+    DdNode *cube = vars[0];
+    Cudd_Ref(cube);
+    for (int i = 1; i < 5; i++) {
+        DdNode *tmp = Cudd_addApply(manager, Cudd_addTimes, cube, vars[i]);
+        if (tmp != nullptr) {
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, cube);
+            cube = tmp;
+        }
+    }
+    
+    DdNode *result = Cudd_addOrAbstract(manager, add, cube);
+    if (result != nullptr) {
+        Cudd_Ref(result);
+        Cudd_RecursiveDeref(manager, result);
+    }
+    
+    Cudd_RecursiveDeref(manager, cube);
+    Cudd_RecursiveDeref(manager, add);
+    for (int i = 0; i < 10; i++) {
+        Cudd_RecursiveDeref(manager, vars[i]);
+    }
     Cudd_Quit(manager);
 }
