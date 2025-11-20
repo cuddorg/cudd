@@ -1,8 +1,11 @@
 find_package(Catch2 CONFIG REQUIRED)
 
+# Collect all test files
+file(GLOB TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/*.test.cpp")
+
 add_executable(
   cudd_tests
-  main.test.cpp
+  ${TEST_SOURCES}
 )
 target_link_libraries(cudd_tests PRIVATE
   Catch2::Catch2WithMain
