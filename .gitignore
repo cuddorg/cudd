@@ -31,3 +31,7 @@ Thumbs.db
 
 # Optional: Ignore all top-level build/ variants
 [Bb]uild*/
+
+# CodeQL build directory
+_codeql_build_dir/
+_codeql_detected_source_root
