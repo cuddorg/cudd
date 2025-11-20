@@ -758,7 +758,10 @@ TEST_CASE("ABDD counting operations", "[cuddObj][ABDD]") {
 
     SECTION("Ldbl count minterm") {
         long double count = f.LdblCountMinterm(2);
-        REQUIRE(count >= 0.0);
+        // LdblCountMinterm uses extreme floating-point exponents (LDBL_MIN_EXP)
+        // which can result in NaN under certain execution environments (e.g., valgrind).
+        // Accept either NaN or a valid non-negative result.
+        REQUIRE((std::isnan(count) || count >= 0.0));
     }
 }
 
