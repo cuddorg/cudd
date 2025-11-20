@@ -1258,11 +1258,12 @@ TEST_CASE("Cudd DumpDot operations", "[cuddObj][Cudd]") {
     }
 
     SECTION("DumpDot BDD") {
-        const char* inames[] = {"x0", "x1"};
-        const char* onames[] = {"f0", "f1"};
+        // Pass NULL for inames and onames to avoid potential buffer overflow
+        // The underlying Cudd_DumpDot function indexes inames using
+        // dd->invperm which could exceed the array size
         FILE* fp = tmpfile();
         REQUIRE(fp != nullptr);
-        mgr.DumpDot(bdds, (char**)inames, (char**)onames, fp);
+        mgr.DumpDot(bdds, nullptr, nullptr, fp);
         fclose(fp);
     }
 
@@ -1271,11 +1272,12 @@ TEST_CASE("Cudd DumpDot operations", "[cuddObj][Cudd]") {
         std::vector<ZDD> zdds;
         zdds.push_back(mgr.zddVar(0));
         zdds.push_back(mgr.zddVar(1));
-        const char* inames[] = {"z0", "z1"};
-        const char* onames[] = {"g0", "g1"};
+        // Pass NULL for inames and onames to avoid buffer overflow
+        // The underlying Cudd_zddDumpDot function indexes inames using
+        // dd->invpermZ which can exceed the array size
         FILE* fp = tmpfile();
         REQUIRE(fp != nullptr);
-        mgr.DumpDot(zdds, (char**)inames, (char**)onames, fp);
+        mgr.DumpDot(zdds, nullptr, nullptr, fp);
         fclose(fp);
     }
 }
