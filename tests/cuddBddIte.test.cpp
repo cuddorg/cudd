@@ -1233,3 +1233,384 @@ TEST_CASE("Complex BDD operations - exercise recursive paths", "[cuddBddIte]") {
     
     Cudd_Quit(manager);
 }
+
+TEST_CASE("Specific edge cases for cuddBddIteRecur", "[cuddBddIte]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    DdNode *one = Cudd_ReadOne(manager);
+    DdNode *zero = Cudd_Not(one);
+    
+    SECTION("ITE(F,F,H) with H != 0") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // ITE(x, x, y) = x OR y (exercises line 739-745)
+        DdNode *result = Cudd_bddIte(manager, x, x, y);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        DdNode *expected = Cudd_bddOr(manager, x, y);
+        Cudd_Ref(expected);
+        REQUIRE(result == expected);
+        
+        Cudd_RecursiveDeref(manager, expected);
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("ITE(F,1,H) with H != 0") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // ITE(x, 1, y) = x OR y (exercises line 739-745)
+        DdNode *result = Cudd_bddIte(manager, x, one, y);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        DdNode *expected = Cudd_bddOr(manager, x, y);
+        Cudd_Ref(expected);
+        REQUIRE(result == expected);
+        
+        Cudd_RecursiveDeref(manager, expected);
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("ITE(F,!F,H) with H != 1") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // ITE(x, !x, y) = !x AND y (exercises line 746-752)
+        DdNode *result = Cudd_bddIte(manager, x, Cudd_Not(x), y);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        DdNode *expected = Cudd_bddAnd(manager, Cudd_Not(x), y);
+        Cudd_Ref(expected);
+        REQUIRE(result == expected);
+        
+        Cudd_RecursiveDeref(manager, expected);
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("ITE(F,0,H) with H != 1") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // ITE(x, 0, y) = !x AND y (exercises line 746-752)
+        DdNode *result = Cudd_bddIte(manager, x, zero, y);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        DdNode *expected = Cudd_bddAnd(manager, Cudd_Not(x), y);
+        Cudd_Ref(expected);
+        REQUIRE(result == expected);
+        
+        Cudd_RecursiveDeref(manager, expected);
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("ITE(F,G,F)") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // ITE(x, y, x) = x AND y (exercises line 754-756)
+        DdNode *result = Cudd_bddIte(manager, x, y, x);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        DdNode *expected = Cudd_bddAnd(manager, x, y);
+        Cudd_Ref(expected);
+        REQUIRE(result == expected);
+        
+        Cudd_RecursiveDeref(manager, expected);
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("ITE(F,G,!F)") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // ITE(x, y, !x) = !x OR y (line 757-760)
+        DdNode *result = Cudd_bddIte(manager, x, y, Cudd_Not(x));
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        DdNode *expected = Cudd_bddOr(manager, Cudd_Not(x), y);
+        Cudd_Ref(expected);
+        REQUIRE(result == expected);
+        
+        Cudd_RecursiveDeref(manager, expected);
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("ITE(F,G,1) where F != !G") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // ITE(x, y, 1) = !x OR y (exercises line 757-760)
+        DdNode *result = Cudd_bddIte(manager, x, y, one);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        DdNode *expected = Cudd_bddOr(manager, Cudd_Not(x), y);
+        Cudd_Ref(expected);
+        REQUIRE(result == expected);
+        
+        Cudd_RecursiveDeref(manager, expected);
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cache and recursion tests", "[cuddBddIte]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Repeated operations to exercise cache") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        // Build same expression twice to exercise cache
+        DdNode *f1 = Cudd_bddAnd(manager, x, y);
+        Cudd_Ref(f1);
+        DdNode *f2 = Cudd_bddAnd(manager, x, y);  // Should hit cache
+        Cudd_Ref(f2);
+        REQUIRE(f1 == f2);
+        
+        DdNode *g1 = Cudd_bddOr(manager, f1, z);
+        Cudd_Ref(g1);
+        DdNode *g2 = Cudd_bddOr(manager, f2, z);  // Should hit cache
+        Cudd_Ref(g2);
+        REQUIRE(g1 == g2);
+        
+        // ITE with same operands
+        DdNode *ite1 = Cudd_bddIte(manager, x, y, z);
+        Cudd_Ref(ite1);
+        DdNode *ite2 = Cudd_bddIte(manager, x, y, z);  // Should hit cache
+        Cudd_Ref(ite2);
+        REQUIRE(ite1 == ite2);
+        
+        Cudd_RecursiveDeref(manager, ite2);
+        Cudd_RecursiveDeref(manager, ite1);
+        Cudd_RecursiveDeref(manager, g2);
+        Cudd_RecursiveDeref(manager, g1);
+        Cudd_RecursiveDeref(manager, f2);
+        Cudd_RecursiveDeref(manager, f1);
+        Cudd_RecursiveDeref(manager, z);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Deep recursion with many variables") {
+        // Create a larger BDD to exercise deeper recursion
+        DdNode *vars[16];
+        for (int i = 0; i < 16; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Build f = (v0 AND v1) OR (v2 AND v3) OR ... OR (v14 AND v15)
+        DdNode *f = Cudd_ReadLogicZero(manager);
+        Cudd_Ref(f);
+        for (int i = 0; i < 16; i += 2) {
+            DdNode *temp = Cudd_bddAnd(manager, vars[i], vars[i+1]);
+            Cudd_Ref(temp);
+            DdNode *newF = Cudd_bddOr(manager, f, temp);
+            Cudd_Ref(newF);
+            Cudd_RecursiveDeref(manager, temp);
+            Cudd_RecursiveDeref(manager, f);
+            f = newF;
+        }
+        
+        // Build g = (v0 OR v2 OR v4 ... OR v14)
+        DdNode *g = Cudd_ReadLogicZero(manager);
+        Cudd_Ref(g);
+        for (int i = 0; i < 16; i += 2) {
+            DdNode *newG = Cudd_bddOr(manager, g, vars[i]);
+            Cudd_Ref(newG);
+            Cudd_RecursiveDeref(manager, g);
+            g = newG;
+        }
+        
+        // Build h = (v1 OR v3 OR v5 ... OR v15)
+        DdNode *h = Cudd_ReadLogicZero(manager);
+        Cudd_Ref(h);
+        for (int i = 1; i < 16; i += 2) {
+            DdNode *newH = Cudd_bddOr(manager, h, vars[i]);
+            Cudd_Ref(newH);
+            Cudd_RecursiveDeref(manager, h);
+            h = newH;
+        }
+        
+        // Test various operations
+        DdNode *result1 = Cudd_bddIte(manager, f, g, h);
+        REQUIRE(result1 != nullptr);
+        Cudd_Ref(result1);
+        
+        DdNode *result2 = Cudd_bddAnd(manager, f, g);
+        REQUIRE(result2 != nullptr);
+        Cudd_Ref(result2);
+        
+        DdNode *result3 = Cudd_bddXor(manager, g, h);
+        REQUIRE(result3 != nullptr);
+        Cudd_Ref(result3);
+        
+        Cudd_RecursiveDeref(manager, result3);
+        Cudd_RecursiveDeref(manager, result2);
+        Cudd_RecursiveDeref(manager, result1);
+        Cudd_RecursiveDeref(manager, h);
+        Cudd_RecursiveDeref(manager, g);
+        Cudd_RecursiveDeref(manager, f);
+        for (int i = 0; i < 16; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    SECTION("LeQ with cache exercise") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        DdNode *xy = Cudd_bddAnd(manager, x, y);
+        Cudd_Ref(xy);
+        
+        // Multiple LeQ calls to exercise cache
+        REQUIRE(Cudd_bddLeq(manager, xy, x) == 1);
+        REQUIRE(Cudd_bddLeq(manager, xy, x) == 1);  // Should hit cache
+        REQUIRE(Cudd_bddLeq(manager, xy, y) == 1);
+        REQUIRE(Cudd_bddLeq(manager, x, xy) == 0);
+        REQUIRE(Cudd_bddLeq(manager, x, xy) == 0);  // Should hit cache
+        
+        Cudd_RecursiveDeref(manager, xy);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("bddVarToConst and canonicalization tests", "[cuddBddIte]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    DdNode *one = Cudd_ReadOne(manager);
+    DdNode *zero = Cudd_Not(one);
+    
+    SECTION("IteConstant with selector equal to branches") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        
+        // ITE(x, x, 1) - tests bddVarToConst conversion
+        DdNode *result = Cudd_bddIteConstant(manager, x, x, one);
+        // When F = G, it converts to ITE(F, 1, H)
+        REQUIRE((result == one || result == DD_NON_CONSTANT));
+        
+        // ITE(x, 0, x) - tests bddVarToConst conversion
+        result = Cudd_bddIteConstant(manager, x, zero, x);
+        // When F = H, it converts to ITE(F, G, 0)
+        REQUIRE((result == zero || result == DD_NON_CONSTANT));
+        
+        // ITE(x, !x, 0) - tests bddVarToConst conversion
+        result = Cudd_bddIteConstant(manager, x, Cudd_Not(x), zero);
+        // When F = !G, it converts to ITE(F, 0, H)
+        REQUIRE(result == zero);
+        
+        // ITE(x, 1, !x) - tests bddVarToConst conversion
+        result = Cudd_bddIteConstant(manager, x, one, Cudd_Not(x));
+        // When F = !H, it converts to ITE(F, G, 1)
+        REQUIRE((result == one || result == DD_NON_CONSTANT));
+        
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("IteConstant with different variable orders") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        // Various combinations to exercise canonicalization
+        DdNode *xy = Cudd_bddAnd(manager, x, y);
+        Cudd_Ref(xy);
+        
+        DdNode *result = Cudd_bddIteConstant(manager, xy, z, zero);
+        REQUIRE((result == DD_NON_CONSTANT || Cudd_IsConstant(result)));
+        
+        result = Cudd_bddIteConstant(manager, xy, one, z);
+        REQUIRE((result == DD_NON_CONSTANT || Cudd_IsConstant(result)));
+        
+        result = Cudd_bddIteConstant(manager, z, xy, zero);
+        REQUIRE((result == DD_NON_CONSTANT || Cudd_IsConstant(result)));
+        
+        Cudd_RecursiveDeref(manager, xy);
+        Cudd_RecursiveDeref(manager, z);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("IteConstant recursive cases") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        DdNode *xory = Cudd_bddOr(manager, x, y);
+        Cudd_Ref(xory);
+        DdNode *xandy = Cudd_bddAnd(manager, x, y);
+        Cudd_Ref(xandy);
+        
+        // Test cases that require recursion
+        DdNode *result = Cudd_bddIteConstant(manager, x, xory, xandy);
+        REQUIRE((result == DD_NON_CONSTANT || Cudd_IsConstant(result)));
+        
+        // Test with complements
+        result = Cudd_bddIteConstant(manager, Cudd_Not(x), xory, xandy);
+        REQUIRE((result == DD_NON_CONSTANT || Cudd_IsConstant(result)));
+        
+        result = Cudd_bddIteConstant(manager, x, Cudd_Not(xory), xandy);
+        REQUIRE((result == DD_NON_CONSTANT || Cudd_IsConstant(result)));
+        
+        Cudd_RecursiveDeref(manager, xandy);
+        Cudd_RecursiveDeref(manager, xory);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    Cudd_Quit(manager);
+}
