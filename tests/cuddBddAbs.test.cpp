@@ -8,7 +8,10 @@
  * @brief Test file for cuddBddAbs.c
  * 
  * This file contains comprehensive tests for the cuddBddAbs module
- * to ensure 100% code coverage and correct functionality.
+ * to achieve high code coverage (87.59%) and ensure correct functionality.
+ * 
+ * Uncovered lines are primarily timeout handler callbacks and error paths
+ * requiring memory exhaustion, which are difficult to test reliably.
  */
 
 TEST_CASE("Cudd_bddExistAbstract - Basic existential abstraction", "[cuddBddAbs]") {
@@ -670,8 +673,9 @@ TEST_CASE("Cudd_bddBooleanDiff - Boolean difference (derivative)", "[cuddBddAbs]
         DdNode *x = Cudd_bddNewVar(manager);
         Cudd_Ref(x);
         
-        // Variable index beyond current size
-        int largeIndex = Cudd_ReadSize(manager) + 10;
+        // Variable index beyond current size - use an offset that's clearly out of range
+        const int INDEX_OFFSET_BEYOND_RANGE = 10;
+        int largeIndex = Cudd_ReadSize(manager) + INDEX_OFFSET_BEYOND_RANGE;
         
         DdNode *result = Cudd_bddBooleanDiff(manager, x, largeIndex);
         REQUIRE(result == zero);
@@ -902,15 +906,17 @@ TEST_CASE("Cudd_bddVarIsDependent - Variable dependency check", "[cuddBddAbs]") 
         Cudd_Ref(x);
         Cudd_Ref(y);
         
-        // Test x AND y: ft=y, fe=0, check y<=!0=y<=1 (true)
+        // Test x AND y: ft=y, fe=0, check y<=!0=y<=1 (always true, so dependent)
+        // This tests positive unateness: when x changes from 0 to 1, output can only increase
         DdNode *f1 = Cudd_bddAnd(manager, x, y);
         Cudd_Ref(f1);
         int result1 = Cudd_bddVarIsDependent(manager, f1, x);
         REQUIRE(result1 == 1);
         Cudd_RecursiveDeref(manager, f1);
         
-        // Test x OR y: ft=1, fe=y, check 1<=!y (only if y=0)
-        // So this is NOT dependent by this check
+        // Test x OR y: ft=1, fe=y, check 1<=!y (only true when y=0)
+        // VarIsDependent checks if ft <= !fe, which for OR is not always satisfied
+        // This is a specific unateness check, not general dependency
         DdNode *f2 = Cudd_bddOr(manager, x, y);
         Cudd_Ref(f2);
         int result2 = Cudd_bddVarIsDependent(manager, f2, x);
@@ -1980,7 +1986,9 @@ TEST_CASE("cuddBddAbs - Push towards 100% coverage", "[cuddBddAbs]") {
     
     SECTION("Test with highly constrained manager to try to trigger errors") {
         // Create a small manager to increase chance of hitting limits
-        DdManager *small_mgr = Cudd_Init(0, 0, 256, 256, 0);
+        const unsigned int SMALL_UNIQUE_SLOTS = 256;
+        const unsigned int SMALL_CACHE_SLOTS = 256;
+        DdManager *small_mgr = Cudd_Init(0, 0, SMALL_UNIQUE_SLOTS, SMALL_CACHE_SLOTS, 0);
         REQUIRE(small_mgr != nullptr);
         
         // Create many nodes to fill up the small manager
