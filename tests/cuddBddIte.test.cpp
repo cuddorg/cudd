@@ -56,6 +56,7 @@ TEST_CASE("Cudd_bddIte - Basic ITE operations", "[cuddBddIte]") {
         DdNode *result = Cudd_bddIte(manager, x, y, y);
         Cudd_Ref(result);
         REQUIRE(result == y);
+        Cudd_RecursiveDeref(manager, result);
         
         Cudd_RecursiveDeref(manager, x);
         Cudd_RecursiveDeref(manager, y);
