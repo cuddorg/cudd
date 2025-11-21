@@ -11,8 +11,10 @@
  * to ensure 100% code coverage and correct functionality.
  */
 
-// DD_NON_CONSTANT is defined as ((DdNode *) 1) in cuddInt.h
-// We define it here for testing purposes
+// DD_NON_CONSTANT is defined as ((DdNode *) 1) in cuddInt.h (internal header).
+// Since it's not exposed in the public API but is returned by Cudd_bddIteConstant,
+// we define it here for testing purposes. This matches the internal definition.
+// NOTE: If the internal representation changes, this will need to be updated.
 #define DD_NON_CONSTANT ((DdNode *) 1)
 
 TEST_CASE("Cudd_bddIte - Basic ITE operations", "[cuddBddIte]") {
@@ -32,11 +34,13 @@ TEST_CASE("Cudd_bddIte - Basic ITE operations", "[cuddBddIte]") {
         DdNode *result = Cudd_bddIte(manager, one, x, y);
         Cudd_Ref(result);
         REQUIRE(result == x);
+        Cudd_RecursiveDeref(manager, result);
         
         // ITE(0, x, y) = y
         result = Cudd_bddIte(manager, zero, x, y);
         Cudd_Ref(result);
         REQUIRE(result == y);
+        Cudd_RecursiveDeref(manager, result);
         
         Cudd_RecursiveDeref(manager, x);
         Cudd_RecursiveDeref(manager, y);
@@ -122,11 +126,13 @@ TEST_CASE("Cudd_bddIte - Basic ITE operations", "[cuddBddIte]") {
         DdNode *result = Cudd_bddIte(manager, x, one, zero);
         Cudd_Ref(result);
         REQUIRE(result == x);
+        Cudd_RecursiveDeref(manager, result);
         
         // ITE(x, 0, 1) = !x
         result = Cudd_bddIte(manager, x, zero, one);
         Cudd_Ref(result);
         REQUIRE(result == Cudd_Not(x));
+        Cudd_RecursiveDeref(manager, result);
         
         Cudd_RecursiveDeref(manager, x);
     }
