@@ -6,7 +6,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND NOT CMAKE_BUILD_TYPE A
   set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
 endif()
 
-file(READ "${CMAKE_SOURCE_DIR}/src/config.h" cfg)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/config.h" cfg)
 
 string(REGEX MATCH "CUDD_VERSION_MAJOR ([0-9]*)" _ ${cfg})
 set(cudd_version_major ${CMAKE_MATCH_1})
