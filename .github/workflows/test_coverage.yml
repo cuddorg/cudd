@@ -1,0 +1,91 @@
+name: Code Coverage
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - 4.0.0
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    runs-on: ubuntu-24.04
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build catch2 lcov
+
+      - name: Configure with coverage flags
+        run: |
+          cmake -S . -B /tmp/build \
+            -DCUDD_BUILD_SHARED_LIBS=OFF \
+            -DCUDD_BUILD_WITH_STATS=ON \
+            -DCUDD_BUILD_TESTS=ON \
+            -DCUDD_BUILD_COVERAGE=ON
+            
+      - name: Build
+        run: cmake --build /tmp/build
+
+      - name: Capture test coverage data
+        run: cmake --build /tmp/build --target coverage
+
+      - name: Upload coverage to Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          file: /tmp/build/coverage.info
+          format: lcov
+
+      - name: Upload coverage HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: /tmp/build/coverage_html/
+
+      - name: Coverage summary comment
+        run: |
+          # Extract coverage percentage from lcov summary
+          COVERAGE=$(lcov --summary /tmp/build/coverage.info 2>&1 | grep -o 'lines......: [0-9.]*%' | grep -o '[0-9.]*')
+          
+          # Create coverage badge color based on percentage
+          if (( $(echo "$COVERAGE >= 80" | bc -l) )); then
+            COLOR="brightgreen"
+          elif (( $(echo "$COVERAGE >= 60" | bc -l) )); then
+            COLOR="yellow"
+          else
+            COLOR="red"
+          fi
+          
+          echo "## 📊 Code Coverage Report" >> coverage_comment.md
+          echo "" >> coverage_comment.md
+          echo "![Coverage](https://img.shields.io/badge/coverage-${COVERAGE}%25-${COLOR})" >> coverage_comment.md
+          echo "" >> coverage_comment.md
+          echo "**Overall Coverage:** ${COVERAGE}%" >> coverage_comment.md
+          echo "" >> coverage_comment.md
+          echo "📈 [View detailed coverage report](https://coveralls.io/github/${{ github.repository }})" >> coverage_comment.md
+          echo "" >> coverage_comment.md
+          echo "📁 Coverage HTML report is available in the workflow artifacts." >> coverage_comment.md
+          
+          # Output for potential PR comment (requires additional setup)
+          echo "Coverage: ${COVERAGE}%"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Code Coverage Summary"
+          echo "- Build type: Debug with coverage flags"
+          if [ -f "/tmp/build/coverage.info" ]; then
+            echo "✅ Coverage data generated successfully"
+            lcov --summary /tmp/build/coverage.info --ignore-errors unused
+          else
+            echo "⚠️  Coverage data not available"
+          fi
