@@ -46,6 +46,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "util.h"
 #include "cstringstream.h"
 
 /**
@@ -59,13 +60,13 @@ struct _cstringstream {
 
 cstringstream newStringStream(void) {
   cstringstream ss;
-  ss = (cstringstream) malloc(sizeof(struct _cstringstream));
+  ss = ALLOC(struct _cstringstream, 1);
   if (!ss) return NULL;
   ss->capacity = 1; /* parsimonious */
   ss->inUse = 0;
-  ss->data = (char *) malloc(sizeof(char) * ss->capacity);
+  ss->data = ALLOC(char, ss->capacity);
   if (!ss->data) {
-    free(ss);
+    FREE(ss);
     return NULL;
   }
   return ss;
@@ -73,8 +74,8 @@ cstringstream newStringStream(void) {
 
 void deleteStringStream(cstringstream ss) {
   if (ss) {
-    free(ss->data);
-    free(ss);
+    FREE(ss->data);
+    FREE(ss);
   }
 }
 
@@ -104,7 +105,7 @@ int resizeStringStream(cstringstream ss, size_t newSize) {
     size_t newCapacity = 2 * ss->capacity;
     if (newCapacity < newSize)
       newCapacity = newSize;
-    char * tmp = (char *) realloc(ss->data, newCapacity * sizeof(char));
+    char * tmp = REALLOC(char, ss->data, newCapacity);
     /* If the allocation fails, leave the array alone. */
     if (!tmp) return -1;
     ss->data = tmp;
@@ -187,7 +188,7 @@ int putStringStream(cstringstream ss, size_t index, char c) {
 
 char * stringFromStringStream(const_cstringstream ss) {
   if (!ss) return 0;
-  char * str = (char *) malloc(sizeof(char) * (ss->inUse + 1));
+  char * str = ALLOC(char, ss->inUse + 1);
   if (!str) return 0;
   strncpy(str, ss->data, ss->inUse);
   str[ss->inUse] = '\0';
