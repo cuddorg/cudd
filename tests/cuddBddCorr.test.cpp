@@ -9,11 +9,14 @@
  * @brief Test file for cuddBddCorr.c
  * 
  * This file contains comprehensive tests for the cuddBddCorr module
- * to achieve 100% code coverage and ensure correct functionality.
+ * to achieve high code coverage (82%) and ensure correct functionality.
  * 
  * The module computes correlation between BDDs:
  * - Cudd_bddCorrelation: correlation of f and g (fraction of minterms in EXNOR)
  * - Cudd_bddCorrelationWeights: correlation with input probabilities
+ * 
+ * Uncovered lines are exclusively memory allocation error paths which are
+ * difficult to test without specialized fault injection infrastructure.
  */
 
 TEST_CASE("Cudd_bddCorrelation - Terminal cases", "[cuddBddCorr]") {
@@ -494,15 +497,10 @@ TEST_CASE("Cudd_bddCorrelationWeights - Complement handling in recursive calls",
     double prob[10] = {0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5};
     
     SECTION("Complemented second function") {
-        DdNode *f = Cudd_bddAnd(manager, x, y);
-        Cudd_Ref(f);
-        
         // Test with g being complemented - tests the "g != G" branch
         double corr = Cudd_bddCorrelationWeights(manager, x, Cudd_Not(y), prob);
         REQUIRE(corr >= 0.0);
         REQUIRE(corr <= 1.0);
-        
-        Cudd_RecursiveDeref(manager, f);
     }
     
     SECTION("Both functions involve complements") {
