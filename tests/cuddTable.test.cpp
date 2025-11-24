@@ -821,6 +821,7 @@ TEST_CASE("Constant nodes and special cases", "[cuddTable][constants]") {
         // Test operations with constants
         DdNode *x = Cudd_bddIthVar(manager, 0);
         
+        // Operations with constants don't need ref/deref since results are already in table
         DdNode *and_one = Cudd_bddAnd(manager, x, one);
         DdNode *and_zero = Cudd_bddAnd(manager, x, zero);
         DdNode *or_one = Cudd_bddOr(manager, x, one);
@@ -1169,10 +1170,15 @@ TEST_CASE("Complemented edges and node manipulation", "[cuddTable][complement]")
         
         // De Morgan's laws
         DdNode *and_xy = Cudd_bddAnd(manager, x, y);
+        Cudd_Ref(and_xy);
         DdNode *not_and = Cudd_Not(and_xy);
         DdNode *or_not = Cudd_bddOr(manager, not_x, not_y);
+        Cudd_Ref(or_not);
         
         REQUIRE(not_and == or_not);  // !(x & y) == !x | !y
+        
+        Cudd_RecursiveDeref(manager, and_xy);
+        Cudd_RecursiveDeref(manager, or_not);
     }
     
     Cudd_Quit(manager);
@@ -1223,13 +1229,18 @@ TEST_CASE("BDD composition operations", "[cuddTable][compose]") {
         DdNode *z = Cudd_bddIthVar(manager, 2);
         
         DdNode *f = Cudd_bddAnd(manager, x, y);  // f = x & y
+        Cudd_Ref(f);
         
         // Substitute z for x: f[z/x] = z & y
         DdNode *composed = Cudd_bddCompose(manager, f, z, 0);
         REQUIRE(composed != nullptr);
+        Cudd_Ref(composed);
         
         DdNode *expected = Cudd_bddAnd(manager, z, y);
         REQUIRE(composed == expected);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, composed);
     }
     
     SECTION("Multiple substitutions") {
@@ -1270,16 +1281,24 @@ TEST_CASE("Quantification operations", "[cuddTable][quantify]") {
         DdNode *y = Cudd_bddIthVar(manager, 1);
         DdNode *z = Cudd_bddIthVar(manager, 2);
         
-        DdNode *f = Cudd_bddAnd(manager, Cudd_bddAnd(manager, x, y), z);  // f = x & y & z
+        DdNode *xy = Cudd_bddAnd(manager, x, y);
+        Cudd_Ref(xy);
+        DdNode *f = Cudd_bddAnd(manager, xy, z);  // f = x & y & z
+        Cudd_Ref(f);
+        Cudd_RecursiveDeref(manager, xy);
         
         // Exists x: f
         DdNode *cube_x = x;
         DdNode *exists_x = Cudd_bddExistAbstract(manager, f, cube_x);
         REQUIRE(exists_x != nullptr);
+        Cudd_Ref(exists_x);
         
         // Result should be y & z (independent of x)
         DdNode *expected = Cudd_bddAnd(manager, y, z);
         REQUIRE(exists_x == expected);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, exists_x);
     }
     
     SECTION("Universal quantification") {
@@ -1287,12 +1306,15 @@ TEST_CASE("Quantification operations", "[cuddTable][quantify]") {
         DdNode *y = Cudd_bddIthVar(manager, 1);
         
         DdNode *f = Cudd_bddOr(manager, x, y);  // f = x | y
+        Cudd_Ref(f);
         
         // Forall x: (x | y) should give y
         DdNode *cube_x = x;
         DdNode *forall_x = Cudd_bddUnivAbstract(manager, f, cube_x);
         REQUIRE(forall_x != nullptr);
         REQUIRE(forall_x == y);
+        
+        Cudd_RecursiveDeref(manager, f);
     }
     
     Cudd_Quit(manager);
@@ -1380,10 +1402,14 @@ TEST_CASE("ZDD advanced operations", "[cuddTable][zdd][advanced]") {
         // Subset1 operation
         DdNode *sub1 = Cudd_zddSubset1(manager, set1, 1);
         REQUIRE(sub1 != nullptr);
+        Cudd_Ref(sub1);
+        Cudd_RecursiveDerefZdd(manager, sub1);
         
         // Subset0 operation
         DdNode *sub0 = Cudd_zddSubset0(manager, set1, 1);
         REQUIRE(sub0 != nullptr);
+        Cudd_Ref(sub0);
+        Cudd_RecursiveDerefZdd(manager, sub0);
         
         Cudd_RecursiveDerefZdd(manager, set1);
         Cudd_RecursiveDerefZdd(manager, set2);
