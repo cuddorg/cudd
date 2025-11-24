@@ -83,6 +83,8 @@ TEST_CASE("Cudd_FindEssential - Two variable functions", "[cuddEssent]") {
         Cudd_Ref(f);
         DdNode *ess = Cudd_FindEssential(manager, f);
         REQUIRE(ess != nullptr);
+        // For f = x AND y: when f=1, both x=1 and y=1 must hold
+        // Therefore both x and y are essential in positive phase
         REQUIRE(ess != one);  // Has essential variables (both x and y)
         Cudd_RecursiveDeref(manager, f);
     }
@@ -621,11 +623,12 @@ TEST_CASE("Cudd_FindTwoLiteralClauses - Various BDD patterns", "[cuddEssent]") {
         
         DdTlcInfo *tlc = Cudd_FindTwoLiteralClauses(manager, f);
         REQUIRE(tlc != nullptr);
-        // A disjunction like x OR y OR z has no two-literal clauses (empty set)
+        // x OR y OR z is a single three-literal clause, not representable as 
+        // a set of one- or two-literal clauses, so the result is empty
         unsigned var1, var2;
         int phase1, phase2;
         int result = Cudd_ReadIthClause(tlc, 0, &var1, &var2, &phase1, &phase2);
-        REQUIRE(result == 0);  // No clauses
+        REQUIRE(result == 0);  // No two-literal clauses
         
         Cudd_tlcInfoFree(tlc);
         Cudd_RecursiveDeref(manager, f);
