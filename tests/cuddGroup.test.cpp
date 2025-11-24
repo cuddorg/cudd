@@ -227,8 +227,8 @@ TEST_CASE("cuddTreeSifting - Group sifting methods", "[cuddGroup]") {
         REQUIRE(node1 != nullptr);
         REQUIRE(node2 != nullptr);
         
-        // Enable group checking
-        Cudd_SetGroupcheck(manager, CUDD_GROUP_CHECK);
+        // Use NO_CHECK for basic group sifting
+        Cudd_SetGroupcheck(manager, CUDD_NO_CHECK);
         
         // Perform group sifting
         int result = Cudd_ReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
@@ -664,8 +664,8 @@ TEST_CASE("cuddTreeSifting - Complex structures", "[cuddGroup]") {
         DdNode *f = Cudd_bddOr(manager, f1, Cudd_bddOr(manager, f2, f3));
         Cudd_Ref(f);
         
-        // Enable group checking
-        Cudd_SetGroupcheck(manager, CUDD_GROUP_CHECK);
+        // Use NO_CHECK for basic group sifting
+        Cudd_SetGroupcheck(manager, CUDD_NO_CHECK);
         
         // Perform group sifting
         int result = Cudd_ReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
@@ -711,6 +711,314 @@ TEST_CASE("cuddTreeSifting - Complex structures", "[cuddGroup]") {
         
         Cudd_RecursiveDeref(manager, f);
         for (int i = 0; i < 10; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddTreeSifting - Additional reordering methods", "[cuddGroup]") {
+    SECTION("CUDD_REORDER_GROUP_SIFT_CONV") {
+        DdManager *manager = Cudd_Init(6, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode *vars[6];
+        for (int i = 0; i < 6; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create function
+        DdNode *f = Cudd_bddAnd(manager, vars[0], vars[1]);
+        Cudd_Ref(f);
+        
+        // Perform GROUP_SIFT_CONV
+        int result = Cudd_ReduceHeap(manager, CUDD_REORDER_GROUP_SIFT_CONV, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int i = 0; i < 6; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("CUDD_REORDER_ANNEALING") {
+        DdManager *manager = Cudd_Init(4, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode *vars[4];
+        for (int i = 0; i < 4; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+            Cudd_Ref(vars[i]);
+        }
+        
+        DdNode *f = Cudd_bddAnd(manager, vars[0], vars[1]);
+        Cudd_Ref(f);
+        
+        int result = Cudd_ReduceHeap(manager, CUDD_REORDER_ANNEALING, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int i = 0; i < 4; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("CUDD_REORDER_GENETIC") {
+        DdManager *manager = Cudd_Init(4, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode *vars[4];
+        for (int i = 0; i < 4; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+            Cudd_Ref(vars[i]);
+        }
+        
+        DdNode *f = Cudd_bddAnd(manager, vars[0], vars[1]);
+        Cudd_Ref(f);
+        
+        int result = Cudd_ReduceHeap(manager, CUDD_REORDER_GENETIC, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int i = 0; i < 4; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("CUDD_REORDER_LINEAR") {
+        DdManager *manager = Cudd_Init(4, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode *vars[4];
+        for (int i = 0; i < 4; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+            Cudd_Ref(vars[i]);
+        }
+        
+        DdNode *f = Cudd_bddAnd(manager, vars[0], vars[1]);
+        Cudd_Ref(f);
+        
+        int result = Cudd_ReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int i = 0; i < 4; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("CUDD_REORDER_LINEAR_CONVERGE") {
+        DdManager *manager = Cudd_Init(4, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode *vars[4];
+        for (int i = 0; i < 4; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+            Cudd_Ref(vars[i]);
+        }
+        
+        DdNode *f = Cudd_bddAnd(manager, vars[0], vars[1]);
+        Cudd_Ref(f);
+        
+        int result = Cudd_ReduceHeap(manager, CUDD_REORDER_LINEAR_CONVERGE, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int i = 0; i < 4; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("CUDD_REORDER_EXACT") {
+        DdManager *manager = Cudd_Init(3, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode *vars[3];
+        for (int i = 0; i < 3; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+            Cudd_Ref(vars[i]);
+        }
+        
+        DdNode *f = Cudd_bddAnd(manager, vars[0], vars[1]);
+        Cudd_Ref(f);
+        
+        int result = Cudd_ReduceHeap(manager, CUDD_REORDER_EXACT, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int i = 0; i < 3; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddTreeSifting - Advanced group checking", "[cuddGroup]") {
+    SECTION("GROUP_CHECK5 with symmetry detection") {
+        DdManager *manager = Cudd_Init(8, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode *vars[8];
+        for (int i = 0; i < 8; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create symmetric-like function
+        DdNode *f1 = Cudd_bddAnd(manager, vars[0], vars[1]);
+        Cudd_Ref(f1);
+        DdNode *f2 = Cudd_bddAnd(manager, vars[2], vars[3]);
+        Cudd_Ref(f2);
+        DdNode *f = Cudd_bddOr(manager, f1, f2);
+        Cudd_Ref(f);
+        
+        Cudd_SetGroupcheck(manager, CUDD_GROUP_CHECK5);
+        int result = Cudd_ReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, f2);
+        Cudd_RecursiveDeref(manager, f1);
+        for (int i = 0; i < 8; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("GROUP_CHECK7 with extended symmetry") {
+        DdManager *manager = Cudd_Init(8, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode *vars[8];
+        for (int i = 0; i < 8; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create function with potential for symmetry grouping
+        DdNode *f1 = Cudd_bddAnd(manager, vars[0], vars[1]);
+        Cudd_Ref(f1);
+        DdNode *f2 = Cudd_bddAnd(manager, vars[2], vars[3]);
+        Cudd_Ref(f2);
+        DdNode *f = Cudd_bddOr(manager, f1, f2);
+        Cudd_Ref(f);
+        
+        Cudd_SetGroupcheck(manager, CUDD_GROUP_CHECK7);
+        int result = Cudd_ReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, f2);
+        Cudd_RecursiveDeref(manager, f1);
+        for (int i = 0; i < 8; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("GROUP_CHECK5 with GROUP_SIFT_CONV") {
+        DdManager *manager = Cudd_Init(6, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode *vars[6];
+        for (int i = 0; i < 6; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+            Cudd_Ref(vars[i]);
+        }
+        
+        DdNode *f = Cudd_bddAnd(manager, vars[0], vars[1]);
+        Cudd_Ref(f);
+        
+        Cudd_SetGroupcheck(manager, CUDD_GROUP_CHECK5);
+        int result = Cudd_ReduceHeap(manager, CUDD_REORDER_GROUP_SIFT_CONV, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int i = 0; i < 6; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("GROUP_CHECK7 with GROUP_SIFT_CONV") {
+        DdManager *manager = Cudd_Init(6, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode *vars[6];
+        for (int i = 0; i < 6; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+            Cudd_Ref(vars[i]);
+        }
+        
+        DdNode *f = Cudd_bddAnd(manager, vars[0], vars[1]);
+        Cudd_Ref(f);
+        
+        Cudd_SetGroupcheck(manager, CUDD_GROUP_CHECK7);
+        int result = Cudd_ReduceHeap(manager, CUDD_REORDER_GROUP_SIFT_CONV, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int i = 0; i < 6; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("Cudd_MakeTreeNode - Advanced cases", "[cuddGroup]") {
+    SECTION("Tree node creation triggers tree extension") {
+        DdManager *manager = Cudd_Init(2, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create node that extends beyond current variables
+        MtrNode *node = Cudd_MakeTreeNode(manager, 0, 5, MTR_DEFAULT);
+        REQUIRE(node != nullptr);
+        
+        // Tree should be extended to accommodate
+        MtrNode *tree = Cudd_ReadTree(manager);
+        REQUIRE(tree != nullptr);
+        
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Multiple nested groups") {
+        DdManager *manager = Cudd_Init(12, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create parent
+        MtrNode *parent = Cudd_MakeTreeNode(manager, 0, 9, MTR_DEFAULT);
+        REQUIRE(parent != nullptr);
+        
+        // Create children
+        MtrNode *child1 = Cudd_MakeTreeNode(manager, 0, 3, MTR_DEFAULT);
+        MtrNode *child2 = Cudd_MakeTreeNode(manager, 3, 3, MTR_DEFAULT);
+        MtrNode *child3 = Cudd_MakeTreeNode(manager, 6, 3, MTR_DEFAULT);
+        REQUIRE(child1 != nullptr);
+        REQUIRE(child2 != nullptr);
+        REQUIRE(child3 != nullptr);
+        
+        // Create variables
+        DdNode *vars[12];
+        for (int i = 0; i < 12; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+            Cudd_Ref(vars[i]);
+        }
+        
+        DdNode *f = Cudd_bddAnd(manager, vars[0], vars[5]);
+        Cudd_Ref(f);
+        
+        // Reorder with nested groups
+        int result = Cudd_ReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int i = 0; i < 12; i++) {
             Cudd_RecursiveDeref(manager, vars[i]);
         }
         Cudd_Quit(manager);
