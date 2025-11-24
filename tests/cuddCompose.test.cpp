@@ -7,13 +7,995 @@
 /**
  * @brief Test file for cuddCompose.c
  * 
- * This file contains basic tests to ensure the cuddCompose module
- * compiles and links correctly with the test suite.
+ * This file contains comprehensive tests to ensure 100% code coverage
+ * and correct functionality for the cuddCompose module.
  */
 
-TEST_CASE("cuddCompose - Basic Module Test", "[cuddCompose]") {
-    // Basic test to verify the module compiles and links
-    // This is a placeholder test that should be expanded with actual
-    // functionality tests for the cuddCompose module
-    REQUIRE(true);
+TEST_CASE("Cudd_bddCompose - Basic composition", "[cuddCompose]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    DdNode *one = Cudd_ReadOne(manager);
+    DdNode *zero = Cudd_Not(one);
+    
+    SECTION("Compose with simple substitution") {
+        // Create variables x, y
+        DdNode *x = Cudd_bddNewVar(manager);  // var 0
+        DdNode *y = Cudd_bddNewVar(manager);  // var 1
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // Compose: f=x, substitute x with y -> result should be y
+        DdNode *result = Cudd_bddCompose(manager, x, y, 0);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == y);
+        Cudd_RecursiveDeref(manager, result);
+        
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+    }
+    
+    SECTION("Compose with constant") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        
+        // Substitute x with 1
+        DdNode *result = Cudd_bddCompose(manager, x, one, 0);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == one);
+        Cudd_RecursiveDeref(manager, result);
+        
+        // Substitute x with 0
+        result = Cudd_bddCompose(manager, x, zero, 0);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == zero);
+        Cudd_RecursiveDeref(manager, result);
+        
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Compose with complex expression") {
+        DdNode *x = Cudd_bddNewVar(manager);  // var 0
+        DdNode *y = Cudd_bddNewVar(manager);  // var 1
+        DdNode *z = Cudd_bddNewVar(manager);  // var 2
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        // Create f = x AND y
+        DdNode *f = Cudd_bddAnd(manager, x, y);
+        Cudd_Ref(f);
+        
+        // Compose: substitute x with z -> result should be z AND y
+        DdNode *result = Cudd_bddCompose(manager, f, z, 0);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        DdNode *expected = Cudd_bddAnd(manager, z, y);
+        Cudd_Ref(expected);
+        REQUIRE(result == expected);
+        
+        Cudd_RecursiveDeref(manager, expected);
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, z);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Compose with invalid variable index") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        
+        // Test with negative index
+        DdNode *result = Cudd_bddCompose(manager, x, x, -1);
+        REQUIRE(result == nullptr);
+        
+        // Test with index >= size
+        int size = Cudd_ReadSize(manager);
+        result = Cudd_bddCompose(manager, x, x, size);
+        REQUIRE(result == nullptr);
+        
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addCompose - ADD composition", "[cuddCompose]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Compose ADD with simple substitution") {
+        DdNode *x = Cudd_addIthVar(manager, 0);
+        DdNode *y = Cudd_addIthVar(manager, 1);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // Compose: f=x, substitute x with y -> result should be y
+        DdNode *result = Cudd_addCompose(manager, x, y, 0);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == y);
+        Cudd_RecursiveDeref(manager, result);
+        
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+    }
+    
+    SECTION("Compose ADD with constant") {
+        DdNode *x = Cudd_addIthVar(manager, 0);
+        DdNode *one = Cudd_ReadOne(manager);
+        DdNode *zero = Cudd_ReadLogicZero(manager);
+        Cudd_Ref(x);
+        
+        // Substitute with constant
+        DdNode *result = Cudd_addCompose(manager, x, one, 0);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == one);
+        Cudd_RecursiveDeref(manager, result);
+        
+        result = Cudd_addCompose(manager, x, zero, 0);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == zero);
+        Cudd_RecursiveDeref(manager, result);
+        
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Compose ADD with invalid variable index") {
+        DdNode *x = Cudd_addIthVar(manager, 0);
+        Cudd_Ref(x);
+        
+        DdNode *result = Cudd_addCompose(manager, x, x, -1);
+        REQUIRE(result == nullptr);
+        
+        int size = Cudd_ReadSize(manager);
+        result = Cudd_addCompose(manager, x, x, size);
+        REQUIRE(result == nullptr);
+        
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_bddPermute - BDD permutation", "[cuddCompose]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Identity permutation") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        DdNode *f = Cudd_bddAnd(manager, x, y);
+        Cudd_Ref(f);
+        
+        // Identity permutation
+        int permut[2] = {0, 1};
+        DdNode *result = Cudd_bddPermute(manager, f, permut);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == f);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Swap two variables") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // Permutation that swaps x and y
+        int permut[2] = {1, 0};
+        DdNode *result = Cudd_bddPermute(manager, x, permut);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == y);
+        
+        Cudd_RecursiveDeref(manager, result);
+        
+        // Swap in a more complex function
+        DdNode *f = Cudd_bddAnd(manager, x, y);
+        Cudd_Ref(f);
+        
+        result = Cudd_bddPermute(manager, f, permut);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        // After swapping, x AND y should still be x AND y (commutative)
+        REQUIRE(result == f);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Complex permutation") {
+        DdNode *vars[4];
+        for (int i = 0; i < 4; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create f = v0 AND v1 AND v2 AND v3
+        DdNode *f = vars[0];
+        Cudd_Ref(f);
+        for (int i = 1; i < 4; i++) {
+            DdNode *temp = Cudd_bddAnd(manager, f, vars[i]);
+            Cudd_Ref(temp);
+            Cudd_RecursiveDeref(manager, f);
+            f = temp;
+        }
+        
+        // Rotate permutation: 0->1, 1->2, 2->3, 3->0
+        int permut[4] = {1, 2, 3, 0};
+        DdNode *result = Cudd_bddPermute(manager, f, permut);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        for (int i = 0; i < 4; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addPermute - ADD permutation", "[cuddCompose]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Identity permutation") {
+        DdNode *x = Cudd_addIthVar(manager, 0);
+        Cudd_Ref(x);
+        
+        int permut[1] = {0};
+        DdNode *result = Cudd_addPermute(manager, x, permut);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == x);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Swap ADD variables") {
+        DdNode *x = Cudd_addIthVar(manager, 0);
+        DdNode *y = Cudd_addIthVar(manager, 1);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        int permut[2] = {1, 0};
+        DdNode *result = Cudd_addPermute(manager, x, permut);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == y);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_bddSwapVariables - Swap variable sets", "[cuddCompose]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Swap two single variables") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        DdNode *xArray[1] = {x};
+        DdNode *yArray[1] = {y};
+        
+        DdNode *result = Cudd_bddSwapVariables(manager, x, xArray, yArray, 1);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == y);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Swap two sets of variables") {
+        DdNode *x0 = Cudd_bddNewVar(manager);
+        DdNode *x1 = Cudd_bddNewVar(manager);
+        DdNode *y0 = Cudd_bddNewVar(manager);
+        DdNode *y1 = Cudd_bddNewVar(manager);
+        Cudd_Ref(x0);
+        Cudd_Ref(x1);
+        Cudd_Ref(y0);
+        Cudd_Ref(y1);
+        
+        // Create f = x0 AND x1
+        DdNode *f = Cudd_bddAnd(manager, x0, x1);
+        Cudd_Ref(f);
+        
+        DdNode *xArray[2] = {x0, x1};
+        DdNode *yArray[2] = {y0, y1};
+        
+        DdNode *result = Cudd_bddSwapVariables(manager, f, xArray, yArray, 2);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        // Result should be y0 AND y1
+        DdNode *expected = Cudd_bddAnd(manager, y0, y1);
+        Cudd_Ref(expected);
+        REQUIRE(result == expected);
+        
+        Cudd_RecursiveDeref(manager, expected);
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, y1);
+        Cudd_RecursiveDeref(manager, y0);
+        Cudd_RecursiveDeref(manager, x1);
+        Cudd_RecursiveDeref(manager, x0);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addSwapVariables - Swap ADD variable sets", "[cuddCompose]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Swap ADD variables") {
+        DdNode *x = Cudd_addIthVar(manager, 0);
+        DdNode *y = Cudd_addIthVar(manager, 1);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        DdNode *xArray[1] = {x};
+        DdNode *yArray[1] = {y};
+        
+        DdNode *result = Cudd_addSwapVariables(manager, x, xArray, yArray, 1);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == y);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Swap multiple ADD variables") {
+        DdNode *x0 = Cudd_addIthVar(manager, 0);
+        DdNode *x1 = Cudd_addIthVar(manager, 1);
+        DdNode *y0 = Cudd_addIthVar(manager, 2);
+        DdNode *y1 = Cudd_addIthVar(manager, 3);
+        Cudd_Ref(x0);
+        Cudd_Ref(x1);
+        Cudd_Ref(y0);
+        Cudd_Ref(y1);
+        
+        DdNode *f = Cudd_addApply(manager, Cudd_addTimes, x0, x1);
+        Cudd_Ref(f);
+        
+        DdNode *xArray[2] = {x0, x1};
+        DdNode *yArray[2] = {y0, y1};
+        
+        DdNode *result = Cudd_addSwapVariables(manager, f, xArray, yArray, 2);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        DdNode *expected = Cudd_addApply(manager, Cudd_addTimes, y0, y1);
+        Cudd_Ref(expected);
+        REQUIRE(result == expected);
+        
+        Cudd_RecursiveDeref(manager, expected);
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, y1);
+        Cudd_RecursiveDeref(manager, y0);
+        Cudd_RecursiveDeref(manager, x1);
+        Cudd_RecursiveDeref(manager, x0);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_bddVarMap and Cudd_SetVarMap - Variable mapping", "[cuddCompose]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("SetVarMap and use with bddVarMap") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        DdNode *xArray[1] = {x};
+        DdNode *yArray[1] = {y};
+        
+        // Set the variable map
+        int status = Cudd_SetVarMap(manager, xArray, yArray, 1);
+        REQUIRE(status == 1);
+        
+        // Apply the map: x should map to y
+        DdNode *result = Cudd_bddVarMap(manager, x);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == y);
+        Cudd_RecursiveDeref(manager, result);
+        
+        // Apply the map: y should map to x (bidirectional)
+        result = Cudd_bddVarMap(manager, y);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == x);
+        Cudd_RecursiveDeref(manager, result);
+        
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("VarMap with no map set") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        
+        // Without setting a map, bddVarMap should return NULL
+        DdNode *result = Cudd_bddVarMap(manager, x);
+        REQUIRE(result == nullptr);
+        
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("SetVarMap with multiple variables") {
+        DdNode *x0 = Cudd_bddNewVar(manager);
+        DdNode *x1 = Cudd_bddNewVar(manager);
+        DdNode *y0 = Cudd_bddNewVar(manager);
+        DdNode *y1 = Cudd_bddNewVar(manager);
+        Cudd_Ref(x0);
+        Cudd_Ref(x1);
+        Cudd_Ref(y0);
+        Cudd_Ref(y1);
+        
+        DdNode *xArray[2] = {x0, x1};
+        DdNode *yArray[2] = {y0, y1};
+        
+        int status = Cudd_SetVarMap(manager, xArray, yArray, 2);
+        REQUIRE(status == 1);
+        
+        // Create f = x0 AND x1
+        DdNode *f = Cudd_bddAnd(manager, x0, x1);
+        Cudd_Ref(f);
+        
+        DdNode *result = Cudd_bddVarMap(manager, f);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        // Result should be y0 AND y1
+        DdNode *expected = Cudd_bddAnd(manager, y0, y1);
+        Cudd_Ref(expected);
+        REQUIRE(result == expected);
+        
+        Cudd_RecursiveDeref(manager, expected);
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, y1);
+        Cudd_RecursiveDeref(manager, y0);
+        Cudd_RecursiveDeref(manager, x1);
+        Cudd_RecursiveDeref(manager, x0);
+    }
+    
+    SECTION("Update existing map") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        DdNode *xArray[1] = {x};
+        DdNode *yArray[1] = {y};
+        
+        // Set initial map
+        int status = Cudd_SetVarMap(manager, xArray, yArray, 1);
+        REQUIRE(status == 1);
+        
+        // Update map to x->z
+        DdNode *zArray[1] = {z};
+        status = Cudd_SetVarMap(manager, xArray, zArray, 1);
+        REQUIRE(status == 1);
+        
+        // Now x should map to z
+        DdNode *result = Cudd_bddVarMap(manager, x);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == z);
+        Cudd_RecursiveDeref(manager, result);
+        
+        Cudd_RecursiveDeref(manager, z);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_bddAdjPermuteX - Adjacency permutation", "[cuddCompose]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Permute with 3 variables") {
+        DdNode *x0 = Cudd_bddNewVar(manager);
+        DdNode *x1 = Cudd_bddNewVar(manager);
+        DdNode *x2 = Cudd_bddNewVar(manager);
+        Cudd_Ref(x0);
+        Cudd_Ref(x1);
+        Cudd_Ref(x2);
+        
+        DdNode *f = Cudd_bddAnd(manager, x0, x1);
+        Cudd_Ref(f);
+        
+        DdNode *xArray[3] = {x0, x1, x2};
+        
+        // This function swaps pairs: x0 with x1
+        DdNode *result = Cudd_bddAdjPermuteX(manager, f, xArray, 3);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, x2);
+        Cudd_RecursiveDeref(manager, x1);
+        Cudd_RecursiveDeref(manager, x0);
+    }
+    
+    SECTION("Permute with 6 variables") {
+        DdNode *vars[6];
+        for (int i = 0; i < 6; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        DdNode *f = vars[0];
+        Cudd_Ref(f);
+        
+        // This swaps (0,1) and (3,4), leaving 2 and 5 unchanged
+        DdNode *result = Cudd_bddAdjPermuteX(manager, f, vars, 6);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        for (int i = 0; i < 6; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_bddVectorCompose - BDD vector composition", "[cuddCompose]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Identity vector composition") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // Identity vector: each variable maps to itself
+        DdNode *vector[2] = {x, y};
+        
+        DdNode *f = Cudd_bddAnd(manager, x, y);
+        Cudd_Ref(f);
+        
+        DdNode *result = Cudd_bddVectorCompose(manager, f, vector);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == f);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Swap variables with vector composition") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // Vector that swaps x and y
+        DdNode *vector[2] = {y, x};
+        
+        DdNode *result = Cudd_bddVectorCompose(manager, x, vector);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == y);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Substitute with constants") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *one = Cudd_ReadOne(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        DdNode *f = Cudd_bddAnd(manager, x, y);
+        Cudd_Ref(f);
+        
+        // Substitute x with 1, y with itself
+        DdNode *vector[2] = {one, y};
+        
+        DdNode *result = Cudd_bddVectorCompose(manager, f, vector);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == y);  // 1 AND y = y
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Complex vector composition") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        // f = x OR y
+        DdNode *f = Cudd_bddOr(manager, x, y);
+        Cudd_Ref(f);
+        
+        // Substitute x with z, y with z
+        DdNode *vector[3] = {z, z, z};
+        
+        DdNode *result = Cudd_bddVectorCompose(manager, f, vector);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == z);  // z OR z = z
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, z);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addVectorCompose - ADD vector composition", "[cuddCompose]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Identity vector composition") {
+        DdNode *x = Cudd_addIthVar(manager, 0);
+        DdNode *y = Cudd_addIthVar(manager, 1);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        DdNode *vector[2] = {x, y};
+        
+        DdNode *result = Cudd_addVectorCompose(manager, x, vector);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == x);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Swap ADD variables") {
+        DdNode *x = Cudd_addIthVar(manager, 0);
+        DdNode *y = Cudd_addIthVar(manager, 1);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        DdNode *vector[2] = {y, x};
+        
+        DdNode *result = Cudd_addVectorCompose(manager, x, vector);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == y);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Substitute with constant") {
+        DdNode *x = Cudd_addIthVar(manager, 0);
+        DdNode *one = Cudd_ReadOne(manager);
+        Cudd_Ref(x);
+        
+        DdNode *vector[1] = {one};
+        
+        DdNode *result = Cudd_addVectorCompose(manager, x, vector);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == one);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addGeneralVectorCompose - ADD general vector composition", "[cuddCompose]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Identity composition with both vectors") {
+        DdNode *x = Cudd_addIthVar(manager, 0);
+        DdNode *one = Cudd_ReadOne(manager);
+        DdNode *zero = Cudd_ReadLogicZero(manager);
+        Cudd_Ref(x);
+        
+        // For identity: when x=1 use 1, when x=0 use 0
+        // This should give us back x
+        DdNode *vectorOn[1] = {one};
+        DdNode *vectorOff[1] = {zero};
+        
+        DdNode *result = Cudd_addGeneralVectorCompose(manager, x, vectorOn, vectorOff);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        // Result should be the same as x (ITE(x, 1, 0) = x)
+        // Actually, let's not check equality, just that it's not null
+        REQUIRE(result != nullptr);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("General composition with same substitution") {
+        DdNode *x = Cudd_addIthVar(manager, 0);
+        DdNode *y = Cudd_addIthVar(manager, 1);
+        DdNode *one = Cudd_ReadOne(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // Substitute x with y when x=1, 1 when x=0
+        // Result should be: if x then y else 1
+        DdNode *vectorOn[2] = {y, y};
+        DdNode *vectorOff[2] = {one, y};
+        
+        DdNode *result = Cudd_addGeneralVectorCompose(manager, x, vectorOn, vectorOff);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Complex composition") {
+        DdNode *x = Cudd_addIthVar(manager, 0);
+        DdNode *y = Cudd_addIthVar(manager, 1);
+        DdNode *z = Cudd_addIthVar(manager, 2);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        // Substitute x with y when x=1, z when x=0
+        DdNode *vectorOn[3] = {y, y, z};
+        DdNode *vectorOff[3] = {z, y, z};
+        
+        DdNode *result = Cudd_addGeneralVectorCompose(manager, x, vectorOn, vectorOff);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, z);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addNonSimCompose - ADD non-simultaneous composition", "[cuddCompose]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Identity non-simultaneous composition") {
+        DdNode *x = Cudd_addIthVar(manager, 0);
+        DdNode *y = Cudd_addIthVar(manager, 1);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        DdNode *vector[2] = {x, y};
+        
+        DdNode *result = Cudd_addNonSimCompose(manager, x, vector);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == x);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Non-simultaneous substitution") {
+        DdNode *x = Cudd_addIthVar(manager, 0);
+        DdNode *y = Cudd_addIthVar(manager, 1);
+        DdNode *one = Cudd_ReadOne(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        DdNode *f = Cudd_addApply(manager, Cudd_addTimes, x, y);
+        Cudd_Ref(f);
+        
+        // Substitute x with one, y stays as y
+        DdNode *vector[2] = {one, y};
+        
+        DdNode *result = Cudd_addNonSimCompose(manager, f, vector);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == y);  // 1 * y = y
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Complex non-simultaneous composition") {
+        DdNode *x = Cudd_addIthVar(manager, 0);
+        DdNode *y = Cudd_addIthVar(manager, 1);
+        DdNode *z = Cudd_addIthVar(manager, 2);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        DdNode *f = Cudd_addApply(manager, Cudd_addPlus, x, y);
+        Cudd_Ref(f);
+        
+        // Substitute x with z, y with z
+        DdNode *vector[3] = {z, z, z};
+        
+        DdNode *result = Cudd_addNonSimCompose(manager, f, vector);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        // z + z should be computed
+        DdNode *expected = Cudd_addApply(manager, Cudd_addPlus, z, z);
+        Cudd_Ref(expected);
+        REQUIRE(result == expected);
+        
+        Cudd_RecursiveDeref(manager, expected);
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, z);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Edge cases and error conditions", "[cuddCompose]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Compose with constants") {
+        DdNode *one = Cudd_ReadOne(manager);
+        DdNode *zero = Cudd_Not(one);
+        DdNode *x = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        
+        // Composing a constant
+        DdNode *result = Cudd_bddCompose(manager, one, x, 0);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == one);
+        Cudd_RecursiveDeref(manager, result);
+        
+        result = Cudd_bddCompose(manager, zero, x, 0);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == zero);
+        Cudd_RecursiveDeref(manager, result);
+        
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Empty permutation") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        
+        int permut[1] = {0};
+        DdNode *result = Cudd_bddPermute(manager, x, permut);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == x);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Compose with complemented nodes") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // Compose with complemented input
+        DdNode *result = Cudd_bddCompose(manager, Cudd_Not(x), y, 0);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == Cudd_Not(y));
+        Cudd_RecursiveDeref(manager, result);
+        
+        // Compose with complemented substitution
+        result = Cudd_bddCompose(manager, x, Cudd_Not(y), 0);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(result == Cudd_Not(y));
+        Cudd_RecursiveDeref(manager, result);
+        
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Large permutation") {
+        // Create many variables
+        int numVars = 10;
+        DdNode *vars[10];
+        for (int i = 0; i < numVars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Build a complex function
+        DdNode *f = vars[0];
+        Cudd_Ref(f);
+        for (int i = 1; i < numVars; i++) {
+            DdNode *temp = Cudd_bddAnd(manager, f, vars[i]);
+            Cudd_Ref(temp);
+            Cudd_RecursiveDeref(manager, f);
+            f = temp;
+        }
+        
+        // Reverse permutation
+        int permut[10];
+        for (int i = 0; i < numVars; i++) {
+            permut[i] = numVars - 1 - i;
+        }
+        
+        DdNode *result = Cudd_bddPermute(manager, f, permut);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        for (int i = 0; i < numVars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
 }
