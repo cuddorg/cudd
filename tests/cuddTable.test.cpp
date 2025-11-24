@@ -927,9 +927,13 @@ TEST_CASE("Extensive ZDD table operations", "[cuddTable][zdd][extensive]") {
         for (size_t i = 0; i < combinations.size() / 2; i++) {
             DdNode *inter = Cudd_zddIntersect(manager, combinations[i], combinations[i + 1]);
             REQUIRE(inter != nullptr);
+            Cudd_Ref(inter);
+            Cudd_RecursiveDerefZdd(manager, inter);
             
             DdNode *diff = Cudd_zddDiff(manager, combinations[i], combinations[i + 1]);
             REQUIRE(diff != nullptr);
+            Cudd_Ref(diff);
+            Cudd_RecursiveDerefZdd(manager, diff);
         }
         
         // Clean up
