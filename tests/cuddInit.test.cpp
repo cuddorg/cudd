@@ -53,10 +53,8 @@ TEST_CASE("Cudd_Init - Basic initialization", "[cuddInit]") {
         DdManager *manager = Cudd_Init(0, numVarsZ, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
-        // Verify ZDD size
         REQUIRE(Cudd_ReadZddSize(manager) == numVarsZ);
         
-        // Test ZDD one
         DdNode *zddOne = Cudd_ReadZddOne(manager, 0);
         REQUIRE(zddOne != nullptr);
         
@@ -178,15 +176,11 @@ TEST_CASE("Cudd_Quit - Manager cleanup", "[cuddInit]") {
         
         // Quit should free all resources
         Cudd_Quit(manager);
-        // After quit, manager pointer is invalid but no crash should occur
     }
     
     SECTION("Quit with NULL manager (should be safe)") {
-        // Calling Cudd_Quit with NULL should not crash
         DdManager *manager = nullptr;
         Cudd_Quit(manager);
-        // No assertion needed, just verify it doesn't crash
-        REQUIRE(true);
     }
     
     SECTION("Quit manager with ZDD nodes") {
@@ -226,12 +220,9 @@ TEST_CASE("cuddZddInitUniv - ZDD universe initialization", "[cuddInit]") {
         DdManager *manager = Cudd_Init(0, numVarsZ, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
-        // ZDD universe should be initialized
-        // Test by accessing ZDD operations
         DdNode *zddOne = Cudd_ReadZddOne(manager, 0);
         REQUIRE(zddOne != nullptr);
         
-        // Test ZDD universe functionality
         for (unsigned int i = 0; i < numVarsZ; i++) {
             DdNode *var = Cudd_zddIthVar(manager, i);
             REQUIRE(var != nullptr);
@@ -426,15 +417,12 @@ TEST_CASE("cuddInit - Memory and resource management", "[cuddInit]") {
         DdManager *manager = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
-        // Create nodes without explicit referencing
         DdNode *x = Cudd_bddNewVar(manager);
         DdNode *y = Cudd_bddNewVar(manager);
         DdNode *f = Cudd_bddAnd(manager, x, y);
         
-        // These nodes may be garbage collected or remain in table
         REQUIRE(f != nullptr);
         
-        // Quit should handle cleanup properly
         Cudd_Quit(manager);
     }
     
@@ -457,11 +445,9 @@ TEST_CASE("cuddInit - Memory and resource management", "[cuddInit]") {
         DdNode *h = Cudd_bddXor(manager, f, g);
         Cudd_Ref(h);
         
-        // ZDD operations
         DdNode *zddOne = Cudd_ReadZddOne(manager, 0);
         REQUIRE(zddOne != nullptr);
         
-        // Cleanup
         Cudd_RecursiveDeref(manager, h);
         Cudd_RecursiveDeref(manager, g);
         Cudd_RecursiveDeref(manager, f);
