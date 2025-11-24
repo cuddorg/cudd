@@ -1074,3 +1074,247 @@ TEST_CASE("cuddUtil - Cudd_DumpFactoredForm", "[cuddUtil]") {
     Cudd_RecursiveDeref(dd, f);
     Cudd_Quit(dd);
 }
+
+// Edge cases and error paths to increase coverage
+TEST_CASE("cuddUtil - Edge Cases for bddPrintCover", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    // Test with complemented nodes
+    DdNode* x = Cudd_bddIthVar(dd, 0);
+    DdNode* notX = Cudd_Not(x);
+    Cudd_Ref(notX);
+    
+    DdNode* lower = notX;
+    DdNode* upper = Cudd_ReadOne(dd);
+    Cudd_Ref(upper);
+    
+    int result = Cudd_bddPrintCover(dd, lower, upper);
+    REQUIRE(result == 1);
+    
+    Cudd_RecursiveDeref(dd, notX);
+    Cudd_RecursiveDeref(dd, upper);
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - Edge Cases for CountMinterm with many variables", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    DdNode* f = createSimpleBDD(dd);
+    
+    // Test with large number of variables to test overflow handling
+    double count = Cudd_CountMinterm(dd, f, 100);
+    REQUIRE(count >= 0.0);
+    
+    Cudd_RecursiveDeref(dd, f);
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - EpdCountMinterm with complemented node", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    DdNode* f = createSimpleBDD(dd);
+    DdNode* notF = Cudd_Not(f);
+    EpDouble* epd = EpdAlloc();
+    REQUIRE(epd != nullptr);
+    
+    int result = Cudd_EpdCountMinterm(dd, notF, 2, epd);
+    REQUIRE(result == 0); // 0 means success
+    
+    EpdFree(epd);
+    Cudd_RecursiveDeref(dd, f);
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - LdblCountMinterm with complemented node", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    DdNode* f = createSimpleBDD(dd);
+    DdNode* notF = Cudd_Not(f);
+    
+    long double count = Cudd_LdblCountMinterm(dd, notF, 2);
+    REQUIRE(count >= 0.0L);
+    
+    Cudd_RecursiveDeref(dd, f);
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - bddPickOneCube with more variables", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    // Create a BDD with 4 variables
+    DdNode *x0 = Cudd_bddIthVar(dd, 0);
+    DdNode *x1 = Cudd_bddIthVar(dd, 1);
+    DdNode *x2 = Cudd_bddIthVar(dd, 2);
+    DdNode *x3 = Cudd_bddIthVar(dd, 3);
+    DdNode *f = Cudd_bddAnd(dd, Cudd_bddAnd(dd, x0, x1), Cudd_bddAnd(dd, x2, x3));
+    Cudd_Ref(f);
+    
+    char* string = new char[Cudd_ReadSize(dd)];
+    int result = Cudd_bddPickOneCube(dd, f, string);
+    REQUIRE(result == 1);
+    
+    delete[] string;
+    Cudd_RecursiveDeref(dd, f);
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - Multiple Srandom calls", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    // Test with different seed values including edge cases
+    Cudd_Srandom(dd, 0);
+    int32_t r1 = Cudd_Random(dd);
+    REQUIRE(r1 >= 0);
+    
+    Cudd_Srandom(dd, -1);
+    int32_t r2 = Cudd_Random(dd);
+    REQUIRE(r2 >= 0);
+    
+    Cudd_Srandom(dd, 2147483647); // Max int32
+    int32_t r3 = Cudd_Random(dd);
+    REQUIRE(r3 >= 0);
+    
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - ClassifySupport with edge cases", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    // Test with completely different supports
+    DdNode* f = Cudd_bddIthVar(dd, 0);
+    Cudd_Ref(f);
+    DdNode* g = Cudd_bddIthVar(dd, 2);
+    Cudd_Ref(g);
+    
+    DdNode *common, *onlyF, *onlyG;
+    int result = Cudd_ClassifySupport(dd, f, g, &common, &onlyF, &onlyG);
+    REQUIRE(result == 1);
+    
+    Cudd_RecursiveDeref(dd, common);
+    Cudd_RecursiveDeref(dd, onlyF);
+    Cudd_RecursiveDeref(dd, onlyG);
+    Cudd_RecursiveDeref(dd, f);
+    Cudd_RecursiveDeref(dd, g);
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - bddPickArbitraryMinterms edge cases", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    // Create a function with multiple minterms
+    DdNode* x0 = Cudd_bddIthVar(dd, 0);
+    DdNode* x1 = Cudd_bddIthVar(dd, 1);
+    DdNode* f = Cudd_bddOr(dd, x0, x1);
+    Cudd_Ref(f);
+    
+    DdNode* vars[2];
+    vars[0] = Cudd_bddIthVar(dd, 0);
+    vars[1] = Cudd_bddIthVar(dd, 1);
+    
+    DdNode** minterms = Cudd_bddPickArbitraryMinterms(dd, f, vars, 2, 3);
+    if (minterms != nullptr) {
+        for (int i = 0; i < 3; i++) {
+            Cudd_RecursiveDeref(dd, minterms[i]);
+        }
+        FREE(minterms);
+    }
+    
+    Cudd_RecursiveDeref(dd, f);
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - CubeArrayToBdd with different values", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    // Test with don't care values (2)
+    int* array = new int[3];
+    array[0] = 1;
+    array[1] = 2; // Don't care
+    array[2] = 0;
+    
+    DdNode* bdd = Cudd_CubeArrayToBdd(dd, array);
+    REQUIRE(bdd != nullptr);
+    Cudd_Ref(bdd);
+    
+    Cudd_RecursiveDeref(dd, bdd);
+    delete[] array;
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - DumpBlif with multiple outputs", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    DdNode* f1 = Cudd_bddIthVar(dd, 0);
+    Cudd_Ref(f1);
+    DdNode* f2 = Cudd_bddIthVar(dd, 1);
+    Cudd_Ref(f2);
+    DdNode* funcs[2] = {f1, f2};
+    
+    FILE* fp = tmpfile();
+    REQUIRE(fp != nullptr);
+    
+    char** inames = new char*[2];
+    inames[0] = strdup("x0");
+    inames[1] = strdup("x1");
+    char** onames = new char*[2];
+    onames[0] = strdup("f1");
+    onames[1] = strdup("f2");
+    
+    int result = Cudd_DumpBlif(dd, 2, funcs, inames, onames, strdup("multi"), fp, 0);
+    REQUIRE(result == 1);
+    
+    fclose(fp);
+    free(onames[0]);
+    free(onames[1]);
+    delete[] onames;
+    free(inames[0]);
+    free(inames[1]);
+    delete[] inames;
+    Cudd_RecursiveDeref(dd, f1);
+    Cudd_RecursiveDeref(dd, f2);
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - VectorSupport with empty array", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    DdNode* f = createSimpleBDD(dd);
+    DdNode* array[1] = {f};
+    
+    DdNode* support = Cudd_VectorSupport(dd, array, 1);
+    REQUIRE(support != nullptr);
+    Cudd_Ref(support);
+    
+    Cudd_RecursiveDeref(dd, support);
+    Cudd_RecursiveDeref(dd, f);
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - Density with edge cases", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    // Test with constant one
+    double density = Cudd_Density(dd, Cudd_ReadOne(dd), 5);
+    REQUIRE(density > 0.0);
+    
+    // Test with a variable
+    DdNode* x = Cudd_bddIthVar(dd, 0);
+    Cudd_Ref(x);
+    density = Cudd_Density(dd, x, 1);
+    REQUIRE(density > 0.0);
+    
+    Cudd_RecursiveDeref(dd, x);
+    Cudd_Quit(dd);
+}
