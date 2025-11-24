@@ -436,7 +436,8 @@ TEST_CASE("cuddCache - Constant lookup optimization", "[cuddCache]") {
         
         // Cudd_bddIteConstant exercises cuddConstantLookup
         DdNode *result = Cudd_bddIteConstant(manager, x, one, zero);
-        // Should return DD_NON_CONSTANT since result depends on x
+        // Result depends on x, so it should not be a constant (returns special marker)
+        // We just verify the function executes without crashing
         REQUIRE(result != nullptr);
         
         // ITE with constant result
