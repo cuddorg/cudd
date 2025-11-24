@@ -2,7 +2,6 @@
 
 // Include CUDD headers
 #include "cudd/cudd.h"
-#include "cuddInt.h"
 #include "util.h"
 
 /**
@@ -18,7 +17,7 @@ TEST_CASE("Cudd_Prime - Find next prime number", "[cuddTable][Cudd_Prime]") {
         // Algorithm: p--, then loop { p++; check if prime }
         // So Cudd_Prime(1): p=0, p=1 (odd, 1 is returned as-is)
         // Cudd_Prime(2): p=1, p=2 (even), p=3 (odd, prime)
-        REQUIRE(Cudd_Prime(1) == 1);  // Returns 1
+        REQUIRE(Cudd_Prime(1) == 1);  // Edge case: implementation returns 1
         REQUIRE(Cudd_Prime(2) == 3);  // Next odd prime after 1
         REQUIRE(Cudd_Prime(3) == 3);  // 3 is prime
         REQUIRE(Cudd_Prime(4) == 5);  // Next prime after 3
@@ -593,7 +592,9 @@ TEST_CASE("ZDD table operations - comprehensive", "[cuddTable][zdd][comprehensiv
         // Test intersections
         DdNode *i1 = Cudd_zddIntersect(manager, z0, z1);
         REQUIRE(i1 != nullptr);
+        Cudd_Ref(i1);
         // Intersection may or may not be empty depending on ZDD semantics
+        Cudd_RecursiveDerefZdd(manager, i1);
         
         // Test diffs
         DdNode *d1 = Cudd_zddDiff(manager, u2, z0);
@@ -1123,15 +1124,20 @@ TEST_CASE("Massive node creation to trigger multiple table operations", "[cuddTa
             }
             
             DdNode *expr = vars[0];
+            Cudd_Ref(expr);
             for (int j = 1; j < 5; j++) {
+                DdNode *new_expr;
                 if (i & (1 << j)) {
-                    expr = Cudd_bddAnd(manager, expr, vars[j]);
+                    new_expr = Cudd_bddAnd(manager, expr, vars[j]);
                 } else {
-                    expr = Cudd_bddOr(manager, expr, vars[j]);
+                    new_expr = Cudd_bddOr(manager, expr, vars[j]);
                 }
+                Cudd_Ref(new_expr);
+                Cudd_RecursiveDeref(manager, expr);
+                expr = new_expr;
             }
             
-            Cudd_Ref(expr);
+            // expr is already Ref'd, so just push it
             nodes.push_back(expr);
         }
         
@@ -1145,7 +1151,6 @@ TEST_CASE("Massive node creation to trigger multiple table operations", "[cuddTa
     
     Cudd_Quit(manager);
 }
-
 
 TEST_CASE("Complemented edges and node manipulation", "[cuddTable][complement]") {
     DdManager *manager = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
@@ -1194,7 +1199,8 @@ TEST_CASE("Variable ordering and levels", "[cuddTable][ordering]") {
         int initial_size = Cudd_DagSize(f);
         
         // Swap variables 0 and 1
-        int result = Cudd_ShuffleHeap(manager, nullptr);
+        int perm[10] = {1, 0, 2, 3, 4, 5, 6, 7, 8, 9};
+        int result = Cudd_ShuffleHeap(manager, perm);
         REQUIRE(result >= 0);
         
         int final_size = Cudd_DagSize(f);
@@ -1234,7 +1240,11 @@ TEST_CASE("BDD composition operations", "[cuddTable][compose]") {
         
         // Create f = x0 & x1 & x2
         DdNode *f = Cudd_bddAnd(manager, vars[0], vars[1]);
-        f = Cudd_bddAnd(manager, f, vars[2]);
+        Cudd_Ref(f);
+        DdNode *temp = Cudd_bddAnd(manager, f, vars[2]);
+        Cudd_Ref(temp);
+        Cudd_RecursiveDeref(manager, f);
+        f = temp;
         
         // Vector compose
         DdNode *vector[3];
@@ -1244,6 +1254,8 @@ TEST_CASE("BDD composition operations", "[cuddTable][compose]") {
         
         DdNode *composed = Cudd_bddVectorCompose(manager, f, vector);
         REQUIRE(composed != nullptr);
+        
+        Cudd_RecursiveDeref(manager, f);
     }
     
     Cudd_Quit(manager);
