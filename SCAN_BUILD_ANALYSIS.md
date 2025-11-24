@@ -2,9 +2,9 @@
 
 ## Executive Summary
 
-This document analyzes the static analysis results from running `scan-build` on the CUDD library. The initial scan identified **46 warnings** across multiple source files. After applying targeted fixes, the count was reduced to **41 warnings**.
+This document analyzes the static analysis results from running `scan-build` on the CUDD library. The initial scan identified **46 warnings** across multiple source files. After applying targeted fixes, the count was reduced to **40 warnings** (6 bugs fixed).
 
-## Issues Addressed (5 Fixed)
+## Issues Addressed (6 Fixed)
 
 ### 1. Dead Store Warnings - Fixed ✅
 
@@ -40,7 +40,7 @@ This document analyzes the static analysis results from running `scan-build` on 
 - **Fix**: Added defensive check: `if (sentry != NULL) { sentry->next = NULL; }`
 - **Impact**: Prevents potential crashes in unexpected scenarios
 
-## Remaining Issues (41 Warnings)
+## Remaining Issues (40 Warnings)
 
 Most remaining issues are **likely false positives** where scan-build cannot determine that pointers are non-null due to complex program invariants. However, they warrant documentation and potential defensive programming improvements.
 
@@ -110,6 +110,8 @@ Multiple warnings about array access and use-after-free in functions that read H
 
 - ✅ Clean build with GCC (no compilation errors)
 - ✅ Library compiles successfully
+- ✅ CodeQL security scan: 0 alerts found
+- ✅ All fixed issues verified (no longer appear in scan-build output)
 - ⚠️ Unit tests require Catch2 framework (not available in build environment)
 
 ## Summary Statistics
@@ -121,11 +123,12 @@ Multiple warnings about array access and use-after-free in functions that read H
 | NULL Checks | 2 | 2 | 0 |
 | NULL Dereferences | 25 | 0 | 25** |
 | Memory Issues | 13 | 0 | 13 |
-| **Total** | **46** | **6*** | **41** |
+| **Total** | **46** | **6** | **40** |
 
 \* Dead stores in cuddWindow.c are false positives (used in DD_DEBUG mode)
 ** Most NULL dereference warnings are likely false positives
-*** Net reduction: 46 - 41 = 5 actual bugs fixed (dead stores were combined)
+
+**Net reduction: 46 → 40 (6 bugs fixed)**
 
 ## Recommendations for Future Work
 
