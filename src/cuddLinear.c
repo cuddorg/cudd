@@ -400,6 +400,9 @@ cuddLinearInPlace(
 	/* last is always assigned in the for loop because there is at
 	** least one key */
 	assert(last != NULL);
+#else
+	/* In non-debug builds, add a defensive check to satisfy static analysis */
+	if (last == NULL) return(0);
 #endif
 	last->next = NULL;
 

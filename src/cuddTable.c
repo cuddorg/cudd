@@ -990,7 +990,10 @@ cuddGarbageCollect(
 	} while (++k < DD_MEM_CHUNK);
 	memListTrav = nxtNode;
     }
-    sentry->next = NULL;
+    /* Defensive check: sentry should be assigned in the loop above */
+    if (sentry != NULL) {
+	sentry->next = NULL;
+    }
 #endif
 #endif
 

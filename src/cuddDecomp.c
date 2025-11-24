@@ -909,7 +909,7 @@ PairInTables(
 {
     int valueG, valueH, gPresent, hPresent;
 
-    valueG = valueH = gPresent = hPresent = 0;
+    valueG = valueH = 0;
     
     gPresent = st_lookup_int(ghTable, Cudd_Regular(g), &valueG);
     hPresent = st_lookup_int(ghTable, Cudd_Regular(h), &valueH);
