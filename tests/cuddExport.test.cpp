@@ -86,9 +86,10 @@ TEST_CASE("Cudd_DumpBlif - Basic BLIF export", "[cuddExport]") {
         
         const char *inames[] = {"input_x", "input_y"};
         const char *onames[] = {"output_f"};
+        char mname[] = "TestModel";
         
         DdNode *outputs[] = {f};
-        int result = Cudd_DumpBlif(manager, 1, outputs, inames, onames, "TestModel", fp, 0);
+        int result = Cudd_DumpBlif(manager, 1, outputs, inames, onames, mname, fp, 0);
         REQUIRE(result == 1);
         
         std::string content = read_file(fp);
@@ -473,7 +474,7 @@ TEST_CASE("Cudd_DumpDaVinci - daVinci format export", "[cuddExport]") {
         REQUIRE(result == 1);
         
         std::string content = read_file(fp);
-        REQUIRE(content.find("in_x") != std::string::npos || content.find("in_y") != std::string::npos);
+        REQUIRE((content.find("in_x") != std::string::npos || content.find("in_y") != std::string::npos));
         
         Cudd_RecursiveDeref(manager, f);
         Cudd_RecursiveDeref(manager, x);
@@ -556,7 +557,7 @@ TEST_CASE("Cudd_DumpDDcal - DDcal format export", "[cuddExport]") {
         REQUIRE(result == 1);
         
         std::string content = read_file(fp);
-        REQUIRE(content.find("input_a") != std::string::npos || content.find("input_b") != std::string::npos);
+        REQUIRE((content.find("input_a") != std::string::npos || content.find("input_b") != std::string::npos));
         REQUIRE(content.find("output_result") != std::string::npos);
         
         Cudd_RecursiveDeref(manager, f);
@@ -647,7 +648,7 @@ TEST_CASE("Cudd_DumpFactoredForm - Factored form export", "[cuddExport]") {
         REQUIRE(result == 1);
         
         std::string content = read_file(fp);
-        REQUIRE(content.find("*") != std::string::npos || content.find("x") != std::string::npos);
+        REQUIRE((content.find("*") != std::string::npos || content.find("x") != std::string::npos));
         
         Cudd_RecursiveDeref(manager, f);
         Cudd_RecursiveDeref(manager, x);
@@ -672,7 +673,7 @@ TEST_CASE("Cudd_DumpFactoredForm - Factored form export", "[cuddExport]") {
         
         std::string content = read_file(fp);
         REQUIRE(content.find("OUT") != std::string::npos);
-        REQUIRE(content.find("A") != std::string::npos || content.find("B") != std::string::npos);
+        REQUIRE((content.find("A") != std::string::npos || content.find("B") != std::string::npos));
         
         Cudd_RecursiveDeref(manager, f);
         Cudd_RecursiveDeref(manager, x);
@@ -765,7 +766,7 @@ TEST_CASE("Cudd_DumpFactoredForm - Factored form export", "[cuddExport]") {
         REQUIRE(result == 1);
         
         std::string content = read_file(fp);
-        REQUIRE(content.find("+") != std::string::npos || content.find("*") != std::string::npos);
+        REQUIRE((content.find("+") != std::string::npos || content.find("*") != std::string::npos));
         
         Cudd_RecursiveDeref(manager, f);
         Cudd_RecursiveDeref(manager, nxz);
@@ -796,7 +797,7 @@ TEST_CASE("Cudd_FactoredFormString - String factored form", "[cuddExport]") {
         REQUIRE(str != nullptr);
         
         std::string result(str);
-        REQUIRE(result.find("&") != std::string::npos || result.find("x") != std::string::npos);
+        REQUIRE((result.find("&") != std::string::npos || result.find("x") != std::string::npos));
         
         FREE(str);
         Cudd_RecursiveDeref(manager, f);
@@ -819,7 +820,7 @@ TEST_CASE("Cudd_FactoredFormString - String factored form", "[cuddExport]") {
         REQUIRE(str != nullptr);
         
         std::string result(str);
-        REQUIRE(result.find("alpha") != std::string::npos || result.find("beta") != std::string::npos);
+        REQUIRE((result.find("alpha") != std::string::npos || result.find("beta") != std::string::npos));
         
         FREE(str);
         Cudd_RecursiveDeref(manager, f);
@@ -923,6 +924,470 @@ TEST_CASE("Cudd_FactoredFormString - String factored form", "[cuddExport]") {
         Cudd_RecursiveDeref(manager, f);
         Cudd_RecursiveDeref(manager, x);
         Cudd_RecursiveDeref(manager, y);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_DumpBlif - Edge cases and error paths", "[cuddExport]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    FILE *fp = create_temp_file();
+    REQUIRE(fp != nullptr);
+    
+    SECTION("Export ADD with zero constant") {
+        DdNode *zero = Cudd_addConst(manager, 0.0);
+        Cudd_Ref(zero);
+        
+        DdNode *outputs[] = {zero};
+        int result = Cudd_DumpBlifBody(manager, 1, outputs, nullptr, nullptr, fp, 0);
+        REQUIRE(result == 1);
+        
+        std::string content = read_file(fp);
+        REQUIRE(!content.empty());
+        
+        Cudd_RecursiveDeref(manager, zero);
+    }
+    
+    SECTION("Export ADD with zero constant in MV mode") {
+        DdNode *zero = Cudd_addConst(manager, 0.0);
+        Cudd_Ref(zero);
+        
+        DdNode *outputs[] = {zero};
+        int result = Cudd_DumpBlifBody(manager, 1, outputs, nullptr, nullptr, fp, 1);
+        REQUIRE(result == 1);
+        
+        std::string content = read_file(fp);
+        REQUIRE(content.find("0") != std::string::npos);
+        
+        Cudd_RecursiveDeref(manager, zero);
+    }
+    
+    SECTION("Export with complemented ELSE edge") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        // Create a function with complemented else edge
+        DdNode *f = Cudd_bddIte(manager, x, y, Cudd_Not(z));
+        Cudd_Ref(f);
+        
+        DdNode *outputs[] = {f};
+        int result = Cudd_DumpBlifBody(manager, 1, outputs, nullptr, nullptr, fp, 0);
+        REQUIRE(result == 1);
+        
+        std::string content = read_file(fp);
+        REQUIRE((content.find("11-") != std::string::npos || content.find("0-0") != std::string::npos));
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
+    }
+    
+    SECTION("Export with non-complemented ELSE edge") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        // Create a function with non-complemented else edge
+        DdNode *f = Cudd_bddIte(manager, x, y, z);
+        Cudd_Ref(f);
+        
+        DdNode *outputs[] = {f};
+        int result = Cudd_DumpBlifBody(manager, 1, outputs, nullptr, nullptr, fp, 0);
+        REQUIRE(result == 1);
+        
+        std::string content = read_file(fp);
+        REQUIRE((content.find("11-") != std::string::npos || content.find("0-1") != std::string::npos));
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
+    }
+    
+    SECTION("Export with complemented ELSE edge in MV mode") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        DdNode *f = Cudd_bddIte(manager, x, y, Cudd_Not(z));
+        Cudd_Ref(f);
+        
+        DdNode *outputs[] = {f};
+        int result = Cudd_DumpBlifBody(manager, 1, outputs, nullptr, nullptr, fp, 1);
+        REQUIRE(result == 1);
+        
+        std::string content = read_file(fp);
+        REQUIRE(content.find(".def") != std::string::npos);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
+    }
+    
+    fclose(fp);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_DumpDaVinci - Edge cases", "[cuddExport]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    FILE *fp = create_temp_file();
+    REQUIRE(fp != nullptr);
+    
+    SECTION("Export with ADD constants") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        
+        DdNode *add = Cudd_BddToAdd(manager, x);
+        Cudd_Ref(add);
+        
+        DdNode *outputs[] = {add};
+        int result = Cudd_DumpDaVinci(manager, 1, outputs, nullptr, nullptr, fp);
+        REQUIRE(result == 1);
+        
+        std::string content = read_file(fp);
+        REQUIRE((content.find("constant") != std::string::npos || content.find("internal") != std::string::npos));
+        
+        Cudd_RecursiveDeref(manager, add);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Export with else complemented edge") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        DdNode *f = Cudd_bddIte(manager, x, y, Cudd_Not(y));
+        Cudd_Ref(f);
+        
+        DdNode *outputs[] = {f};
+        int result = Cudd_DumpDaVinci(manager, 1, outputs, nullptr, nullptr, fp);
+        REQUIRE(result == 1);
+        
+        std::string content = read_file(fp);
+        REQUIRE((content.find("red") != std::string::npos || content.find("green") != std::string::npos));
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+    }
+    
+    SECTION("Export with else non-complemented edge") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        DdNode *f = Cudd_bddIte(manager, x, y, z);
+        Cudd_Ref(f);
+        
+        DdNode *outputs[] = {f};
+        int result = Cudd_DumpDaVinci(manager, 1, outputs, nullptr, nullptr, fp);
+        REQUIRE(result == 1);
+        
+        std::string content = read_file(fp);
+        REQUIRE(content.find("green") != std::string::npos);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
+    }
+    
+    fclose(fp);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_DumpDDcal - Edge cases", "[cuddExport]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    FILE *fp = create_temp_file();
+    REQUIRE(fp != nullptr);
+    
+    SECTION("Export with complemented else edge") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        DdNode *f = Cudd_bddIte(manager, x, y, Cudd_Not(y));
+        Cudd_Ref(f);
+        
+        DdNode *outputs[] = {f};
+        int result = Cudd_DumpDDcal(manager, 1, outputs, nullptr, nullptr, fp);
+        REQUIRE(result == 1);
+        
+        std::string content = read_file(fp);
+        REQUIRE(content.find("'") != std::string::npos);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+    }
+    
+    SECTION("Export with non-complemented else edge") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        DdNode *f = Cudd_bddIte(manager, x, y, z);
+        Cudd_Ref(f);
+        
+        DdNode *outputs[] = {f};
+        int result = Cudd_DumpDDcal(manager, 1, outputs, nullptr, nullptr, fp);
+        REQUIRE(result == 1);
+        
+        std::string content = read_file(fp);
+        REQUIRE(content.find(" * ") != std::string::npos);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
+    }
+    
+    fclose(fp);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_DumpFactoredForm - Edge cases", "[cuddExport]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    FILE *fp = create_temp_file();
+    REQUIRE(fp != nullptr);
+    
+    SECTION("Export complemented non-variable") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        DdNode *xy = Cudd_bddAnd(manager, x, y);
+        Cudd_Ref(xy);
+        DdNode *f = Cudd_Not(xy);
+        
+        DdNode *outputs[] = {f};
+        int result = Cudd_DumpFactoredForm(manager, 1, outputs, nullptr, nullptr, fp);
+        REQUIRE(result == 1);
+        
+        std::string content = read_file(fp);
+        REQUIRE((content.find("!(") != std::string::npos || content.find(")") != std::string::npos));
+        
+        Cudd_RecursiveDeref(manager, xy);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+    }
+    
+    SECTION("Export with T=0 case") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // Create !x & y (T branch is zero)
+        DdNode *f = Cudd_bddAnd(manager, Cudd_Not(x), y);
+        Cudd_Ref(f);
+        
+        DdNode *outputs[] = {f};
+        int result = Cudd_DumpFactoredForm(manager, 1, outputs, nullptr, nullptr, fp);
+        REQUIRE(result == 1);
+        
+        std::string content = read_file(fp);
+        REQUIRE((content.find("!x") != std::string::npos || content.find("!") != std::string::npos));
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+    }
+    
+    SECTION("Export with E=1 and T!=0") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // Create x | y (use ITE: if x then 1 else y)
+        DdNode *f = Cudd_bddOr(manager, x, y);
+        Cudd_Ref(f);
+        
+        DdNode *outputs[] = {f};
+        int result = Cudd_DumpFactoredForm(manager, 1, outputs, nullptr, nullptr, fp);
+        REQUIRE(result == 1);
+        
+        std::string content = read_file(fp);
+        REQUIRE((content.find("+") != std::string::npos || content.find("x") != std::string::npos));
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+    }
+    
+    SECTION("Export with T!=1 and E=0") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // Create x & y
+        DdNode *f = Cudd_bddAnd(manager, x, y);
+        Cudd_Ref(f);
+        
+        DdNode *outputs[] = {f};
+        int result = Cudd_DumpFactoredForm(manager, 1, outputs, nullptr, nullptr, fp);
+        REQUIRE(result == 1);
+        
+        std::string content = read_file(fp);
+        REQUIRE(!content.empty());
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+    }
+    
+    SECTION("Export with T=1 and E!=1") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // Create x | y
+        DdNode *f = Cudd_bddOr(manager, x, y);
+        Cudd_Ref(f);
+        
+        DdNode *outputs[] = {f};
+        int result = Cudd_DumpFactoredForm(manager, 1, outputs, nullptr, nullptr, fp);
+        REQUIRE(result == 1);
+        
+        std::string content = read_file(fp);
+        REQUIRE(!content.empty());
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+    }
+    
+    SECTION("Export with E complemented") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        DdNode *yz = Cudd_bddAnd(manager, y, z);
+        Cudd_Ref(yz);
+        DdNode *f = Cudd_bddIte(manager, x, y, Cudd_Not(yz));
+        Cudd_Ref(f);
+        
+        DdNode *outputs[] = {f};
+        int result = Cudd_DumpFactoredForm(manager, 1, outputs, nullptr, nullptr, fp);
+        REQUIRE(result == 1);
+        
+        std::string content = read_file(fp);
+        REQUIRE((content.find("!") != std::string::npos || content.find("+") != std::string::npos));
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, yz);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
+    }
+    
+    fclose(fp);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_FactoredFormString - Edge cases", "[cuddExport]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("String for complemented non-variable") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        DdNode *xy = Cudd_bddAnd(manager, x, y);
+        Cudd_Ref(xy);
+        DdNode *f = Cudd_Not(xy);
+        
+        char *str = Cudd_FactoredFormString(manager, f, nullptr);
+        REQUIRE(str != nullptr);
+        
+        std::string result(str);
+        REQUIRE((result.find("!(") != std::string::npos || result.find(")") != std::string::npos));
+        
+        FREE(str);
+        Cudd_RecursiveDeref(manager, xy);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+    }
+    
+    SECTION("String with T=0 case") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        DdNode *f = Cudd_bddAnd(manager, Cudd_Not(x), y);
+        Cudd_Ref(f);
+        
+        char *str = Cudd_FactoredFormString(manager, f, nullptr);
+        REQUIRE(str != nullptr);
+        REQUIRE(strlen(str) > 0);
+        
+        FREE(str);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+    }
+    
+    SECTION("String with E complemented") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        DdNode *yz = Cudd_bddAnd(manager, y, z);
+        Cudd_Ref(yz);
+        DdNode *f = Cudd_bddIte(manager, x, y, Cudd_Not(yz));
+        Cudd_Ref(f);
+        
+        char *str = Cudd_FactoredFormString(manager, f, nullptr);
+        REQUIRE(str != nullptr);
+        REQUIRE(strlen(str) > 0);
+        
+        FREE(str);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, yz);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
     }
     
     Cudd_Quit(manager);
