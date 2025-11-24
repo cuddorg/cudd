@@ -420,6 +420,79 @@ TEST_CASE("cuddUpdateInteractionMatrix - Update interaction after transform", "[
         
         Cudd_Quit(manager);
     }
+    
+    SECTION("Force beneficial linear transformation") {
+        // Create a scenario where linear transformation is beneficial
+        // This requires creating a BDD where XOR-ing variables reduces size
+        DdManager *manager = Cudd_Init(4, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode *x0 = Cudd_bddIthVar(manager, 0);
+        DdNode *x1 = Cudd_bddIthVar(manager, 1);
+        DdNode *x2 = Cudd_bddIthVar(manager, 2);
+        DdNode *x3 = Cudd_bddIthVar(manager, 3);
+        
+        // Create f = (x0 EXNOR x1) AND (x2 OR x3)
+        // This structure can benefit from linear transformation
+        DdNode *exnor01 = Cudd_bddXnor(manager, x0, x1);
+        Cudd_Ref(exnor01);
+        DdNode *or23 = Cudd_bddOr(manager, x2, x3);
+        Cudd_Ref(or23);
+        DdNode *result = Cudd_bddAnd(manager, exnor01, or23);
+        Cudd_Ref(result);
+        
+        // Apply linear sifting multiple times to trigger transformation
+        for (int i = 0; i < 3; i++) {
+            int status = Cudd_ReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
+            REQUIRE(status == 1);
+        }
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, or23);
+        Cudd_RecursiveDeref(manager, exnor01);
+        
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Multiple interacting variable pairs") {
+        DdManager *manager = Cudd_Init(8, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create a function with multiple EXNOR operations
+        // f = (x0 EXNOR x1) AND (x2 EXNOR x3) AND (x4 EXNOR x5) AND (x6 EXNOR x7)
+        DdNode *vars[8];
+        for (int i = 0; i < 8; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+        }
+        
+        DdNode *exnor[4];
+        for (int i = 0; i < 4; i++) {
+            exnor[i] = Cudd_bddXnor(manager, vars[i*2], vars[i*2+1]);
+            Cudd_Ref(exnor[i]);
+        }
+        
+        DdNode *temp1 = Cudd_bddAnd(manager, exnor[0], exnor[1]);
+        Cudd_Ref(temp1);
+        DdNode *temp2 = Cudd_bddAnd(manager, exnor[2], exnor[3]);
+        Cudd_Ref(temp2);
+        DdNode *result = Cudd_bddAnd(manager, temp1, temp2);
+        Cudd_Ref(result);
+        
+        // Apply reordering to trigger linear transformations
+        for (int iter = 0; iter < 5; iter++) {
+            int status = Cudd_ReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
+            REQUIRE(status == 1);
+        }
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, temp2);
+        Cudd_RecursiveDeref(manager, temp1);
+        for (int i = 0; i < 4; i++) {
+            Cudd_RecursiveDeref(manager, exnor[i]);
+        }
+        
+        Cudd_Quit(manager);
+    }
 }
 
 TEST_CASE("cuddLinear - Edge cases and error handling", "[cuddLinear]") {
