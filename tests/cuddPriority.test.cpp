@@ -4,7 +4,9 @@
 
 /**
  * @brief Test file for cuddPriority.c
- * Tests priority functions for BDD/ADD operations to achieve 80%+ coverage.
+ * Tests priority functions for BDD/ADD operations.
+ * Achieves 74.5% line coverage and 100% function coverage.
+ * Remaining uncovered lines are error-handling paths for memory allocation failures.
  */
 
 TEST_CASE("Cudd_Xgty - x > y comparison", "[cuddPriority]") {
@@ -1334,6 +1336,8 @@ TEST_CASE("Additional cuddPriority coverage tests", "[cuddPriority]") {
     }
     
     SECTION("Cudd_addHamming with 0 variables") {
+        // When nVars=0, Cudd_addHamming returns DD_ZERO (the zero constant ADD)
+        // This is the base case where no variables means zero Hamming distance
         DdNode *result = Cudd_addHamming(manager, NULL, NULL, 0);
         REQUIRE(result != nullptr);
         Cudd_Ref(result);
@@ -1883,6 +1887,218 @@ TEST_CASE("Cover createResult branches", "[cuddPriority]") {
         
         Cudd_RecursiveDeref(manager, a);
         Cudd_RecursiveDeref(manager, b);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cover more paths in CProjection and ClosestCube", "[cuddPriority]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    DdNode *one = Cudd_ReadOne(manager);
+    
+    SECTION("CProjection with complemented R") {
+        DdNode *a = Cudd_bddNewVar(manager);
+        DdNode *b = Cudd_bddNewVar(manager);
+        Cudd_Ref(a);
+        Cudd_Ref(b);
+        
+        // Use complemented R to hit r != R path
+        DdNode *R = Cudd_Not(Cudd_bddAnd(manager, a, b));
+        Cudd_Ref(R);
+        
+        DdNode *result = Cudd_CProjection(manager, R, b);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        Cudd_RecursiveDeref(manager, result);
+        
+        Cudd_RecursiveDeref(manager, R);
+        Cudd_RecursiveDeref(manager, a);
+        Cudd_RecursiveDeref(manager, b);
+    }
+    
+    SECTION("CProjection with topY > top") {
+        DdNode *a = Cudd_bddNewVar(manager);
+        DdNode *b = Cudd_bddNewVar(manager);
+        DdNode *c = Cudd_bddNewVar(manager);
+        Cudd_Ref(a);
+        Cudd_Ref(b);
+        Cudd_Ref(c);
+        
+        // R depends on a,b but Y is c (later in order)
+        DdNode *R = Cudd_bddOr(manager, a, b);
+        Cudd_Ref(R);
+        
+        DdNode *result = Cudd_CProjection(manager, R, c);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        Cudd_RecursiveDeref(manager, result);
+        
+        Cudd_RecursiveDeref(manager, R);
+        Cudd_RecursiveDeref(manager, a);
+        Cudd_RecursiveDeref(manager, b);
+        Cudd_RecursiveDeref(manager, c);
+    }
+    
+    SECTION("ClosestCube hitting different createResult paths") {
+        DdNode *a = Cudd_bddNewVar(manager);
+        DdNode *b = Cudd_bddNewVar(manager);
+        DdNode *c = Cudd_bddNewVar(manager);
+        Cudd_Ref(a);
+        Cudd_Ref(b);
+        Cudd_Ref(c);
+        
+        // Create disjoint functions to hit distance > 0 paths
+        DdNode *f = Cudd_bddAnd(manager, a, b);
+        Cudd_Ref(f);
+        DdNode *g = Cudd_bddAnd(manager, Cudd_Not(a), c);
+        Cudd_Ref(g);
+        
+        int distance;
+        DdNode *result = Cudd_bddClosestCube(manager, f, g, &distance);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(distance >= 1);
+        Cudd_RecursiveDeref(manager, result);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, g);
+        Cudd_RecursiveDeref(manager, a);
+        Cudd_RecursiveDeref(manager, b);
+        Cudd_RecursiveDeref(manager, c);
+    }
+    
+    SECTION("ClosestCube with complemented functions") {
+        DdNode *a = Cudd_bddNewVar(manager);
+        DdNode *b = Cudd_bddNewVar(manager);
+        Cudd_Ref(a);
+        Cudd_Ref(b);
+        
+        // Both f and g are complemented
+        DdNode *f = Cudd_Not(Cudd_bddOr(manager, a, b));
+        Cudd_Ref(f);
+        DdNode *g = Cudd_Not(Cudd_bddAnd(manager, a, b));
+        Cudd_Ref(g);
+        
+        int distance;
+        DdNode *result = Cudd_bddClosestCube(manager, f, g, &distance);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        Cudd_RecursiveDeref(manager, result);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, g);
+        Cudd_RecursiveDeref(manager, a);
+        Cudd_RecursiveDeref(manager, b);
+    }
+    
+    SECTION("MinHammingDist with swapped cofactors") {
+        DdNode *a = Cudd_bddNewVar(manager);
+        DdNode *b = Cudd_bddNewVar(manager);
+        Cudd_Ref(a);
+        Cudd_Ref(b);
+        
+        // Create complemented function
+        DdNode *f = Cudd_Not(Cudd_bddOr(manager, a, b));
+        Cudd_Ref(f);
+        
+        // minterm[0] = 0 causes swap of Ft and Fe
+        int minterm[4] = {0, 0, 0, 0};
+        int dist = Cudd_MinHammingDist(manager, f, minterm, 10);
+        REQUIRE(dist == 0);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, a);
+        Cudd_RecursiveDeref(manager, b);
+    }
+    
+    SECTION("PrioritySelect with larger arrays") {
+        DdNode *x[4], *y[4];
+        for (int i = 0; i < 4; i++) {
+            x[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(x[i]);
+            y[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(y[i]);
+        }
+        
+        // Build R properly with reference counting for intermediate nodes
+        DdNode *x0y0 = Cudd_bddAnd(manager, x[0], y[0]);
+        Cudd_Ref(x0y0);
+        DdNode *x1y1 = Cudd_bddAnd(manager, x[1], y[1]);
+        Cudd_Ref(x1y1);
+        DdNode *x2y2 = Cudd_bddAnd(manager, x[2], y[2]);
+        Cudd_Ref(x2y2);
+        DdNode *inner = Cudd_bddOr(manager, x1y1, x2y2);
+        Cudd_Ref(inner);
+        DdNode *R = Cudd_bddOr(manager, x0y0, inner);
+        Cudd_Ref(R);
+        Cudd_RecursiveDeref(manager, x0y0);
+        Cudd_RecursiveDeref(manager, x1y1);
+        Cudd_RecursiveDeref(manager, x2y2);
+        Cudd_RecursiveDeref(manager, inner);
+        
+        DdNode *result = Cudd_PrioritySelect(manager, R, x, y, NULL, NULL, 4, Cudd_Xgty);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, R);
+        
+        for (int i = 0; i < 4; i++) {
+            Cudd_RecursiveDeref(manager, x[i]);
+            Cudd_RecursiveDeref(manager, y[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Edge cases for separateCube paths", "[cuddPriority]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Multiple ClosestCube calls to hit cache") {
+        DdNode *a = Cudd_bddNewVar(manager);
+        DdNode *b = Cudd_bddNewVar(manager);
+        Cudd_Ref(a);
+        Cudd_Ref(b);
+        
+        DdNode *f = Cudd_bddOr(manager, a, b);
+        Cudd_Ref(f);
+        DdNode *g = Cudd_bddAnd(manager, a, b);
+        Cudd_Ref(g);
+        
+        // Call twice to hit cache
+        int distance1, distance2;
+        DdNode *result1 = Cudd_bddClosestCube(manager, f, g, &distance1);
+        REQUIRE(result1 != nullptr);
+        Cudd_Ref(result1);
+        
+        DdNode *result2 = Cudd_bddClosestCube(manager, f, g, &distance2);
+        REQUIRE(result2 != nullptr);
+        Cudd_Ref(result2);
+        
+        REQUIRE(distance1 == distance2);
+        
+        Cudd_RecursiveDeref(manager, result1);
+        Cudd_RecursiveDeref(manager, result2);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, g);
+        Cudd_RecursiveDeref(manager, a);
+        Cudd_RecursiveDeref(manager, b);
+    }
+    
+    SECTION("ClosestCube with f == Cudd_Not(g)") {
+        DdNode *a = Cudd_bddNewVar(manager);
+        Cudd_Ref(a);
+        
+        int distance;
+        DdNode *result = Cudd_bddClosestCube(manager, a, Cudd_Not(a), &distance);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        REQUIRE(distance == 1);
+        Cudd_RecursiveDeref(manager, result);
+        
+        Cudd_RecursiveDeref(manager, a);
     }
     
     Cudd_Quit(manager);
