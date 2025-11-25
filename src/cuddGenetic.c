@@ -638,16 +638,16 @@ array_hash(
   int modulus,
   void const * arg)
 {
-    int val = 0;
+    unsigned int val = 0;
     int i;
     int const *intarray = (int const *) array;
     int const numvars = (int const)(ptrint const) arg;
 
     for (i = 0; i < numvars; i++) {
-	val = val * 997 + intarray[i];
+	val = val * 997U + (unsigned int)intarray[i];
     }
 
-    return(((val < 0) ? -val : val) % modulus);
+    return((int)(val % (unsigned int)modulus));
 
 } /* end of array_hash */
 
