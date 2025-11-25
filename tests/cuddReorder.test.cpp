@@ -431,65 +431,71 @@ TEST_CASE("cuddReorder - cuddNextHigh and cuddNextLow tests", "[cuddReorder]") {
     }
 }
 
-TEST_CASE("cuddReorder - cuddSwapInPlace tests", "[cuddReorder]") {
-    SECTION("Swap adjacent variables with non-interacting nodes") {
+TEST_CASE("cuddReorder - Variable swapping through public API", "[cuddReorder]") {
+    // Note: cuddSwapInPlace is an internal function. Testing it directly requires
+    // manipulating internal manager state and manual memory cleanup which is fragile.
+    // Instead, we test swapping behavior through the public Cudd_ShuffleHeap API
+    // which exercises the same code paths safely.
+    
+    SECTION("Swap adjacent variables via ShuffleHeap - non-interacting") {
         DdManager *manager = Cudd_Init(4, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
-        // Create BDD with non-interacting variables
+        // Create BDD with non-interacting variables (x0 AND x2)
         DdNode* x0 = Cudd_bddIthVar(manager, 0);
         DdNode* x2 = Cudd_bddIthVar(manager, 2);
         DdNode* f = Cudd_bddAnd(manager, x0, x2);
         Cudd_Ref(f);
         
-        // Garbage collect to ensure no dead nodes
-        cuddGarbageCollect(manager, 1);
+        // Swap variables 0 and 1 using permutation
+        int perm[] = {1, 0, 2, 3};
+        int result = Cudd_ShuffleHeap(manager, perm);
+        REQUIRE(result == 1);
         
-        // Need to initialize interaction matrix for swap
-        REQUIRE(cuddInitInteract(manager) == 1);
+        // Verify the BDD is still valid
+        REQUIRE(Cudd_DagSize(f) > 0);
         
-        // Calculate isolated projection functions
-        manager->isolated = 0;
-        for (int i = 0; i < manager->size; i++) {
-            if (manager->vars[i]->ref == 1) manager->isolated++;
-        }
-        
-        // Swap levels 0 and 1
-        int size = cuddSwapInPlace(manager, 0, 1);
-        REQUIRE(size > 0);
-        
-        FREE(manager->interact);
         Cudd_RecursiveDeref(manager, f);
         Cudd_Quit(manager);
     }
     
-    SECTION("Swap adjacent variables with interacting nodes") {
+    SECTION("Swap adjacent variables via ShuffleHeap - interacting") {
         DdManager *manager = Cudd_Init(4, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
-        // Create BDD with interacting variables
+        // Create BDD with interacting variables (x0 AND x1)
         DdNode* x0 = Cudd_bddIthVar(manager, 0);
         DdNode* x1 = Cudd_bddIthVar(manager, 1);
         DdNode* f = Cudd_bddAnd(manager, x0, x1);
         Cudd_Ref(f);
         
-        // Garbage collect to ensure no dead nodes
-        cuddGarbageCollect(manager, 1);
+        // Swap variables 0 and 1 using permutation
+        int perm[] = {1, 0, 2, 3};
+        int result = Cudd_ShuffleHeap(manager, perm);
+        REQUIRE(result == 1);
         
-        // Need to initialize interaction matrix for swap
-        REQUIRE(cuddInitInteract(manager) == 1);
+        // Verify the BDD is still valid
+        REQUIRE(Cudd_DagSize(f) > 0);
         
-        // Calculate isolated projection functions
-        manager->isolated = 0;
-        for (int i = 0; i < manager->size; i++) {
-            if (manager->vars[i]->ref == 1) manager->isolated++;
-        }
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Multiple swaps via reordering") {
+        DdManager *manager = Cudd_Init(4, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
         
-        // Swap levels 0 and 1
-        int size = cuddSwapInPlace(manager, 0, 1);
-        REQUIRE(size > 0);
+        // Create a BDD that benefits from reordering
+        DdNode* f = createComplexBdd(manager, 4);
+        REQUIRE(f != nullptr);
         
-        FREE(manager->interact);
+        // SIFT reordering internally uses cuddSwapInPlace
+        int result = Cudd_ReduceHeap(manager, CUDD_REORDER_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        // Verify the BDD is still valid
+        REQUIRE(Cudd_DagSize(f) > 0);
+        
         Cudd_RecursiveDeref(manager, f);
         Cudd_Quit(manager);
     }
@@ -1175,30 +1181,20 @@ TEST_CASE("cuddReorder - ShuffleHeap comprehensive tests", "[cuddReorder]") {
 }
 
 TEST_CASE("cuddReorder - Larger swap operations", "[cuddReorder]") {
-    SECTION("Multiple adjacent swaps") {
+    SECTION("Multiple adjacent swaps via reordering") {
         DdManager *manager = Cudd_Init(6, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
         DdNode* f = createLargerBdd(manager, 6);
         REQUIRE(f != nullptr);
         
-        // Garbage collect and initialize
-        cuddGarbageCollect(manager, 1);
-        REQUIRE(cuddInitInteract(manager) == 1);
+        // Use WINDOW reordering which performs multiple swaps internally
+        int result = Cudd_ReduceHeap(manager, CUDD_REORDER_WINDOW2, 0);
+        REQUIRE(result >= 1);
         
-        // Calculate isolated projection functions
-        manager->isolated = 0;
-        for (int i = 0; i < manager->size; i++) {
-            if (manager->vars[i]->ref == 1) manager->isolated++;
-        }
+        // Verify BDD is still valid
+        REQUIRE(Cudd_DagSize(f) > 0);
         
-        // Perform multiple swaps
-        for (int i = 0; i < manager->size - 1; i++) {
-            int size = cuddSwapInPlace(manager, i, i + 1);
-            REQUIRE(size > 0);
-        }
-        
-        FREE(manager->interact);
         Cudd_RecursiveDeref(manager, f);
         Cudd_Quit(manager);
     }
@@ -1771,17 +1767,17 @@ TEST_CASE("cuddReorder - Cudd_PrintGroupedOrder hook", "[cuddReorder]") {
         // Add PrintGroupedOrder as a post-reordering hook
         REQUIRE(Cudd_AddHook(manager, Cudd_PrintGroupedOrder, CUDD_POST_REORDERING_HOOK) == 1);
         
-        // Redirect output temporarily to /dev/null
+        // Redirect output temporarily to a cross-platform temporary file
         FILE* oldOut = Cudd_ReadStdout(manager);
-        FILE* devNull = fopen("/dev/null", "w");
-        if (devNull != nullptr) {
-            Cudd_SetStdout(manager, devNull);
+        FILE* tempOut = tmpfile();
+        if (tempOut != nullptr) {
+            Cudd_SetStdout(manager, tempOut);
             
             // Reorder - hook should be called
             int result = Cudd_ReduceHeap(manager, CUDD_REORDER_SIFT, 0);
             REQUIRE(result >= 1);
             
-            fclose(devNull);
+            fclose(tempOut);
             Cudd_SetStdout(manager, oldOut);
         }
         
@@ -1809,17 +1805,17 @@ TEST_CASE("cuddReorder - Standard hooks", "[cuddReorder]") {
         REQUIRE(Cudd_IsInHook(manager, Cudd_StdPreReordHook, CUDD_PRE_REORDERING_HOOK) == 1);
         REQUIRE(Cudd_IsInHook(manager, Cudd_StdPostReordHook, CUDD_POST_REORDERING_HOOK) == 1);
         
-        // Redirect output
+        // Redirect output to a cross-platform temporary file
         FILE* oldErr = Cudd_ReadStderr(manager);
-        FILE* devNull = fopen("/dev/null", "w");
-        if (devNull != nullptr) {
-            Cudd_SetStderr(manager, devNull);
+        FILE* tempErr = tmpfile();
+        if (tempErr != nullptr) {
+            Cudd_SetStderr(manager, tempErr);
             
             // Reorder
             int result = Cudd_ReduceHeap(manager, CUDD_REORDER_SIFT, 0);
             REQUIRE(result >= 1);
             
-            fclose(devNull);
+            fclose(tempErr);
             Cudd_SetStderr(manager, oldErr);
         }
         
@@ -2006,16 +2002,16 @@ TEST_CASE("cuddReorder - SymmProfile", "[cuddReorder]") {
         DdNode* f = createComplexBdd(manager, 5);
         REQUIRE(f != nullptr);
         
-        // Redirect output
+        // Redirect output to a cross-platform temporary file
         FILE* oldOut = Cudd_ReadStdout(manager);
-        FILE* devNull = fopen("/dev/null", "w");
-        if (devNull != nullptr) {
-            Cudd_SetStdout(manager, devNull);
+        FILE* tempOut = tmpfile();
+        if (tempOut != nullptr) {
+            Cudd_SetStdout(manager, tempOut);
             
-            // Print symmetry profile
-            Cudd_SymmProfile(manager, 0, manager->size - 1);
+            // Print symmetry profile using public API
+            Cudd_SymmProfile(manager, 0, Cudd_ReadSize(manager) - 1);
             
-            fclose(devNull);
+            fclose(tempOut);
             Cudd_SetStdout(manager, oldOut);
         }
         
