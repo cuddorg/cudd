@@ -1269,11 +1269,13 @@ TEST_CASE("cuddUtil - DumpBlif with multiple outputs", "[cuddUtil]") {
     char** onames = new char*[2];
     onames[0] = strdup("f1");
     onames[1] = strdup("f2");
+    char* mname = strdup("multi");
     
-    int result = Cudd_DumpBlif(dd, 2, funcs, inames, onames, strdup("multi"), fp, 0);
+    int result = Cudd_DumpBlif(dd, 2, funcs, inames, onames, mname, fp, 0);
     REQUIRE(result == 1);
     
     fclose(fp);
+    free(mname);
     free(onames[0]);
     free(onames[1]);
     delete[] onames;
