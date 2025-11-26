@@ -3887,6 +3887,29 @@ TEST_CASE("cuddTable - cuddDestroySubtables attempts", "[cuddTable]") {
         
         Cudd_Quit(manager);
     }
+    
+    SECTION("Destroy with map set") {
+        DdManager *manager = Cudd_Init(10, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Access only variables 0-4
+        DdNode *x[5], *y[5];
+        for (int i = 0; i < 5; i++) {
+            x[i] = Cudd_bddIthVar(manager, i);
+            y[i] = Cudd_bddIthVar(manager, i + 5);
+        }
+        
+        // Set up variable map
+        int mapResult = Cudd_SetVarMap(manager, x, y, 5);
+        REQUIRE(mapResult == 1);
+        
+        // Now try to destroy the last 5 subtables (indices 5-9)
+        // This should trigger the map destruction code
+        int result = cuddDestroySubtables(manager, 5);
+        (void)result;
+        
+        Cudd_Quit(manager);
+    }
 }
 
 TEST_CASE("cuddTable - more cuddInsertSubtables paths", "[cuddTable]") {
