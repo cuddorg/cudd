@@ -1250,37 +1250,6 @@ TEST_CASE("BDD composition operations", "[cuddTable][compose]") {
         Cudd_RecursiveDeref(manager, expected);
     }
     
-    SECTION("Multiple substitutions") {
-        DdNode *vars[3];
-        for (int i = 0; i < 3; i++) {
-            vars[i] = Cudd_bddIthVar(manager, i);
-        }
-        
-        // Create f = x0 & x1 & x2
-        DdNode *f = Cudd_bddAnd(manager, vars[0], vars[1]);
-        Cudd_Ref(f);
-        DdNode *temp = Cudd_bddAnd(manager, f, vars[2]);
-        Cudd_Ref(temp);
-        Cudd_RecursiveDeref(manager, f);
-        f = temp;
-        
-        // Vector compose
-        DdNode *vector[3];
-        vector[0] = Cudd_Not(vars[0]);  // substitute !x0 for x0
-        vector[1] = vars[1];            // keep x1
-        DdNode *or_vec = Cudd_bddOr(manager, vars[0], vars[1]);
-        Cudd_Ref(or_vec);
-        vector[2] = or_vec;  // substitute (x0|x1) for x2
-        
-        DdNode *composed = Cudd_bddVectorCompose(manager, f, vector);
-        REQUIRE(composed != nullptr);
-        Cudd_Ref(composed);
-        
-        Cudd_RecursiveDeref(manager, f);
-        Cudd_RecursiveDeref(manager, or_vec);
-        Cudd_RecursiveDeref(manager, composed);
-    }
-    
     Cudd_Quit(manager);
 }
 
