@@ -8,10 +8,6 @@ extern "C" {
 #include "util.h"
 
 // Access to internal structures
-extern "C" {
-#include "cuddInt.h"
-#include "mtrInt.h"
-}
 
 /**
  * @brief Test file for cuddGroup.c
