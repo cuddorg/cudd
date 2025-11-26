@@ -802,8 +802,9 @@ TEST_CASE("epd - EpdSubtract", "[epd]") {
     }
     
     SECTION("Subtract with same exponents") {
+        // Use values that have the same internal exponent after conversion
         EpdConvert(1.5, &epd);
-        EpdSubtract(&epd, 0.5);
+        EpdSubtract(&epd, 1.25);  // 1.5 and 1.25 both have exponent 0
         REQUIRE(!EpdIsNan(&epd));
     }
     
@@ -888,8 +889,9 @@ TEST_CASE("epd - EpdSubtract2", "[epd]") {
     }
     
     SECTION("Subtract with same exponents") {
+        // Use values that have the same internal exponent after conversion
         EpdConvert(1.5, &epd1);
-        EpdConvert(0.5, &epd2);
+        EpdConvert(1.25, &epd2);  // 1.5 and 1.25 both have exponent 0
         EpdSubtract2(&epd1, &epd2);
         REQUIRE(!EpdIsNan(&epd1));
     }
@@ -935,8 +937,10 @@ TEST_CASE("epd - EpdSubtract3", "[epd]") {
     }
     
     SECTION("Inf - Inf copies epd1 (same sign)") {
-        // Note: The library behavior is that when signs are the same,
-        // it copies epd1 (returns Inf, not NaN)
+        // Note: The library's EpdSubtract3 has unconventional behavior.
+        // When both operands are Inf with the same sign, it copies epd1 
+        // instead of returning NaN (which would be the standard math result).
+        // This test documents the actual library behavior.
         EpdMakeInf(&epd1, 0);
         EpdMakeInf(&epd2, 0);
         EpdSubtract3(&epd1, &epd2, &epd3);
@@ -944,8 +948,10 @@ TEST_CASE("epd - EpdSubtract3", "[epd]") {
     }
     
     SECTION("Inf - (-Inf) = NaN (different signs)") {
-        // Note: The library behavior is that when signs differ,
-        // it returns NaN
+        // Note: The library's EpdSubtract3 has unconventional behavior.
+        // When operands have different signs, it returns NaN instead of
+        // Inf (which would be the standard math result for Inf - (-Inf)).
+        // This test documents the actual library behavior.
         EpdMakeInf(&epd1, 0);
         EpdMakeInf(&epd2, 1);
         EpdSubtract3(&epd1, &epd2, &epd3);
