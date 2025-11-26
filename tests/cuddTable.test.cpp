@@ -921,6 +921,14 @@ static int testTerminationCallback(const void *arg) {
     return (terminationCounter > 1000) ? 1 : 0;  // Terminate after 1000 checks
 }
 
+static int quickTerminationCounter = 0;
+
+static int quickTerminationCallback(const void *arg) {
+    (void)arg;
+    quickTerminationCounter++;
+    return (quickTerminationCounter > 5) ? 1 : 0;  // Terminate after 5 checks
+}
+
 TEST_CASE("cuddTable - Termination callback", "[cuddTable]") {
     SECTION("Register and trigger termination callback") {
         terminationCounter = 0;
@@ -944,6 +952,45 @@ TEST_CASE("cuddTable - Termination callback", "[cuddTable]") {
         }
         
         // Unregister callback
+        Cudd_UnregisterTerminationCallback(manager);
+        
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Termination callback that triggers termination") {
+        quickTerminationCounter = 0;
+        
+        DdManager *manager = Cudd_Init(20, 0, 32, 64, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Register termination callback with low threshold
+        Cudd_RegisterTerminationCallback(manager, quickTerminationCallback, nullptr);
+        
+        DdNode *vars[20];
+        for (int i = 0; i < 20; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+        }
+        
+        // Do lots of work - this may trigger termination
+        std::vector<DdNode*> nodes;
+        for (int i = 0; i < 200; i++) {
+            DdNode *f = Cudd_bddAnd(manager, vars[i % 20], vars[(i + 1) % 20]);
+            if (f != nullptr) {
+                Cudd_Ref(f);
+                nodes.push_back(f);
+            }
+            // Check if termination was triggered
+            if (Cudd_ReadErrorCode(manager) == CUDD_TERMINATION) {
+                break;
+            }
+        }
+        
+        for (auto n : nodes) {
+            Cudd_RecursiveDeref(manager, n);
+        }
+        
+        // Clear error code
+        Cudd_ClearErrorCode(manager);
         Cudd_UnregisterTerminationCallback(manager);
         
         Cudd_Quit(manager);
@@ -3974,6 +4021,88 @@ TEST_CASE("cuddTable - cuddUniqueConst more coverage", "[cuddTable]") {
         }
         
         Cudd_EnableGarbageCollection(manager);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// Tests for timeout paths
+// ============================================================================
+
+TEST_CASE("cuddTable - Timeout handling", "[cuddTable]") {
+    SECTION("Set very short time limit") {
+        DdManager *manager = Cudd_Init(20, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Set a very short time limit (1ms)
+        Cudd_SetTimeLimit(manager, 1);
+        
+        DdNode *vars[20];
+        for (int i = 0; i < 20; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+        }
+        
+        // Perform operations - may timeout
+        std::vector<DdNode*> nodes;
+        for (int i = 0; i < 100; i++) {
+            DdNode *f = Cudd_bddAnd(manager, vars[i % 20], vars[(i + 1) % 20]);
+            if (f != nullptr) {
+                Cudd_Ref(f);
+                nodes.push_back(f);
+            } else if (Cudd_ReadErrorCode(manager) == CUDD_TIMEOUT_EXPIRED) {
+                break;
+            }
+        }
+        
+        for (auto n : nodes) {
+            Cudd_RecursiveDeref(manager, n);
+        }
+        
+        // Clear any error and timeout
+        Cudd_ClearErrorCode(manager);
+        Cudd_UnsetTimeLimit(manager);
+        
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// Tests for maxLive path in cuddAllocNode
+// ============================================================================
+
+TEST_CASE("cuddTable - MaxLive limit", "[cuddTable]") {
+    SECTION("Set low max live nodes") {
+        DdManager *manager = Cudd_Init(10, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Set a low max live limit
+        Cudd_SetMaxLive(manager, 100);
+        
+        DdNode *vars[10];
+        for (int i = 0; i < 10; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+        }
+        
+        // Try to exceed max live limit
+        std::vector<DdNode*> nodes;
+        for (int i = 0; i < 200; i++) {
+            DdNode *f = Cudd_bddAnd(manager, vars[i % 10], vars[(i + 1) % 10]);
+            if (f != nullptr) {
+                Cudd_Ref(f);
+                nodes.push_back(f);
+            } else {
+                // May hit limit
+                break;
+            }
+        }
+        
+        for (auto n : nodes) {
+            Cudd_RecursiveDeref(manager, n);
+        }
+        
+        Cudd_ClearErrorCode(manager);
+        Cudd_SetMaxLive(manager, ~0u);
+        
         Cudd_Quit(manager);
     }
 }
