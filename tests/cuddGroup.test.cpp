@@ -684,8 +684,11 @@ TEST_CASE("cuddTreeSifting - Complex structures", "[cuddGroup]") {
         Cudd_Ref(f2);
         DdNode *f3 = Cudd_bddAnd(manager, vars[6], vars[7]);
         Cudd_Ref(f3);
-        DdNode *f = Cudd_bddOr(manager, f1, Cudd_bddOr(manager, f2, f3));
+        DdNode *tmp_or = Cudd_bddOr(manager, f2, f3);
+        Cudd_Ref(tmp_or);
+        DdNode *f = Cudd_bddOr(manager, f1, tmp_or);
         Cudd_Ref(f);
+        Cudd_RecursiveDeref(manager, tmp_or);
         
         // Use NO_CHECK for basic group sifting
         Cudd_SetGroupcheck(manager, CUDD_NO_CHECK);
