@@ -1176,19 +1176,19 @@ TEST_CASE("Cudd_SubsetShortPaths - Very large BDD for page resizing", "[cuddSubs
     REQUIRE(manager != nullptr);
     
     // Create a very large BDD to trigger page resizing in NodeDist and Queue pages
-    const int NUM_VARS = 16;
+    // DEFAULT_NODE_DIST_PAGE_SIZE = 2048, so we need > 2048 unique nodes to trigger resize
+    const int NUM_VARS = 24;
     DdNode *vars[NUM_VARS];
     for (int i = 0; i < NUM_VARS; i++) {
         vars[i] = Cudd_bddNewVar(manager);
         Cudd_Ref(vars[i]);
     }
     
-    SECTION("Large BDD to trigger ResizeNodeDistPages") {
-        // Create a large enough BDD structure to trigger page resize
-        // XOR chains create exponentially many nodes
+    SECTION("Large XOR BDD to trigger ResizeNodeDistPages") {
+        // Create a larger XOR chain - this grows as 2n+1 nodes
         DdNode *f = vars[0];
         Cudd_Ref(f);
-        for (int i = 1; i < 14; i++) {
+        for (int i = 1; i < NUM_VARS; i++) {
             DdNode *tmp = Cudd_bddXor(manager, f, vars[i]);
             Cudd_RecursiveDeref(manager, f);
             if (tmp == nullptr) {
@@ -1201,8 +1201,7 @@ TEST_CASE("Cudd_SubsetShortPaths - Very large BDD for page resizing", "[cuddSubs
         
         if (f != nullptr) {
             int size = Cudd_DagSize(f);
-            // Only proceed if BDD is large enough (DEFAULT_NODE_DIST_PAGE_SIZE = 2048)
-            DdNode *result = Cudd_SubsetShortPaths(manager, f, 14, size / 2, 0);
+            DdNode *result = Cudd_SubsetShortPaths(manager, f, NUM_VARS, size / 2, 0);
             if (result != nullptr) {
                 Cudd_Ref(result);
                 REQUIRE(Cudd_bddLeq(manager, result, f));
@@ -1230,6 +1229,44 @@ TEST_CASE("Cudd_SubsetShortPaths - Very large BDD for page resizing", "[cuddSubs
         
         Cudd_RecursiveDeref(manager, result);
         Cudd_RecursiveDeref(manager, f);
+    }
+    
+    SECTION("Multiple independent XOR structures combined") {
+        // Create multiple independent XOR chains and combine them
+        // This creates a larger BDD with more nodes
+        DdNode *chains[3];
+        int chainLen = 8;
+        
+        for (int c = 0; c < 3; c++) {
+            chains[c] = vars[c * chainLen];
+            Cudd_Ref(chains[c]);
+            for (int i = 1; i < chainLen; i++) {
+                DdNode *tmp = Cudd_bddXor(manager, chains[c], vars[c * chainLen + i]);
+                Cudd_RecursiveDeref(manager, chains[c]);
+                chains[c] = tmp;
+                Cudd_Ref(chains[c]);
+            }
+        }
+        
+        // Combine chains with AND operations (creates product)
+        DdNode *f = Cudd_bddAnd(manager, chains[0], chains[1]);
+        Cudd_Ref(f);
+        DdNode *g = Cudd_bddAnd(manager, f, chains[2]);
+        Cudd_Ref(g);
+        
+        int size = Cudd_DagSize(g);
+        DdNode *result = Cudd_SubsetShortPaths(manager, g, NUM_VARS, size / 3, 0);
+        if (result != nullptr) {
+            Cudd_Ref(result);
+            REQUIRE(Cudd_bddLeq(manager, result, g));
+            Cudd_RecursiveDeref(manager, result);
+        }
+        
+        Cudd_RecursiveDeref(manager, g);
+        Cudd_RecursiveDeref(manager, f);
+        for (int c = 0; c < 3; c++) {
+            Cudd_RecursiveDeref(manager, chains[c]);
+        }
     }
     
     for (int i = 0; i < NUM_VARS; i++) {
