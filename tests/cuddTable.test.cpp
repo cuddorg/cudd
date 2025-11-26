@@ -3340,3 +3340,640 @@ TEST_CASE("cuddTable - cuddGarbageCollect hooks and counters", "[cuddTable]") {
         Cudd_Quit(manager);
     }
 }
+
+// ============================================================================
+// Tests for triggering auto-reordering during cuddUniqueInter
+// ============================================================================
+
+TEST_CASE("cuddTable - cuddUniqueInter auto-reordering path", "[cuddTable]") {
+    SECTION("Trigger auto-reordering in cuddUniqueInter") {
+        DdManager *manager = Cudd_Init(20, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Enable auto-reordering with a very low threshold to trigger it quickly
+        Cudd_AutodynEnable(manager, CUDD_REORDER_SIFT);
+        Cudd_SetNextReordering(manager, 50);
+        
+        DdNode *vars[20];
+        for (int i = 0; i < 20; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+        }
+        
+        // Create a complex BDD to trigger reordering
+        std::vector<DdNode*> nodes;
+        DdNode *f = vars[0];
+        Cudd_Ref(f);
+        
+        for (int i = 1; i < 20; i++) {
+            // Alternating AND and XOR to create non-trivial structure
+            DdNode *g;
+            if (i % 2 == 0) {
+                g = Cudd_bddAnd(manager, f, vars[i]);
+            } else {
+                g = Cudd_bddXor(manager, f, vars[i]);
+            }
+            if (g != nullptr) {
+                Cudd_Ref(g);
+                Cudd_RecursiveDeref(manager, f);
+                f = g;
+            }
+        }
+        
+        // Continue building to trigger reordering
+        for (int iter = 0; iter < 10; iter++) {
+            for (int i = 0; i < 20; i++) {
+                DdNode *g = Cudd_bddOr(manager, f, vars[i]);
+                if (g != nullptr) {
+                    Cudd_Ref(g);
+                    Cudd_RecursiveDeref(manager, f);
+                    f = g;
+                }
+            }
+        }
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_AutodynDisable(manager);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Aggressive auto-reordering to trigger return path") {
+        DdManager *manager = Cudd_Init(15, 0, 64, 256, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Enable auto-reordering with very aggressive settings
+        Cudd_AutodynEnable(manager, CUDD_REORDER_SIFT);
+        Cudd_SetNextReordering(manager, 20);
+        
+        DdNode *vars[15];
+        for (int i = 0; i < 15; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+        }
+        
+        // Create many BDD operations rapidly
+        std::vector<DdNode*> results;
+        for (int round = 0; round < 20; round++) {
+            DdNode *f = vars[round % 15];
+            Cudd_Ref(f);
+            
+            for (int i = 0; i < 15; i++) {
+                DdNode *g = Cudd_bddXor(manager, f, vars[(round + i) % 15]);
+                if (g != nullptr) {
+                    Cudd_Ref(g);
+                    Cudd_RecursiveDeref(manager, f);
+                    f = g;
+                }
+            }
+            results.push_back(f);
+        }
+        
+        for (auto n : results) {
+            Cudd_RecursiveDeref(manager, n);
+        }
+        
+        Cudd_AutodynDisable(manager);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// Tests for subtable overflow and rehashing in cuddUniqueInter
+// ============================================================================
+
+TEST_CASE("cuddTable - cuddUniqueInter subtable overflow", "[cuddTable]") {
+    SECTION("Trigger subtable overflow and rehash") {
+        // Start with very small subtables to quickly trigger overflow
+        // Use more variables to create more unique nodes
+        DdManager *manager = Cudd_Init(50, 0, 4, 16, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Disable GC to force rehash path
+        Cudd_DisableGarbageCollection(manager);
+        
+        DdNode *vars[50];
+        for (int i = 0; i < 50; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+        }
+        
+        // Create many unique nodes - each AND of vars[i] and vars[j] creates
+        // a unique node if i and j are different
+        std::vector<DdNode*> nodes;
+        for (int i = 0; i < 50; i++) {
+            for (int j = i + 1; j < 50; j++) {
+                DdNode *f = Cudd_bddAnd(manager, vars[i], vars[j]);
+                if (f != nullptr) {
+                    Cudd_Ref(f);
+                    nodes.push_back(f);
+                }
+            }
+        }
+        
+        // Clean up
+        for (auto n : nodes) {
+            Cudd_RecursiveDeref(manager, n);
+        }
+        
+        Cudd_EnableGarbageCollection(manager);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Trigger GC path during overflow") {
+        // Start with small subtables
+        DdManager *manager = Cudd_Init(20, 0, 4, 16, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode *vars[20];
+        for (int i = 0; i < 20; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+        }
+        
+        // Create and release many nodes to accumulate dead nodes
+        for (int round = 0; round < 10; round++) {
+            std::vector<DdNode*> batch;
+            for (int i = 0; i < 20; i++) {
+                for (int j = i + 1; j < 20; j++) {
+                    DdNode *f = Cudd_bddAnd(manager, vars[i], vars[j]);
+                    if (f != nullptr) {
+                        Cudd_Ref(f);
+                        batch.push_back(f);
+                    }
+                }
+            }
+            // Release nodes to create dead nodes
+            for (auto n : batch) {
+                Cudd_RecursiveDeref(manager, n);
+            }
+        }
+        
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// Tests for cache miss interval checking in cuddUniqueInter
+// ============================================================================
+
+TEST_CASE("cuddTable - cuddUniqueInter cache miss check", "[cuddTable]") {
+    SECTION("Trigger cache miss interval check") {
+        DdManager *manager = Cudd_Init(10, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode *vars[10];
+        for (int i = 0; i < 10; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+        }
+        
+        // Perform many operations to trigger periodic checks
+        // The check happens when (0x1ffff & cacheMisses) == 0
+        std::vector<DdNode*> nodes;
+        for (int i = 0; i < 200000; i++) {
+            DdNode *f = Cudd_bddAnd(manager, vars[i % 10], vars[(i + 1) % 10]);
+            if (f != nullptr) {
+                Cudd_Ref(f);
+                nodes.push_back(f);
+                if (nodes.size() > 1000) {
+                    Cudd_RecursiveDeref(manager, nodes.back());
+                    nodes.pop_back();
+                }
+            }
+        }
+        
+        for (auto n : nodes) {
+            Cudd_RecursiveDeref(manager, n);
+        }
+        
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// Tests for Cudd_Reserve overflow path
+// ============================================================================
+
+TEST_CASE("cuddTable - Cudd_Reserve overflow", "[cuddTable]") {
+    SECTION("Test overflow check in Cudd_Reserve") {
+        DdManager *manager = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // The function checks for overflow: currentSize + amount < currentSize
+        // This would happen with very large amount values
+        // We can't easily test true overflow, but we can test the boundary
+        
+        int currentSize = Cudd_ReadSize(manager);
+        
+        // Reserve should succeed for reasonable amounts
+        int result = Cudd_Reserve(manager, 100);
+        REQUIRE(result != 0);
+        
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// Tests for cuddInitTable error paths
+// ============================================================================
+
+TEST_CASE("cuddTable - cuddInitTable various configs", "[cuddTable]") {
+    SECTION("Init with specific cache and memory limits") {
+        // Test with specific memory limit to exercise different paths
+        DdManager *m1 = Cudd_Init(10, 0, 128, 256, 1024*1024);
+        REQUIRE(m1 != nullptr);
+        Cudd_Quit(m1);
+        
+        // Test with both BDD and ZDD variables
+        DdManager *m2 = Cudd_Init(10, 10, 256, 512, 0);
+        REQUIRE(m2 != nullptr);
+        
+        // Access both BDD and ZDD variables
+        for (int i = 0; i < 10; i++) {
+            DdNode *bv = Cudd_bddIthVar(m2, i);
+            DdNode *zv = Cudd_zddIthVar(m2, i);
+            REQUIRE(bv != nullptr);
+            REQUIRE(zv != nullptr);
+        }
+        
+        Cudd_Quit(m2);
+    }
+}
+
+// ============================================================================
+// Tests for cuddUniqueInterZdd more coverage
+// ============================================================================
+
+TEST_CASE("cuddTable - cuddUniqueInterZdd extensive", "[cuddTable]") {
+    SECTION("ZDD operations with small tables") {
+        DdManager *manager = Cudd_Init(0, 10, 4, 16, 0);
+        REQUIRE(manager != nullptr);
+        
+        Cudd_DisableGarbageCollection(manager);
+        
+        DdNode *z[10];
+        for (int i = 0; i < 10; i++) {
+            z[i] = Cudd_zddIthVar(manager, i);
+        }
+        
+        // Create many ZDD operations
+        std::vector<DdNode*> nodes;
+        for (int i = 0; i < 300; i++) {
+            DdNode *f = Cudd_zddUnion(manager, z[i % 10], z[(i + 1) % 10]);
+            if (f != nullptr) {
+                Cudd_Ref(f);
+                nodes.push_back(f);
+            }
+            
+            DdNode *g = Cudd_zddIntersect(manager, z[(i + 2) % 10], z[(i + 3) % 10]);
+            if (g != nullptr) {
+                Cudd_Ref(g);
+                nodes.push_back(g);
+            }
+        }
+        
+        for (auto n : nodes) {
+            Cudd_RecursiveDerefZdd(manager, n);
+        }
+        
+        Cudd_EnableGarbageCollection(manager);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// Tests for cuddAllocNode error paths
+// ============================================================================
+
+TEST_CASE("cuddTable - cuddAllocNode memory paths", "[cuddTable]") {
+    SECTION("Allocate many nodes to exercise memory management") {
+        // Use small memory limit to potentially trigger memory handling
+        DdManager *manager = Cudd_Init(10, 0, 32, 64, 512*1024);
+        REQUIRE(manager != nullptr);
+        
+        DdNode *vars[10];
+        for (int i = 0; i < 10; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+        }
+        
+        // Create many nodes
+        std::vector<DdNode*> nodes;
+        for (int i = 0; i < 5000; i++) {
+            DdNode *f = Cudd_bddIte(manager, vars[i % 10], vars[(i + 1) % 10], vars[(i + 2) % 10]);
+            if (f != nullptr) {
+                Cudd_Ref(f);
+                nodes.push_back(f);
+            }
+        }
+        
+        // Free half to create dead nodes
+        for (size_t i = 0; i < nodes.size() / 2; i++) {
+            Cudd_RecursiveDeref(manager, nodes[i]);
+        }
+        
+        // Force GC
+        cuddGarbageCollect(manager, 1);
+        
+        // Allocate more to use reclaimed memory
+        for (int i = 0; i < 1000; i++) {
+            DdNode *f = Cudd_bddXor(manager, vars[i % 10], vars[(i + 1) % 10]);
+            if (f != nullptr) {
+                Cudd_Ref(f);
+                nodes.push_back(f);
+            }
+        }
+        
+        // Clean up
+        for (auto n : nodes) {
+            Cudd_RecursiveDeref(manager, n);
+        }
+        
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// Tests for ddResizeTable more coverage
+// ============================================================================
+
+TEST_CASE("cuddTable - ddResizeTable extensive", "[cuddTable]") {
+    SECTION("Resize table multiple times") {
+        DdManager *manager = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create variables with increasing indices to force resizes
+        for (int i = 5; i < 200; i++) {
+            DdNode *v = Cudd_bddIthVar(manager, i);
+            REQUIRE(v != nullptr);
+        }
+        
+        // Create operations with various variable combinations
+        DdNode *vars[200];
+        for (int i = 0; i < 200; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+        }
+        
+        std::vector<DdNode*> nodes;
+        for (int i = 0; i < 100; i++) {
+            DdNode *f = Cudd_bddAnd(manager, vars[i], vars[199 - i]);
+            if (f != nullptr) {
+                Cudd_Ref(f);
+                nodes.push_back(f);
+            }
+        }
+        
+        for (auto n : nodes) {
+            Cudd_RecursiveDeref(manager, n);
+        }
+        
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// Tests for cuddInsertSubtables with linear transform
+// ============================================================================
+
+TEST_CASE("cuddTable - cuddInsertSubtables with transforms", "[cuddTable]") {
+    SECTION("Insert with linear transform setup") {
+        DdManager *manager = Cudd_Init(10, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode *vars[10];
+        for (int i = 0; i < 10; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+        }
+        
+        // Enable linear transform reordering
+        Cudd_AutodynEnable(manager, CUDD_REORDER_LINEAR);
+        
+        // Create BDDs
+        DdNode *f = Cudd_bddAnd(manager, vars[0], vars[5]);
+        Cudd_Ref(f);
+        
+        // Insert new variables at various levels
+        for (int i = 0; i < 5; i++) {
+            DdNode *v = Cudd_bddNewVarAtLevel(manager, i * 2);
+            REQUIRE(v != nullptr);
+        }
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_AutodynDisable(manager);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// Additional tests for more cuddTable.c coverage
+// ============================================================================
+
+TEST_CASE("cuddTable - cuddUniqueInterZdd overflow", "[cuddTable]") {
+    SECTION("ZDD subtable overflow with many variables") {
+        DdManager *manager = Cudd_Init(0, 50, 4, 16, 0);
+        REQUIRE(manager != nullptr);
+        
+        Cudd_DisableGarbageCollection(manager);
+        
+        DdNode *z[50];
+        for (int i = 0; i < 50; i++) {
+            z[i] = Cudd_zddIthVar(manager, i);
+        }
+        
+        // Create many unique ZDD nodes
+        std::vector<DdNode*> nodes;
+        for (int i = 0; i < 50; i++) {
+            for (int j = i + 1; j < 50; j++) {
+                DdNode *f = Cudd_zddUnion(manager, z[i], z[j]);
+                if (f != nullptr) {
+                    Cudd_Ref(f);
+                    nodes.push_back(f);
+                }
+            }
+        }
+        
+        for (auto n : nodes) {
+            Cudd_RecursiveDerefZdd(manager, n);
+        }
+        
+        Cudd_EnableGarbageCollection(manager);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddTable - cuddGarbageCollect more paths", "[cuddTable]") {
+    SECTION("GC with BDD dead nodes in multiple subtables") {
+        DdManager *manager = Cudd_Init(10, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode *x[10];
+        for (int i = 0; i < 10; i++) {
+            x[i] = Cudd_bddIthVar(manager, i);
+        }
+        
+        // Create and release BDD nodes
+        for (int round = 0; round < 10; round++) {
+            std::vector<DdNode*> batch;
+            for (int i = 0; i < 10; i++) {
+                for (int j = i + 1; j < 10; j++) {
+                    DdNode *f = Cudd_bddAnd(manager, x[i], x[j]);
+                    if (f != nullptr) {
+                        Cudd_Ref(f);
+                        batch.push_back(f);
+                    }
+                }
+            }
+            for (auto n : batch) {
+                Cudd_RecursiveDeref(manager, n);
+            }
+        }
+        
+        // Force GC
+        cuddGarbageCollect(manager, 1);
+        
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddTable - cuddDestroySubtables attempts", "[cuddTable]") {
+    SECTION("Destroy with negative count") {
+        DdManager *manager = Cudd_Init(10, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Destroy with n <= 0 should return 0
+        int result = cuddDestroySubtables(manager, -1);
+        REQUIRE(result == 0);
+        
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddTable - more cuddInsertSubtables paths", "[cuddTable]") {
+    SECTION("Insert many subtables") {
+        DdManager *manager = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Insert many variables at once
+        for (int i = 0; i < 100; i++) {
+            DdNode *v = Cudd_bddNewVarAtLevel(manager, 0);
+            REQUIRE(v != nullptr);
+        }
+        
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Insert at various positions") {
+        DdManager *manager = Cudd_Init(20, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode *vars[20];
+        for (int i = 0; i < 20; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+        }
+        
+        // Create some BDDs
+        DdNode *f = Cudd_bddAnd(manager, vars[0], vars[19]);
+        Cudd_Ref(f);
+        
+        // Insert at various levels
+        for (int i = 0; i < 10; i++) {
+            DdNode *v = Cudd_bddNewVarAtLevel(manager, i * 3);
+            REQUIRE(v != nullptr);
+        }
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddTable - cuddRehash specific coverage", "[cuddTable]") {
+    SECTION("Rehash with high density") {
+        // Small slots to force quick overflow
+        DdManager *manager = Cudd_Init(30, 0, 4, 16, 0);
+        REQUIRE(manager != nullptr);
+        
+        Cudd_DisableGarbageCollection(manager);
+        
+        DdNode *vars[30];
+        for (int i = 0; i < 30; i++) {
+            vars[i] = Cudd_bddIthVar(manager, i);
+        }
+        
+        // Create many nodes
+        std::vector<DdNode*> nodes;
+        for (int i = 0; i < 30; i++) {
+            for (int j = i + 1; j < 30; j++) {
+                DdNode *f = Cudd_bddAnd(manager, vars[i], vars[j]);
+                if (f != nullptr) {
+                    Cudd_Ref(f);
+                    nodes.push_back(f);
+                }
+            }
+        }
+        
+        for (auto n : nodes) {
+            Cudd_RecursiveDeref(manager, n);
+        }
+        
+        Cudd_EnableGarbageCollection(manager);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddTable - ddResizeTable ZDD", "[cuddTable]") {
+    SECTION("Resize ZDD table") {
+        DdManager *manager = Cudd_Init(0, 5, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Access variables with indices beyond initial size
+        for (int i = 5; i < 100; i++) {
+            DdNode *z = Cudd_zddIthVar(manager, i);
+            REQUIRE(z != nullptr);
+        }
+        
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddTable - cuddInitTable ZDD paths", "[cuddTable]") {
+    SECTION("Init with many ZDD variables") {
+        DdManager *manager = Cudd_Init(0, 100, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        for (int i = 0; i < 100; i++) {
+            DdNode *z = Cudd_zddIthVar(manager, i);
+            REQUIRE(z != nullptr);
+        }
+        
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Init with both BDD and ZDD") {
+        DdManager *manager = Cudd_Init(50, 50, 128, 256, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Access alternating BDD and ZDD
+        for (int i = 0; i < 50; i++) {
+            DdNode *b = Cudd_bddIthVar(manager, i);
+            DdNode *z = Cudd_zddIthVar(manager, i);
+            REQUIRE(b != nullptr);
+            REQUIRE(z != nullptr);
+        }
+        
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddTable - cuddUniqueConst more coverage", "[cuddTable]") {
+    SECTION("Create many unique constants") {
+        DdManager *manager = Cudd_Init(5, 0, 4, 16, 0);
+        REQUIRE(manager != nullptr);
+        
+        Cudd_DisableGarbageCollection(manager);
+        
+        // Create many unique constants to overflow constant table
+        std::vector<DdNode*> constants;
+        for (int i = 0; i < 500; i++) {
+            DdNode *c = Cudd_addConst(manager, (double)i + 0.1 * (i % 100));
+            REQUIRE(c != nullptr);
+            constants.push_back(c);
+        }
+        
+        Cudd_EnableGarbageCollection(manager);
+        Cudd_Quit(manager);
+    }
+}
