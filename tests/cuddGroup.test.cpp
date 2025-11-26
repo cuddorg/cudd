@@ -1033,8 +1033,11 @@ TEST_CASE("cuddTreeSifting - Convergence and grouping", "[cuddGroup]") {
         Cudd_Ref(f2);
         DdNode *f3 = Cudd_bddAnd(manager, vars[2], vars[5]);
         Cudd_Ref(f3);
-        DdNode *f = Cudd_bddOr(manager, f1, Cudd_bddOr(manager, f2, f3));
+        DdNode *tmp_or = Cudd_bddOr(manager, f2, f3);
+        Cudd_Ref(tmp_or);
+        DdNode *f = Cudd_bddOr(manager, f1, tmp_or);
         Cudd_Ref(f);
+        Cudd_RecursiveDeref(manager, tmp_or);
         
         // Use converge which tries multiple times
         int result = Cudd_ReduceHeap(manager, CUDD_REORDER_SIFT_CONVERGE, 0);
