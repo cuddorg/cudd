@@ -958,8 +958,10 @@ TEST_CASE("cuddSubsetHB - Node count tests", "[cuddSubsetHB]") {
         
         int subsetSize = Cudd_DagSize(subset);
         
-        // Subset should not exceed threshold (unless original is smaller)
-        REQUIRE(subsetSize <= threshold + 1);  // +1 for possible rounding
+        // Subset should approximately meet threshold. The +1 accounts for the
+        // fact that SubsetHeavyBranch may not produce an exact size match
+        // due to the greedy heuristic nature of the algorithm.
+        REQUIRE(subsetSize <= threshold + 1);
         
         REQUIRE(Cudd_bddLeq(dd, subset, f) == 1);
         
@@ -1169,8 +1171,11 @@ TEST_CASE("cuddSubsetHB - Comprehensive BDD structure tests", "[cuddSubsetHB]") 
         DdNode *x4 = Cudd_bddIthVar(dd, 4);
         DdNode *x5 = Cudd_bddIthVar(dd, 5);
         DdNode *x6 = Cudd_bddIthVar(dd, 6);
-        DdNode *d1 = Cudd_bddAnd(dd, Cudd_bddAnd(dd, x4, x5), x6);
+        DdNode *x4_and_x5 = Cudd_bddAnd(dd, x4, x5);
+        Cudd_Ref(x4_and_x5);
+        DdNode *d1 = Cudd_bddAnd(dd, x4_and_x5, x6);
         Cudd_Ref(d1);
+        Cudd_RecursiveDeref(dd, x4_and_x5);
         
         DdNode *f = Cudd_bddIte(dd, s0, d1, d0);
         Cudd_Ref(f);
@@ -1681,8 +1686,11 @@ TEST_CASE("cuddSubsetHB - SubsetCountNodesAux branches", "[cuddSubsetHB]") {
         DdNode *x2 = Cudd_bddIthVar(dd, 2);
         DdNode *x3 = Cudd_bddIthVar(dd, 3);
         
-        DdNode *andPart = Cudd_bddAnd(dd, Cudd_bddAnd(dd, x1, x2), x3);
+        DdNode *x1_and_x2 = Cudd_bddAnd(dd, x1, x2);
+        Cudd_Ref(x1_and_x2);
+        DdNode *andPart = Cudd_bddAnd(dd, x1_and_x2, x3);
         Cudd_Ref(andPart);
+        Cudd_RecursiveDeref(dd, x1_and_x2);
         
         DdNode *f = Cudd_bddOr(dd, x0, andPart);
         Cudd_Ref(f);
@@ -1708,8 +1716,11 @@ TEST_CASE("cuddSubsetHB - SubsetCountNodesAux branches", "[cuddSubsetHB]") {
         // f = (x0 AND x1 AND x2 AND x3) OR NOT x0
         // When x0=0: TRUE (many minterms)
         // When x0=1: x1 AND x2 AND x3 (few minterms)
-        DdNode *andPart = Cudd_bddAnd(dd, x1, Cudd_bddAnd(dd, x2, x3));
+        DdNode *x2_and_x3 = Cudd_bddAnd(dd, x2, x3);
+        Cudd_Ref(x2_and_x3);
+        DdNode *andPart = Cudd_bddAnd(dd, x1, x2_and_x3);
         Cudd_Ref(andPart);
+        Cudd_RecursiveDeref(dd, x2_and_x3);
         
         DdNode *thenPart = Cudd_bddAnd(dd, x0, andPart);
         Cudd_Ref(thenPart);
