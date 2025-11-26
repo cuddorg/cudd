@@ -1,0 +1,4023 @@
+        -:    0:Source:/home/runner/work/cudd/cudd/src/cuddTable.c
+        -:    0:Graph:/tmp/build/CMakeFiles/cudd.dir/src/cuddTable.c.gcno
+        -:    0:Data:/tmp/build/CMakeFiles/cudd.dir/src/cuddTable.c.gcda
+        -:    0:Runs:351
+        -:    1:/**
+        -:    2:  @file
+        -:    3:
+        -:    4:  @ingroup cudd
+        -:    5:
+        -:    6:  @brief Unique table management functions.
+        -:    7:
+        -:    8:  @author Fabio Somenzi
+        -:    9:
+        -:   10:  @copyright@parblock
+        -:   11:  Copyright (c) 1995-2015, Regents of the University of Colorado
+        -:   12:
+        -:   13:  All rights reserved.
+        -:   14:
+        -:   15:  Redistribution and use in source and binary forms, with or without
+        -:   16:  modification, are permitted provided that the following conditions
+        -:   17:  are met:
+        -:   18:
+        -:   19:  Redistributions of source code must retain the above copyright
+        -:   20:  notice, this list of conditions and the following disclaimer.
+        -:   21:
+        -:   22:  Redistributions in binary form must reproduce the above copyright
+        -:   23:  notice, this list of conditions and the following disclaimer in the
+        -:   24:  documentation and/or other materials provided with the distribution.
+        -:   25:
+        -:   26:  Neither the name of the University of Colorado nor the names of its
+        -:   27:  contributors may be used to endorse or promote products derived from
+        -:   28:  this software without specific prior written permission.
+        -:   29:
+        -:   30:  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+        -:   31:  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+        -:   32:  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+        -:   33:  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+        -:   34:  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+        -:   35:  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+        -:   36:  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+        -:   37:  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+        -:   38:  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+        -:   39:  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+        -:   40:  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+        -:   41:  POSSIBILITY OF SUCH DAMAGE.
+        -:   42:  @endparblock
+        -:   43:
+        -:   44:*/
+        -:   45:
+        -:   46:#include "util.h"
+        -:   47:#include "mtrInt.h"
+        -:   48:#include "cuddInt.h"
+        -:   49:
+        -:   50:/*---------------------------------------------------------------------------*/
+        -:   51:/* Constant declarations                                                     */
+        -:   52:/*---------------------------------------------------------------------------*/
+        -:   53:
+        -:   54:#ifndef DD_UNSORTED_FREE_LIST
+        -:   55:#ifdef DD_RED_BLACK_FREE_LIST
+        -:   56:/* Constants for red/black trees. */
+        -:   57:#define DD_STACK_SIZE 128
+        -:   58:#define DD_RED   0
+        -:   59:#define DD_BLACK 1
+        -:   60:#define DD_PAGE_SIZE 8192
+        -:   61:#define DD_PAGE_MASK ~(DD_PAGE_SIZE - 1)
+        -:   62:#endif
+        -:   63:#endif
+        -:   64:
+        -:   65:/*---------------------------------------------------------------------------*/
+        -:   66:/* Stucture declarations                                                     */
+        -:   67:/*---------------------------------------------------------------------------*/
+        -:   68:
+        -:   69:/**
+        -:   70: * @brief This is a hack for when CUDD_VALUE_TYPE is double
+        -:   71: */
+        -:   72:typedef union hack {
+        -:   73:    CUDD_VALUE_TYPE value;
+        -:   74:    unsigned int bits[2];
+        -:   75:} hack;
+        -:   76:
+        -:   77:/*---------------------------------------------------------------------------*/
+        -:   78:/* Type declarations                                                         */
+        -:   79:/*---------------------------------------------------------------------------*/
+        -:   80:
+        -:   81:/*---------------------------------------------------------------------------*/
+        -:   82:/* Variable declarations                                                     */
+        -:   83:/*---------------------------------------------------------------------------*/
+        -:   84:
+        -:   85:
+        -:   86:/*---------------------------------------------------------------------------*/
+        -:   87:/* Macro declarations                                                        */
+        -:   88:/*---------------------------------------------------------------------------*/
+        -:   89:
+        -:   90:#ifndef DD_UNSORTED_FREE_LIST
+        -:   91:#ifdef DD_RED_BLACK_FREE_LIST
+        -:   92:/* Macros for red/black trees. */
+        -:   93:#define DD_INSERT_COMPARE(x,y) \
+        -:   94:	(((ptruint) (x) & DD_PAGE_MASK) - ((ptruint) (y) & DD_PAGE_MASK))
+        -:   95:#define DD_COLOR(p)  ((p)->index)
+        -:   96:#define DD_IS_BLACK(p) ((p)->index == DD_BLACK)
+        -:   97:#define DD_IS_RED(p) ((p)->index == DD_RED)
+        -:   98:#define DD_LEFT(p) cuddT(p)
+        -:   99:#define DD_RIGHT(p) cuddE(p)
+        -:  100:#define DD_NEXT(p) ((p)->next)
+        -:  101:#endif
+        -:  102:#endif
+        -:  103:
+        -:  104:
+        -:  105:/** \cond */
+        -:  106:
+        -:  107:/*---------------------------------------------------------------------------*/
+        -:  108:/* Static function prototypes                                                */
+        -:  109:/*---------------------------------------------------------------------------*/
+        -:  110:
+        -:  111:static void ddRehashZdd (DdManager *unique, int i);
+        -:  112:static int ddResizeTable (DdManager *unique, int index, int amount);
+        -:  113:static int cuddFindParent (DdManager *table, DdNode *node);
+        -:  114:static void ddFixLimits (DdManager *unique);
+        -:  115:#ifdef DD_RED_BLACK_FREE_LIST
+        -:  116:static void cuddOrderedInsert (DdNodePtr *root, DdNodePtr node);
+        -:  117:static DdNode * cuddOrderedThread (DdNode *root, DdNode *list);
+        -:  118:static void cuddRotateLeft (DdNodePtr *nodeP);
+        -:  119:static void cuddRotateRight (DdNodePtr *nodeP);
+        -:  120:static void cuddDoRebalance (DdNodePtr **stack, int stackN);
+        -:  121:#endif
+        -:  122:static void ddPatchTree (DdManager *dd, MtrNode *treenode);
+        -:  123:#ifdef DD_DEBUG
+        -:  124:static int cuddCheckCollisionOrdering (DdManager *unique, int i, int j);
+        -:  125:#endif
+        -:  126:static void ddReportRefMess (DdManager *unique, int i, const char *caller);
+        -:  127:
+        -:  128:/** \endcond */
+        -:  129:
+        -:  130:
+        -:  131:/*---------------------------------------------------------------------------*/
+        -:  132:/* Definition of exported functions                                          */
+        -:  133:/*---------------------------------------------------------------------------*/
+        -:  134:
+        -:  135:
+        -:  136:/**
+        -:  137:  @brief Returns the next prime &ge; p.
+        -:  138:
+        -:  139:  @sideeffect None
+        -:  140:
+        -:  141:*/
+        -:  142:unsigned int
+function Cudd_Prime called 0 returned 0% blocks executed 0%
+    #####:  143:Cudd_Prime(
+        -:  144:  unsigned int  p)
+        -:  145:{
+        -:  146:    unsigned int i, pn;
+        -:  147:
+    #####:  148:    p--;
+        -:  149:    do {
+    #####:  150:	p++;
+    #####:  151:	if (p&1) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  152:	    pn = 1;
+    #####:  153:	    i = 3;
+    #####:  154:	    while ((unsigned) (i * i) <= p) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:  155:		if (p % i == 0) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  156:		    pn = 0;
+    #####:  157:		    break;
+        -:  158:		}
+    #####:  159:		i += 2;
+        -:  160:	    }
+        -:  161:	} else {
+    #####:  162:	    pn = 0;
+        -:  163:	}
+    #####:  164:    } while (!pn);
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  165:    return(p);
+        -:  166:
+        -:  167:} /* end of Cudd_Prime */
+        -:  168:
+        -:  169:
+        -:  170:/**
+        -:  171:  @brief Expand manager without creating variables.
+        -:  172:
+        -:  173:  @details Expand a manager by a specified number of subtables without
+        -:  174:  actually creating new variables.  This function can be used to reduce the
+        -:  175:  frequency of resizing when an estimate of the number of variables is
+        -:  176:  available.  One would call this function instead of passing the number
+        -:  177:  of variables to Cudd_Init if variables should not be created right away
+        -:  178:  of if the estimate on their number became available only after the manager
+        -:  179:  has been created.
+        -:  180:
+        -:  181:  @return 1 if successful; 0 otherwise.
+        -:  182:
+        -:  183:  @sideeffect None
+        -:  184:
+        -:  185:  @see Cudd_Init
+        -:  186:
+        -:  187:*/
+        -:  188:int
+function Cudd_Reserve called 0 returned 0% blocks executed 0%
+    #####:  189:Cudd_Reserve(
+        -:  190:  DdManager *manager,
+        -:  191:  int amount)
+        -:  192:{
+    #####:  193:    int currentSize = manager->size;
+    #####:  194:    if (amount < 0)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  195:        return(0);
+    #####:  196:    if (currentSize + amount < currentSize) /* overflow */
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  197:        return(0);
+    #####:  198:    if (amount <= manager->maxSize - manager->size)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  199:        return(1);
+    #####:  200:    return ddResizeTable(manager, -1, amount);
+call    0 never executed
+        -:  201:
+        -:  202:} /* end of Cudd_Reserve */
+        -:  203:
+        -:  204:
+        -:  205:/*---------------------------------------------------------------------------*/
+        -:  206:/* Definition of internal functions                                          */
+        -:  207:/*---------------------------------------------------------------------------*/
+        -:  208:
+        -:  209:
+        -:  210:/**
+        -:  211:  @brief Fast storage allocation for DdNodes in the table.
+        -:  212:
+        -:  213:  @details The first 4 bytes of a chunk contain a pointer to the next
+        -:  214:  block; the rest contains DD_MEM_CHUNK spaces for DdNodes.
+        -:  215:
+        -:  216:  @return a pointer to a new node if successful; NULL is memory is
+        -:  217:  full.
+        -:  218:
+        -:  219:  @sideeffect None
+        -:  220:
+        -:  221:  @see cuddDynamicAllocNode
+        -:  222:
+        -:  223:*/
+        -:  224:DdNode *
+function cuddAllocNode called 14005 returned 100% blocks executed 53%
+    14005:  225:cuddAllocNode(
+        -:  226:  DdManager * unique)
+        -:  227:{
+        -:  228:    int i;
+        -:  229:    DdNodePtr *mem;
+        -:  230:    DdNode *list, *node;
+        -:  231:    extern DD_OOMFP MMoutOfMemory;
+        -:  232:    DD_OOMFP saveHandler;
+        -:  233:
+    14005:  234:    if (unique->nextFree == NULL) {	/* free list is empty */
+branch  0 taken 6% (fallthrough)
+branch  1 taken 94%
+        -:  235:	/* Check for exceeded limits. */
+     792*:  236:        if (unique->terminationCallback != NULL &&
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####:  237:            unique->terminationCallback(unique->tcbArg)) {
+call    0 never executed
+    #####:  238:            unique->errorCode = CUDD_TERMINATION;
+    #####:  239:            return(NULL);
+        -:  240:        }
+      792:  241:        if (util_cpu_time() - unique->startTime > unique->timeLimit) {
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+    #####:  242:            unique->errorCode = CUDD_TIMEOUT_EXPIRED;
+    #####:  243:            return(NULL);
+        -:  244:        }
+      792:  245:	if ((unique->keys - unique->dead) + (unique->keysZ - unique->deadZ) >
+      792:  246:	    unique->maxLive) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  247:	    unique->errorCode = CUDD_TOO_MANY_NODES;
+    #####:  248:	    return(NULL);
+        -:  249:	}
+      792:  250:	if (unique->stash == NULL || unique->memused > unique->maxmemhard) {
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+    #####:  251:	    (void) cuddGarbageCollect(unique,1);
+call    0 never executed
+    #####:  252:	    mem = NULL;
+        -:  253:	}
+      792:  254:	if (unique->nextFree == NULL) {
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+      792:  255:	    if (unique->memused > unique->maxmemhard) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  256:		unique->errorCode = CUDD_MAX_MEM_EXCEEDED;
+    #####:  257:		return(NULL);
+        -:  258:	    }
+        -:  259:	    /* Try to allocate a new block. */
+      792:  260:	    saveHandler = MMoutOfMemory;
+      792:  261:	    MMoutOfMemory = unique->outOfMemCallback;
+      792:  262:	    mem = (DdNodePtr *) ALLOC(DdNode,DD_MEM_CHUNK + 1);
+call    0 returned 100%
+      792:  263:	    MMoutOfMemory = saveHandler;
+      792:  264:	    if (mem == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  265:		/* No more memory: Try collecting garbage. If this succeeds,
+        -:  266:		** we end up with mem still NULL, but unique->nextFree !=
+        -:  267:		** NULL. */
+    #####:  268:		if (cuddGarbageCollect(unique,1) == 0) {
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+        -:  269:		    /* Last resort: Free the memory stashed away, if there
+        -:  270:		    ** any. If this succeeeds, mem != NULL and
+        -:  271:		    ** unique->nextFree still NULL. */
+    #####:  272:		    if (unique->stash != NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  273:			FREE(unique->stash);
+    #####:  274:			unique->stash = NULL;
+        -:  275:			/* Inhibit resizing of tables. */
+    #####:  276:			cuddSlowTableGrowth(unique);
+call    0 never executed
+        -:  277:			/* Now try again. */
+    #####:  278:			mem = (DdNodePtr *) ALLOC(DdNode,DD_MEM_CHUNK + 1);
+call    0 never executed
+        -:  279:		    }
+    #####:  280:		    if (mem == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  281:			/* Out of luck. Call the default handler to do
+        -:  282:			** whatever it specifies for a failed malloc.
+        -:  283:			** If this handler returns, then set error code,
+        -:  284:			** print warning, and return. */
+    #####:  285:			(*MMoutOfMemory)(sizeof(DdNode)*(DD_MEM_CHUNK + 1));
+call    0 never executed
+    #####:  286:			unique->errorCode = CUDD_MEMORY_OUT;
+        -:  287:#ifdef DD_VERBOSE
+        -:  288:			(void) fprintf(unique->err,
+        -:  289:				       "cuddAllocNode: out of memory");
+        -:  290:			(void) fprintf(unique->err, "Memory in use = %lu\n",
+        -:  291:				       unique->memused);
+        -:  292:#endif
+    #####:  293:			return(NULL);
+        -:  294:		    }
+        -:  295:		}
+        -:  296:	    }
+      792:  297:	    if (mem != NULL) {	/* successful allocation; slice memory */
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        -:  298:		ptruint offset;
+      792:  299:		unique->memused += (DD_MEM_CHUNK + 1) * sizeof(DdNode);
+      792:  300:		mem[0] = (DdNodePtr) unique->memoryList;
+      792:  301:		unique->memoryList = mem;
+        -:  302:
+        -:  303:		/* Here we rely on the fact that a DdNode is as large
+        -:  304:		** as 4 pointers.  */
+      792:  305:		offset = (ptruint) mem & (sizeof(DdNode) - 1);
+      792:  306:		mem += (sizeof(DdNode) - offset) / sizeof(DdNodePtr);
+        -:  307:		assert(((ptruint) mem & (sizeof(DdNode) - 1)) == 0);
+      792:  308:		list = (DdNode *) mem;
+        -:  309:
+      792:  310:		i = 1;
+        -:  311:		do {
+   808632:  312:		    list[i - 1].ref = 0;
+   808632:  313:		    list[i - 1].next = &list[i];
+   808632:  314:		} while (++i < DD_MEM_CHUNK);
+branch  0 taken 100% (fallthrough)
+branch  1 taken 1%
+        -:  315:
+      792:  316:		list[DD_MEM_CHUNK-1].ref = 0;
+      792:  317:		list[DD_MEM_CHUNK-1].next = NULL;
+        -:  318:
+      792:  319:		unique->nextFree = &list[0];
+        -:  320:	    }
+        -:  321:	}
+        -:  322:    }
+    14005:  323:    unique->allocated++;
+    14005:  324:    node = unique->nextFree;
+    14005:  325:    unique->nextFree = node->next;
+    14005:  326:    return(node);
+        -:  327:
+        -:  328:} /* end of cuddAllocNode */
+        -:  329:
+        -:  330:
+        -:  331:/**
+        -:  332:  @brief Creates and initializes the unique table.
+        -:  333:
+        -:  334:  @return a pointer to the table if successful; NULL otherwise.
+        -:  335:
+        -:  336:  @sideeffect None
+        -:  337:
+        -:  338:  @see Cudd_Init cuddFreeTable
+        -:  339:
+        -:  340:*/
+        -:  341:DdManager *
+function cuddInitTable called 792 returned 100% blocks executed 65%
+      792:  342:cuddInitTable(
+        -:  343:  unsigned int numVars  /**< Initial number of %BDD variables (and subtables) */,
+        -:  344:  unsigned int numVarsZ /**< Initial number of %ZDD variables (and subtables) */,
+        -:  345:  unsigned int numSlots /**< Initial size of the %BDD subtables */,
+        -:  346:  unsigned int looseUpTo /**< Limit for fast table growth */)
+        -:  347:{
+      792:  348:    DdManager	*unique = ALLOC(DdManager,1);
+call    0 returned 100%
+        -:  349:    int		i, j;
+        -:  350:    DdNodePtr	*nodelist;
+        -:  351:    DdNode	*sentinel;
+        -:  352:    unsigned int slots;
+        -:  353:    int shift;
+        -:  354:
+      792:  355:    if (unique == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  356:	return(NULL);
+        -:  357:    }
+      792:  358:    sentinel = &(unique->sentinel);
+      792:  359:    sentinel->ref = 0;
+      792:  360:    sentinel->index = 0;
+      792:  361:    cuddT(sentinel) = NULL;
+      792:  362:    cuddE(sentinel) = NULL;
+      792:  363:    sentinel->next = NULL;
+      792:  364:    unique->epsilon = DD_EPSILON;
+      792:  365:    unique->size = numVars;
+      792:  366:    unique->sizeZ = numVarsZ;
+      792:  367:    unique->maxSize = ddMax(DD_DEFAULT_RESIZE, numVars);
+      792:  368:    unique->maxSizeZ = ddMax(DD_DEFAULT_RESIZE, numVarsZ);
+        -:  369:
+        -:  370:    /* Adjust the requested number of slots to a power of 2. */
+      792:  371:    slots = 8;
+     4750:  372:    while (slots < numSlots) {
+branch  0 taken 83%
+branch  1 taken 17% (fallthrough)
+     3958:  373:	slots <<= 1;
+        -:  374:    }
+      792:  375:    unique->initSlots = slots;
+      792:  376:    shift = sizeof(int) * 8 - cuddComputeFloorLog2(slots);
+call    0 returned 100%
+        -:  377:
+      792:  378:    unique->slots = (numVars + numVarsZ + 1) * slots;
+      792:  379:    unique->keys = 0;
+      792:  380:    unique->maxLive = ~0;	/* very large number */
+      792:  381:    unique->keysZ = 0;
+      792:  382:    unique->dead = 0;
+      792:  383:    unique->deadZ = 0;
+      792:  384:    unique->gcFrac = DD_GC_FRAC_HI;
+      792:  385:    unique->minDead = (unsigned) (DD_GC_FRAC_HI * (double) unique->slots);
+      792:  386:    unique->looseUpTo = looseUpTo;
+      792:  387:    unique->gcEnabled = 1;
+      792:  388:    unique->allocated = 0;
+      792:  389:    unique->reclaimed = 0;
+      792:  390:    unique->subtables = ALLOC(DdSubtable,unique->maxSize);
+call    0 returned 100%
+      792:  391:    if (unique->subtables == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  392:	FREE(unique);
+    #####:  393:	return(NULL);
+        -:  394:    }
+      792:  395:    unique->subtableZ = ALLOC(DdSubtable,unique->maxSizeZ);
+call    0 returned 100%
+      792:  396:    if (unique->subtableZ == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  397:	FREE(unique->subtables);
+    #####:  398:	FREE(unique);
+    #####:  399:	return(NULL);
+        -:  400:    }
+      792:  401:    unique->perm = ALLOC(int,unique->maxSize);
+call    0 returned 100%
+      792:  402:    if (unique->perm == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  403:	FREE(unique->subtables);
+    #####:  404:	FREE(unique->subtableZ);
+    #####:  405:	FREE(unique);
+    #####:  406:	return(NULL);
+        -:  407:    }
+      792:  408:    unique->invperm = ALLOC(int,unique->maxSize);
+call    0 returned 100%
+      792:  409:    if (unique->invperm == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  410:	FREE(unique->subtables);
+    #####:  411:	FREE(unique->subtableZ);
+    #####:  412:	FREE(unique->perm);
+    #####:  413:	FREE(unique);
+    #####:  414:	return(NULL);
+        -:  415:    }
+      792:  416:    unique->permZ = ALLOC(int,unique->maxSizeZ);
+call    0 returned 100%
+      792:  417:    if (unique->permZ == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  418:	FREE(unique->subtables);
+    #####:  419:	FREE(unique->subtableZ);
+    #####:  420:	FREE(unique->perm);
+    #####:  421:	FREE(unique->invperm);
+    #####:  422:	FREE(unique);
+    #####:  423:	return(NULL);
+        -:  424:    }
+      792:  425:    unique->invpermZ = ALLOC(int,unique->maxSizeZ);
+call    0 returned 100%
+      792:  426:    if (unique->invpermZ == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  427:	FREE(unique->subtables);
+    #####:  428:	FREE(unique->subtableZ);
+    #####:  429:	FREE(unique->perm);
+    #####:  430:	FREE(unique->invperm);
+    #####:  431:	FREE(unique->permZ);
+    #####:  432:	FREE(unique);
+    #####:  433:	return(NULL);
+        -:  434:    }
+      792:  435:    unique->map = NULL;
+      792:  436:    unique->stack = ALLOC(DdNodePtr,ddMax(unique->maxSize,unique->maxSizeZ)+1);
+call    0 returned 100%
+      792:  437:    if (unique->stack == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  438:	FREE(unique->subtables);
+    #####:  439:	FREE(unique->subtableZ);
+    #####:  440:	FREE(unique->perm);
+    #####:  441:	FREE(unique->invperm);
+    #####:  442:	FREE(unique->permZ);
+    #####:  443:	FREE(unique->invpermZ);
+    #####:  444:	FREE(unique);
+    #####:  445:	return(NULL);
+        -:  446:    }
+      792:  447:    unique->stack[0] = NULL; /* to suppress harmless UMR */
+        -:  448:
+        -:  449:#ifndef DD_NO_DEATH_ROW
+      792:  450:    unique->deathRowDepth = 1U << cuddComputeFloorLog2(unique->looseUpTo >> 2);
+call    0 returned 100%
+      792:  451:    unique->deathRow = ALLOC(DdNodePtr,unique->deathRowDepth);
+call    0 returned 100%
+      792:  452:    if (unique->deathRow == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  453:	FREE(unique->subtables);
+    #####:  454:	FREE(unique->subtableZ);
+    #####:  455:	FREE(unique->perm);
+    #####:  456:	FREE(unique->invperm);
+    #####:  457:	FREE(unique->permZ);
+    #####:  458:	FREE(unique->invpermZ);
+    #####:  459:	FREE(unique->stack);
+    #####:  460:	FREE(unique);
+    #####:  461:	return(NULL);
+        -:  462:    }
+206914329:  463:    for (i = 0; i < unique->deathRowDepth; i++) {
+branch  0 taken 100%
+branch  1 taken 1% (fallthrough)
+206913537:  464:	unique->deathRow[i] = NULL;
+        -:  465:    }
+      792:  466:    unique->nextDead = 0;
+      792:  467:    unique->deadMask = unique->deathRowDepth - 1;
+        -:  468:#endif
+        -:  469:
+     1080:  470:    for (i = 0; (unsigned) i < numVars; i++) {
+branch  0 taken 27%
+branch  1 taken 73% (fallthrough)
+      288:  471:	unique->subtables[i].slots = slots;
+      288:  472:	unique->subtables[i].shift = shift;
+      288:  473:	unique->subtables[i].keys = 0;
+      288:  474:	unique->subtables[i].dead = 0;
+      288:  475:        unique->subtables[i].next = i;
+      288:  476:	unique->subtables[i].maxKeys = slots * DD_MAX_SUBTABLE_DENSITY;
+      288:  477:	unique->subtables[i].bindVar = 0;
+      288:  478:	unique->subtables[i].varType = CUDD_VAR_PRIMARY_INPUT;
+      288:  479:	unique->subtables[i].pairIndex = 0;
+      288:  480:	unique->subtables[i].varHandled = 0;
+      288:  481:	unique->subtables[i].varToBeGrouped = CUDD_LAZY_NONE;
+        -:  482:
+      288:  483:	nodelist = unique->subtables[i].nodelist = ALLOC(DdNodePtr,slots);
+call    0 returned 100%
+      288:  484:	if (nodelist == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  485:	    for (j = 0; j < i; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:  486:		FREE(unique->subtables[j].nodelist);
+        -:  487:	    }
+    #####:  488:	    FREE(unique->subtables);
+    #####:  489:	    FREE(unique->subtableZ);
+    #####:  490:	    FREE(unique->perm);
+    #####:  491:	    FREE(unique->invperm);
+    #####:  492:	    FREE(unique->permZ);
+    #####:  493:	    FREE(unique->invpermZ);
+    #####:  494:	    FREE(unique->stack);
+    #####:  495:	    FREE(unique);
+    #####:  496:	    return(NULL);
+        -:  497:	}
+    79912:  498:	for (j = 0; (unsigned) j < slots; j++) {
+branch  0 taken 100%
+branch  1 taken 1% (fallthrough)
+    79624:  499:	    nodelist[j] = sentinel;
+        -:  500:	}
+      288:  501:	unique->perm[i] = i;
+      288:  502:	unique->invperm[i] = i;
+        -:  503:    }
+      931:  504:    for (i = 0; (unsigned) i < numVarsZ; i++) {
+branch  0 taken 15%
+branch  1 taken 85% (fallthrough)
+      139:  505:	unique->subtableZ[i].slots = slots;
+      139:  506:	unique->subtableZ[i].shift = shift;
+      139:  507:	unique->subtableZ[i].keys = 0;
+      139:  508:	unique->subtableZ[i].dead = 0;
+      139:  509:        unique->subtableZ[i].next = i;
+      139:  510:	unique->subtableZ[i].maxKeys = slots * DD_MAX_SUBTABLE_DENSITY;
+      139:  511:	nodelist = unique->subtableZ[i].nodelist = ALLOC(DdNodePtr,slots);
+call    0 returned 100%
+      139:  512:	if (nodelist == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  513:	    for (j = 0; (unsigned) j < numVars; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:  514:		FREE(unique->subtables[j].nodelist);
+        -:  515:	    }
+    #####:  516:	    FREE(unique->subtables);
+    #####:  517:	    for (j = 0; j < i; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:  518:		FREE(unique->subtableZ[j].nodelist);
+        -:  519:	    }
+    #####:  520:	    FREE(unique->subtableZ);
+    #####:  521:	    FREE(unique->perm);
+    #####:  522:	    FREE(unique->invperm);
+    #####:  523:	    FREE(unique->permZ);
+    #####:  524:	    FREE(unique->invpermZ);
+    #####:  525:	    FREE(unique->stack);
+    #####:  526:	    FREE(unique);
+    #####:  527:	    return(NULL);
+        -:  528:	}
+    40083:  529:	for (j = 0; (unsigned) j < slots; j++) {
+branch  0 taken 100%
+branch  1 taken 1% (fallthrough)
+    39944:  530:	    nodelist[j] = NULL;
+        -:  531:	}
+      139:  532:	unique->permZ[i] = i;
+      139:  533:	unique->invpermZ[i] = i;
+        -:  534:    }
+      792:  535:    unique->constants.slots = slots;
+      792:  536:    unique->constants.shift = shift;
+      792:  537:    unique->constants.keys = 0;
+      792:  538:    unique->constants.dead = 0;
+      792:  539:    unique->constants.next = 0;
+      792:  540:    unique->constants.bindVar = 0;
+      792:  541:    unique->constants.varType = CUDD_VAR_PRIMARY_INPUT;
+      792:  542:    unique->constants.pairIndex = 0;
+      792:  543:    unique->constants.varHandled = 0;
+      792:  544:    unique->constants.varToBeGrouped = CUDD_LAZY_NONE;
+      792:  545:    unique->constants.maxKeys = slots * DD_MAX_SUBTABLE_DENSITY;
+      792:  546:    nodelist = unique->constants.nodelist = ALLOC(DdNodePtr,slots);
+call    0 returned 100%
+      792:  547:    if (nodelist == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  548:	for (j = 0; (unsigned) j < numVars; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:  549:	    FREE(unique->subtables[j].nodelist);
+        -:  550:	}
+    #####:  551:	FREE(unique->subtables);
+    #####:  552:	for (j = 0; (unsigned) j < numVarsZ; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:  553:	    FREE(unique->subtableZ[j].nodelist);
+        -:  554:	}
+    #####:  555:	FREE(unique->subtableZ);
+    #####:  556:	FREE(unique->perm);
+    #####:  557:	FREE(unique->invperm);
+    #####:  558:	FREE(unique->permZ);
+    #####:  559:	FREE(unique->invpermZ);
+    #####:  560:	FREE(unique->stack);
+    #####:  561:	FREE(unique);
+    #####:  562:	return(NULL);
+        -:  563:    }
+   204320:  564:    for (j = 0; (unsigned) j < slots; j++) {
+branch  0 taken 100%
+branch  1 taken 1% (fallthrough)
+   203528:  565:	nodelist[j] = NULL;
+        -:  566:    }
+        -:  567:
+      792:  568:    unique->memoryList = NULL;
+      792:  569:    unique->nextFree = NULL;
+        -:  570:
+      792:  571:    unique->memused = sizeof(DdManager) + (unique->maxSize + unique->maxSizeZ)
+      792:  572:	* (sizeof(DdSubtable) + 2 * sizeof(int)) + (numVars + 1) *
+      792:  573:	slots * sizeof(DdNodePtr) +
+      792:  574:	(ddMax(unique->maxSize,unique->maxSizeZ) + 1) * sizeof(DdNodePtr);
+        -:  575:#ifndef DD_NO_DEATH_ROW
+      792:  576:    unique->memused += unique->deathRowDepth * sizeof(DdNodePtr);
+        -:  577:#endif
+        -:  578:
+        -:  579:    /* Initialize fields concerned with automatic dynamic reordering. */
+      792:  580:    unique->reordered = 0;
+      792:  581:    unique->reorderings = 0;
+      792:  582:    unique->maxReorderings = ~0;
+      792:  583:    unique->siftMaxVar = DD_SIFT_MAX_VAR;
+      792:  584:    unique->siftMaxSwap = DD_SIFT_MAX_SWAPS;
+      792:  585:    unique->maxGrowth = DD_MAX_REORDER_GROWTH;
+      792:  586:    unique->maxGrowthAlt = 2.0 * DD_MAX_REORDER_GROWTH;
+      792:  587:    unique->reordCycle = 0;	/* do not use alternate threshold */
+      792:  588:    unique->autoDyn = 0;	/* initially disabled */
+      792:  589:    unique->autoDynZ = 0;	/* initially disabled */
+      792:  590:    unique->autoMethod = CUDD_REORDER_SIFT;
+      792:  591:    unique->autoMethodZ = CUDD_REORDER_SIFT;
+      792:  592:    unique->realign = 0;	/* initially disabled */
+      792:  593:    unique->realignZ = 0;	/* initially disabled */
+      792:  594:    unique->nextDyn = DD_FIRST_REORDER;
+      792:  595:    unique->countDead = ~0;
+      792:  596:    unique->tree = NULL;
+      792:  597:    unique->treeZ = NULL;
+      792:  598:    unique->groupcheck = CUDD_GROUP_CHECK7;
+      792:  599:    unique->recomb = DD_DEFAULT_RECOMB;
+      792:  600:    unique->symmviolation = 0;
+      792:  601:    unique->arcviolation = 0;
+      792:  602:    unique->populationSize = 0;
+      792:  603:    unique->numberXovers = 0;
+      792:  604:    unique->randomizeOrder = 0;
+      792:  605:    unique->linear = NULL;
+      792:  606:    unique->originalSize = 0;
+      792:  607:    unique->linearSize = 0;
+        -:  608:
+        -:  609:    /* Initialize ZDD universe. */
+      792:  610:    unique->univ = (DdNodePtr *)NULL;
+        -:  611:
+        -:  612:    /* Initialize auxiliary fields. */
+      792:  613:    unique->localCaches = NULL;
+      792:  614:    unique->preGCHook = NULL;
+      792:  615:    unique->postGCHook = NULL;
+      792:  616:    unique->preReorderingHook = NULL;
+      792:  617:    unique->postReorderingHook = NULL;
+      792:  618:    unique->out = stdout;
+      792:  619:    unique->err = stderr;
+      792:  620:    unique->errorCode = CUDD_NO_ERROR;
+      792:  621:    unique->startTime = util_cpu_time();
+call    0 returned 100%
+      792:  622:    unique->timeLimit = ~0UL;
+      792:  623:    unique->terminationCallback = NULL;
+      792:  624:    unique->tcbArg = NULL;
+      792:  625:    unique->outOfMemCallback = Cudd_OutOfMem;
+      792:  626:    unique->timeoutHandler = NULL;
+        -:  627:
+        -:  628:    /* Initialize statistical counters. */
+      792:  629:    unique->maxmemhard = ~ (size_t) 0;
+      792:  630:    unique->garbageCollections = 0;
+      792:  631:    unique->GCTime = 0;
+      792:  632:    unique->reordTime = 0;
+      792:  633:    unique->peakLiveNodes = 0;
+      792:  634:    unique->cuddRand = 0;
+        -:  635:#ifdef DD_STATS
+        -:  636:    unique->nodesDropped = 0;
+        -:  637:    unique->nodesFreed = 0;
+        -:  638:#endif
+        -:  639:#ifdef DD_UNIQUE_PROFILE
+        -:  640:    unique->uniqueLookUps = 0;
+        -:  641:    unique->uniqueLinks = 0;
+        -:  642:#endif
+        -:  643:#ifdef DD_COUNT
+        -:  644:    unique->recursiveCalls = 0;
+        -:  645:    unique->swapSteps = 0;
+        -:  646:#ifdef DD_STATS
+        -:  647:    unique->nextSample = 250000;
+        -:  648:#endif
+        -:  649:#endif
+        -:  650:#ifdef DD_DEBUG
+        -:  651:    unique->enableExtraDebug = 0;
+        -:  652:#endif
+        -:  653:
+      792:  654:    return(unique);
+        -:  655:
+        -:  656:} /* end of cuddInitTable */
+        -:  657:
+        -:  658:
+        -:  659:/**
+        -:  660:  @brief Frees the resources associated to a unique table.
+        -:  661:
+        -:  662:  @sideeffect None
+        -:  663:
+        -:  664:  @see cuddInitTable
+        -:  665:
+        -:  666:*/
+        -:  667:void
+function cuddFreeTable called 792 returned 100% blocks executed 85%
+      792:  668:cuddFreeTable(
+        -:  669:  DdManager * unique)
+        -:  670:{
+        -:  671:    DdNodePtr *next;
+      792:  672:    DdNodePtr *memlist = unique->memoryList;
+        -:  673:    int i;
+        -:  674:
+      792:  675:    if (unique->stash != NULL) FREE(unique->stash);
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+      792:  676:    if (unique->univ != NULL) cuddZddFreeUniv(unique);
+branch  0 taken 4% (fallthrough)
+branch  1 taken 96%
+call    2 returned 100%
+     1584:  677:    while (memlist != NULL) {
+branch  0 taken 50%
+branch  1 taken 50% (fallthrough)
+      792:  678:	next = (DdNodePtr *) memlist[0];	/* link to next block */
+      792:  679:	FREE(memlist);
+      792:  680:	memlist = next;
+        -:  681:    }
+      792:  682:    unique->nextFree = NULL;
+      792:  683:    unique->memoryList = NULL;
+        -:  684:
+     3512:  685:    for (i = 0; i < unique->size; i++) {
+branch  0 taken 77%
+branch  1 taken 23% (fallthrough)
+     2720:  686:	FREE(unique->subtables[i].nodelist);
+        -:  687:    }
+      977:  688:    for (i = 0; i < unique->sizeZ; i++) {
+branch  0 taken 19%
+branch  1 taken 81% (fallthrough)
+      185:  689:	FREE(unique->subtableZ[i].nodelist);
+        -:  690:    }
+      792:  691:    FREE(unique->constants.nodelist);
+      792:  692:    FREE(unique->subtables);
+      792:  693:    FREE(unique->subtableZ);
+      792:  694:    FREE(unique->acache);
+      792:  695:    FREE(unique->perm);
+      792:  696:    FREE(unique->permZ);
+      792:  697:    FREE(unique->invperm);
+      792:  698:    FREE(unique->invpermZ);
+      792:  699:    FREE(unique->vars);
+      792:  700:    if (unique->map != NULL) FREE(unique->map);
+branch  0 taken 1% (fallthrough)
+branch  1 taken 99%
+      792:  701:    FREE(unique->stack);
+        -:  702:#ifndef DD_NO_DEATH_ROW
+      792:  703:    FREE(unique->deathRow);
+        -:  704:#endif
+     792*:  705:    if (unique->tree != NULL) Mtr_FreeTree(unique->tree);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+      792:  706:    if (unique->treeZ != NULL) Mtr_FreeTree(unique->treeZ);
+branch  0 taken 1% (fallthrough)
+branch  1 taken 99%
+call    2 returned 100%
+      792:  707:    if (unique->linear != NULL) FREE(unique->linear);
+branch  0 taken 3% (fallthrough)
+branch  1 taken 97%
+      792:  708:    while (unique->preGCHook != NULL)
+branch  0 taken 0%
+branch  1 taken 100% (fallthrough)
+    #####:  709:	Cudd_RemoveHook(unique,unique->preGCHook->f,CUDD_PRE_GC_HOOK);
+call    0 never executed
+      792:  710:    while (unique->postGCHook != NULL)
+branch  0 taken 0%
+branch  1 taken 100% (fallthrough)
+    #####:  711:	Cudd_RemoveHook(unique,unique->postGCHook->f,CUDD_POST_GC_HOOK);
+call    0 never executed
+      792:  712:    while (unique->preReorderingHook != NULL)
+branch  0 taken 0%
+branch  1 taken 100% (fallthrough)
+    #####:  713:	Cudd_RemoveHook(unique,unique->preReorderingHook->f,
+call    0 never executed
+        -:  714:			CUDD_PRE_REORDERING_HOOK);
+      792:  715:    while (unique->postReorderingHook != NULL)
+branch  0 taken 0%
+branch  1 taken 100% (fallthrough)
+    #####:  716:	Cudd_RemoveHook(unique,unique->postReorderingHook->f,
+call    0 never executed
+        -:  717:			CUDD_POST_REORDERING_HOOK);
+      792:  718:    FREE(unique);
+        -:  719:
+      792:  720:} /* end of cuddFreeTable */
+        -:  721:
+        -:  722:
+        -:  723:/**
+        -:  724:  @brief Performs garbage collection on the %BDD and %ZDD unique tables.
+        -:  725:
+        -:  726:  @details If clearCache is 0, the cache is not cleared. This should
+        -:  727:  only be specified if the cache has been cleared right before calling
+        -:  728:  cuddGarbageCollect. (As in the case of dynamic reordering.)
+        -:  729:
+        -:  730:  @return the total number of deleted nodes.
+        -:  731:
+        -:  732:  @sideeffect None
+        -:  733:
+        -:  734:*/
+        -:  735:int
+function cuddGarbageCollect called 36 returned 100% blocks executed 55%
+       36:  736:cuddGarbageCollect(
+        -:  737:  DdManager * unique,
+        -:  738:  int clearCache)
+        -:  739:{
+        -:  740:    DdHook	*hook;
+       36:  741:    DdCache	*cache = unique->cache;
+       36:  742:    DdNode	*sentinel = &(unique->sentinel);
+        -:  743:    DdNodePtr	*nodelist;
+        -:  744:    int		i, j, deleted, totalDeleted, totalDeletedZ;
+        -:  745:    DdCache	*c;
+        -:  746:    DdNode	*node,*next;
+        -:  747:    DdNodePtr	*lastP;
+        -:  748:    int		slots;
+        -:  749:    unsigned long localTime;
+        -:  750:#ifndef DD_UNSORTED_FREE_LIST
+        -:  751:#ifdef DD_RED_BLACK_FREE_LIST
+        -:  752:    DdNodePtr	tree;
+        -:  753:#else
+        -:  754:    DdNodePtr *memListTrav, *nxtNode;
+        -:  755:    DdNode *downTrav, *sentry;
+        -:  756:    int k;
+        -:  757:#endif
+        -:  758:#endif
+        -:  759:
+       36:  760:    if (util_cpu_time() - unique->startTime > unique->timeLimit) {
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+    #####:  761:        unique->errorCode = CUDD_TIMEOUT_EXPIRED;
+    #####:  762:        return(0);
+        -:  763:    }
+        -:  764:
+        -:  765:#ifndef DD_NO_DEATH_ROW
+       36:  766:    cuddClearDeathRow(unique);
+call    0 returned 100%
+        -:  767:#endif
+        -:  768:
+       36:  769:    hook = unique->preGCHook;
+       36:  770:    while (hook != NULL) {
+branch  0 taken 0%
+branch  1 taken 100% (fallthrough)
+    #####:  771:	int res = (hook->f)(unique,"DD",NULL);
+call    0 never executed
+    #####:  772:	if (res == 0) return(0);
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  773:	hook = hook->next;
+        -:  774:    }
+        -:  775:
+       36:  776:    if (unique->dead + unique->deadZ == 0) {
+branch  0 taken 94% (fallthrough)
+branch  1 taken 6%
+       34:  777:	hook = unique->postGCHook;
+       34:  778:	while (hook != NULL) {
+branch  0 taken 0%
+branch  1 taken 100% (fallthrough)
+    #####:  779:	    int res = (hook->f)(unique,"DD",NULL);
+call    0 never executed
+    #####:  780:	    if (res == 0) return(0);
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  781:	    hook = hook->next;
+        -:  782:	}
+       34:  783:	return(0);
+        -:  784:    }
+        -:  785:
+        -:  786:    /* If many nodes are being reclaimed, we want to resize the tables
+        -:  787:    ** more aggressively, to reduce the frequency of garbage collection.
+        -:  788:    */
+       2*:  789:    if (clearCache && unique->gcFrac == DD_GC_FRAC_LO &&
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####:  790:	unique->slots <= unique->looseUpTo && unique->stash != NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####:  791:	unique->minDead = (unsigned) (DD_GC_FRAC_HI * (double) unique->slots);
+        -:  792:#ifdef DD_VERBOSE
+        -:  793:	(void) fprintf(unique->err,"GC fraction = %.2f\t", DD_GC_FRAC_HI);
+        -:  794:	(void) fprintf(unique->err,"minDead = %d\n", unique->minDead);
+        -:  795:#endif
+    #####:  796:	unique->gcFrac = DD_GC_FRAC_HI;
+    #####:  797:	return(0);
+        -:  798:    }
+        -:  799:
+        2:  800:    localTime = util_cpu_time();
+call    0 returned 100%
+        -:  801:
+        2:  802:    unique->garbageCollections++;
+        -:  803:#ifdef DD_VERBOSE
+        -:  804:    (void) fprintf(unique->err,
+        -:  805:		   "garbage collecting (%d dead BDD nodes out of %d, min %d)...",
+        -:  806:		   unique->dead, unique->keys, unique->minDead);
+        -:  807:    (void) fprintf(unique->err,
+        -:  808:		   "                   (%d dead ZDD nodes out of %d)...",
+        -:  809:		   unique->deadZ, unique->keysZ);
+        -:  810:#endif
+        -:  811:
+        -:  812:    /* Remove references to garbage collected nodes from the cache. */
+        2:  813:    if (clearCache) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  814:	slots = unique->cacheSlots;
+    #####:  815:	for (i = 0; i < slots; i++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:  816:	    c = &cache[i];
+    #####:  817:	    if (c->data != NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  818:		if (cuddClean(c->f)->ref == 0 ||
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  819:		cuddClean(c->g)->ref == 0 ||
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  820:		(((ptruint)c->f & 0x2) && Cudd_Regular(c->h)->ref == 0) ||
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####:  821:		(c->data != DD_NON_CONSTANT &&
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  822:		Cudd_Regular(c->data)->ref == 0)) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  823:		    c->data = NULL;
+    #####:  824:		    unique->cachedeletions++;
+        -:  825:		}
+        -:  826:	    }
+        -:  827:	}
+    #####:  828:	cuddLocalCacheClearDead(unique);
+call    0 never executed
+        -:  829:    }
+        -:  830:
+        -:  831:    /* Now return dead nodes to free list. Count them for sanity check. */
+        2:  832:    totalDeleted = 0;
+        -:  833:#ifndef DD_UNSORTED_FREE_LIST
+        -:  834:#ifdef DD_RED_BLACK_FREE_LIST
+        -:  835:    tree = NULL;
+        -:  836:#endif
+        -:  837:#endif
+        -:  838:
+       12:  839:    for (i = 0; i < unique->size; i++) {
+branch  0 taken 83%
+branch  1 taken 17% (fallthrough)
+       10:  840:	if (unique->subtables[i].dead == 0) continue;
+branch  0 taken 70% (fallthrough)
+branch  1 taken 30%
+        3:  841:	nodelist = unique->subtables[i].nodelist;
+        -:  842:
+        3:  843:	deleted = 0;
+        3:  844:	slots = unique->subtables[i].slots;
+      771:  845:	for (j = 0; j < slots; j++) {
+branch  0 taken 100%
+branch  1 taken 1% (fallthrough)
+      768:  846:	    lastP = &(nodelist[j]);
+      768:  847:	    node = *lastP;
+      780:  848:	    while (node != sentinel) {
+branch  0 taken 2%
+branch  1 taken 98% (fallthrough)
+       12:  849:		next = node->next;
+       12:  850:		if (node->ref == 0) {
+branch  0 taken 50% (fallthrough)
+branch  1 taken 50%
+        6:  851:		    deleted++;
+        -:  852:#ifndef DD_UNSORTED_FREE_LIST
+        -:  853:#ifdef DD_RED_BLACK_FREE_LIST
+        -:  854:		    cuddOrderedInsert(&tree,node);
+        -:  855:#endif
+        -:  856:#else
+        -:  857:		    cuddDeallocNode(unique,node);
+        -:  858:#endif
+        -:  859:		} else {
+        6:  860:		    *lastP = node;
+        6:  861:		    lastP = &(node->next);
+        -:  862:		}
+       12:  863:		node = next;
+        -:  864:	    }
+      768:  865:	    *lastP = sentinel;
+        -:  866:	}
+        3:  867:	if ((unsigned) deleted != unique->subtables[i].dead) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  868:	    ddReportRefMess(unique, i, "cuddGarbageCollect");
+call    0 never executed
+        -:  869:	}
+        3:  870:	totalDeleted += deleted;
+        3:  871:	unique->subtables[i].keys -= deleted;
+        3:  872:	unique->subtables[i].dead = 0;
+        -:  873:    }
+        2:  874:    if (unique->constants.dead != 0) {
+branch  0 taken 50% (fallthrough)
+branch  1 taken 50%
+        1:  875:	nodelist = unique->constants.nodelist;
+        1:  876:	deleted = 0;
+        1:  877:	slots = unique->constants.slots;
+      257:  878:	for (j = 0; j < slots; j++) {
+branch  0 taken 100%
+branch  1 taken 1% (fallthrough)
+      256:  879:	    lastP = &(nodelist[j]);
+      256:  880:	    node = *lastP;
+      262:  881:	    while (node != NULL) {
+branch  0 taken 2%
+branch  1 taken 98% (fallthrough)
+        6:  882:		next = node->next;
+        6:  883:		if (node->ref == 0) {
+branch  0 taken 33% (fallthrough)
+branch  1 taken 67%
+        2:  884:		    deleted++;
+        -:  885:#ifndef DD_UNSORTED_FREE_LIST
+        -:  886:#ifdef DD_RED_BLACK_FREE_LIST
+        -:  887:		    cuddOrderedInsert(&tree,node);
+        -:  888:#endif
+        -:  889:#else
+        -:  890:		    cuddDeallocNode(unique,node);
+        -:  891:#endif
+        -:  892:		} else {
+        4:  893:		    *lastP = node;
+        4:  894:		    lastP = &(node->next);
+        -:  895:		}
+        6:  896:		node = next;
+        -:  897:	    }
+      256:  898:	    *lastP = NULL;
+        -:  899:	}
+        1:  900:	if ((unsigned) deleted != unique->constants.dead) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  901:	    ddReportRefMess(unique, CUDD_CONST_INDEX, "cuddGarbageCollect");
+call    0 never executed
+        -:  902:	}
+        1:  903:	totalDeleted += deleted;
+        1:  904:	unique->constants.keys -= deleted;
+        1:  905:	unique->constants.dead = 0;
+        -:  906:    }
+        2:  907:    if ((unsigned) totalDeleted != unique->dead) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  908:	ddReportRefMess(unique, -1, "cuddGarbageCollect");
+call    0 never executed
+        -:  909:    }
+        2:  910:    unique->keys -= totalDeleted;
+        2:  911:    unique->dead = 0;
+        -:  912:#ifdef DD_STATS
+        -:  913:    unique->nodesFreed += (double) totalDeleted;
+        -:  914:#endif
+        -:  915:
+        2:  916:    totalDeletedZ = 0;
+        -:  917:
+       2*:  918:    for (i = 0; i < unique->sizeZ; i++) {
+branch  0 taken 0%
+branch  1 taken 100% (fallthrough)
+    #####:  919:	if (unique->subtableZ[i].dead == 0) continue;
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  920:	nodelist = unique->subtableZ[i].nodelist;
+        -:  921:
+    #####:  922:	deleted = 0;
+    #####:  923:	slots = unique->subtableZ[i].slots;
+    #####:  924:	for (j = 0; j < slots; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:  925:	    lastP = &(nodelist[j]);
+    #####:  926:	    node = *lastP;
+    #####:  927:	    while (node != NULL) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:  928:		next = node->next;
+    #####:  929:		if (node->ref == 0) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  930:		    deleted++;
+        -:  931:#ifndef DD_UNSORTED_FREE_LIST
+        -:  932:#ifdef DD_RED_BLACK_FREE_LIST
+        -:  933:		    cuddOrderedInsert(&tree,node);
+        -:  934:#endif
+        -:  935:#else
+        -:  936:		    cuddDeallocNode(unique,node);
+        -:  937:#endif
+        -:  938:		} else {
+    #####:  939:		    *lastP = node;
+    #####:  940:		    lastP = &(node->next);
+        -:  941:		}
+    #####:  942:		node = next;
+        -:  943:	    }
+    #####:  944:	    *lastP = NULL;
+        -:  945:	}
+    #####:  946:	if ((unsigned) deleted != unique->subtableZ[i].dead) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  947:	    ddReportRefMess(unique, i, "cuddGarbageCollect");
+call    0 never executed
+        -:  948:	}
+    #####:  949:	totalDeletedZ += deleted;
+    #####:  950:	unique->subtableZ[i].keys -= deleted;
+    #####:  951:	unique->subtableZ[i].dead = 0;
+        -:  952:    }
+        -:  953:
+        -:  954:    /* No need to examine the constant table for ZDDs.
+        -:  955:    ** If we did we should be careful not to count whatever dead
+        -:  956:    ** nodes we found there among the dead ZDD nodes. */
+        2:  957:    if ((unsigned) totalDeletedZ != unique->deadZ) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  958:	ddReportRefMess(unique, -1, "cuddGarbageCollect");
+call    0 never executed
+        -:  959:    }
+        2:  960:    unique->keysZ -= totalDeletedZ;
+        2:  961:    unique->deadZ = 0;
+        -:  962:#ifdef DD_STATS
+        -:  963:    unique->nodesFreed += (double) totalDeletedZ;
+        -:  964:#endif
+        -:  965:
+        -:  966:
+        -:  967:#ifndef DD_UNSORTED_FREE_LIST
+        -:  968:#ifdef DD_RED_BLACK_FREE_LIST
+        -:  969:    unique->nextFree = cuddOrderedThread(tree,unique->nextFree);
+        -:  970:#else
+        2:  971:    memListTrav = unique->memoryList;
+        2:  972:    sentry = NULL;
+        4:  973:    while (memListTrav != NULL) {
+branch  0 taken 50%
+branch  1 taken 50% (fallthrough)
+        -:  974:	ptruint offset;
+        2:  975:	nxtNode = (DdNodePtr *)memListTrav[0];
+        2:  976:	offset = (ptruint) memListTrav & (sizeof(DdNode) - 1);
+        2:  977:	memListTrav += (sizeof(DdNode) - offset) / sizeof(DdNodePtr);
+        2:  978:	downTrav = (DdNode *)memListTrav;
+        2:  979:	k = 0;
+        -:  980:	do {
+     2044:  981:	    if (downTrav[k].ref == 0) {
+branch  0 taken 99% (fallthrough)
+branch  1 taken 1%
+     2018:  982:		if (sentry == NULL) {
+branch  0 taken 1% (fallthrough)
+branch  1 taken 100%
+        2:  983:		    unique->nextFree = sentry = &downTrav[k];
+        -:  984:		} else {
+        -:  985:		    /* First hook sentry->next to the dead node and then
+        -:  986:		    ** reassign sentry to the dead node. */
+     2016:  987:		    sentry = (sentry->next = &downTrav[k]);
+        -:  988:		}
+        -:  989:	    }
+     2044:  990:	} while (++k < DD_MEM_CHUNK);
+branch  0 taken 100% (fallthrough)
+branch  1 taken 1%
+        2:  991:	memListTrav = nxtNode;
+        -:  992:    }
+        2:  993:    sentry->next = NULL;
+        -:  994:#endif
+        -:  995:#endif
+        -:  996:
+        2:  997:    unique->GCTime += util_cpu_time() - localTime;
+call    0 returned 100%
+        -:  998:
+        2:  999:    hook = unique->postGCHook;
+        2: 1000:    while (hook != NULL) {
+branch  0 taken 0%
+branch  1 taken 100% (fallthrough)
+    #####: 1001:	int res = (hook->f)(unique,"DD",NULL);
+call    0 never executed
+    #####: 1002:	if (res == 0) return(0);
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1003:	hook = hook->next;
+        -: 1004:    }
+        -: 1005:
+        -: 1006:#ifdef DD_VERBOSE
+        -: 1007:    (void) fprintf(unique->err," done\n");
+        -: 1008:#endif
+        -: 1009:
+        2: 1010:    return(totalDeleted+totalDeletedZ);
+        -: 1011:
+        -: 1012:} /* end of cuddGarbageCollect */
+        -: 1013:
+        -: 1014:
+        -: 1015:/**
+        -: 1016:  @brief Wrapper for cuddUniqueInterZdd.
+        -: 1017:
+        -: 1018:  @details It applies the %ZDD reduction rule.
+        -: 1019:
+        -: 1020:  @return a pointer to the result node under normal conditions; NULL
+        -: 1021:  if reordering occurred or memory was exhausted.
+        -: 1022:
+        -: 1023:  @sideeffect None
+        -: 1024:
+        -: 1025:  @see cuddUniqueInterZdd
+        -: 1026:
+        -: 1027:*/
+        -: 1028:DdNode *
+function cuddZddGetNode called 33 returned 100% blocks executed 100%
+       33: 1029:cuddZddGetNode(
+        -: 1030:  DdManager * zdd,
+        -: 1031:  int  id,
+        -: 1032:  DdNode * T,
+        -: 1033:  DdNode * E)
+        -: 1034:{
+        -: 1035:    DdNode	*node;
+        -: 1036:
+       33: 1037:    if (T == DD_ZERO(zdd))
+branch  0 taken 6% (fallthrough)
+branch  1 taken 94%
+        2: 1038:	return(E);
+       31: 1039:    node = cuddUniqueInterZdd(zdd, id, T, E);
+call    0 returned 100%
+       31: 1040:    return(node);
+        -: 1041:
+        -: 1042:} /* end of cuddZddGetNode */
+        -: 1043:
+        -: 1044:
+        -: 1045:/**
+        -: 1046:  @brief Wrapper for cuddUniqueInterZdd that is independent of variable
+        -: 1047:  ordering.
+        -: 1048:
+        -: 1049:  @details Wrapper for cuddUniqueInterZdd that is independent of
+        -: 1050:  variable ordering (IVO). This function does not require parameter
+        -: 1051:  index to precede the indices of the top nodes of g and h in the
+        -: 1052:  variable order.
+        -: 1053:
+        -: 1054:  @return a pointer to the result node under normal conditions; NULL
+        -: 1055:  if reordering occurred or memory was exhausted.
+        -: 1056:
+        -: 1057:  @sideeffect None
+        -: 1058:
+        -: 1059:  @see cuddZddGetNode cuddZddIsop
+        -: 1060:
+        -: 1061:*/
+        -: 1062:DdNode *
+function cuddZddGetNodeIVO called 0 returned 0% blocks executed 0%
+    #####: 1063:cuddZddGetNodeIVO(
+        -: 1064:  DdManager * dd,
+        -: 1065:  int  index,
+        -: 1066:  DdNode * g,
+        -: 1067:  DdNode * h)
+        -: 1068:{
+        -: 1069:    DdNode	*f, *r, *t;
+    #####: 1070:    DdNode	*zdd_one = DD_ONE(dd);
+    #####: 1071:    DdNode	*zdd_zero = DD_ZERO(dd);
+        -: 1072:
+    #####: 1073:    f = cuddUniqueInterZdd(dd, index, zdd_one, zdd_zero);
+call    0 never executed
+    #####: 1074:    if (f == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1075:	return(NULL);
+        -: 1076:    }
+    #####: 1077:    cuddRef(f);
+    #####: 1078:    t = cuddZddProduct(dd, f, g);
+call    0 never executed
+    #####: 1079:    if (t == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1080:	Cudd_RecursiveDerefZdd(dd, f);
+call    0 never executed
+    #####: 1081:	return(NULL);
+        -: 1082:    }
+    #####: 1083:    cuddRef(t);
+    #####: 1084:    Cudd_RecursiveDerefZdd(dd, f);
+call    0 never executed
+    #####: 1085:    r = cuddZddUnion(dd, t, h);
+call    0 never executed
+    #####: 1086:    if (r == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1087:	Cudd_RecursiveDerefZdd(dd, t);
+call    0 never executed
+    #####: 1088:	return(NULL);
+        -: 1089:    }
+    #####: 1090:    cuddRef(r);
+    #####: 1091:    Cudd_RecursiveDerefZdd(dd, t);
+call    0 never executed
+        -: 1092:
+    #####: 1093:    cuddDeref(r);
+    #####: 1094:    return(r);
+        -: 1095:
+        -: 1096:} /* end of cuddZddGetNodeIVO */
+        -: 1097:
+        -: 1098:
+        -: 1099:/**
+        -: 1100:  @brief Checks the unique table for the existence of an internal node.
+        -: 1101:
+        -: 1102:  @details If it does not exist, it creates a new one.  Does not
+        -: 1103:  modify the reference count of whatever is returned.  A newly created
+        -: 1104:  internal node comes back with a reference count 0.  For a newly
+        -: 1105:  created node, increments the reference counts of what T and E point
+        -: 1106:  to.
+        -: 1107:
+        -: 1108:  @return a pointer to the new node if successful; NULL if memory is
+        -: 1109:  exhausted, if a termination request was detected, if a timeout expired,
+        -: 1110:  or if reordering took place.
+        -: 1111:
+        -: 1112:  @sideeffect None
+        -: 1113:
+        -: 1114:  @see cuddUniqueInterZdd
+        -: 1115:
+        -: 1116:*/
+        -: 1117:DdNode *
+function cuddUniqueInter called 14117 returned 100% blocks executed 34%
+    14117: 1118:cuddUniqueInter(
+        -: 1119:  DdManager * unique,
+        -: 1120:  int  index,
+        -: 1121:  DdNode * T,
+        -: 1122:  DdNode * E)
+        -: 1123:{
+        -: 1124:    int pos;
+        -: 1125:    unsigned int level;
+        -: 1126:    int retval;
+        -: 1127:    DdNodePtr *nodelist;
+        -: 1128:    DdNode *looking;
+        -: 1129:    DdNodePtr *previousP;
+        -: 1130:    DdSubtable *subtable;
+        -: 1131:    int gcNumber;
+        -: 1132:
+        -: 1133:#ifdef DD_UNIQUE_PROFILE
+        -: 1134:    unique->uniqueLookUps++;
+        -: 1135:#endif
+        -: 1136:
+    14117: 1137:    if (((int64_t) 0x1ffff & (int64_t) unique->cacheMisses) == 0) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 1138:        if (unique->terminationCallback != NULL &&
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####: 1139:            unique->terminationCallback(unique->tcbArg)) {
+call    0 never executed
+    #####: 1140:            unique->errorCode = CUDD_TERMINATION;
+    #####: 1141:            return(NULL);
+        -: 1142:        }
+    #####: 1143:        if (util_cpu_time() - unique->startTime > unique->timeLimit) {
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+    #####: 1144:            unique->errorCode = CUDD_TIMEOUT_EXPIRED;
+    #####: 1145:            return(NULL);
+        -: 1146:        }
+        -: 1147:    }
+    14117: 1148:    if (index >= unique->size) {
+branch  0 taken 17% (fallthrough)
+branch  1 taken 83%
+    2426*: 1149:        int amount = ddMax(DD_DEFAULT_RESIZE,unique->size/20);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    2426*: 1150:        if (!ddResizeTable(unique,index,amount)) return(NULL);
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        -: 1151:    }
+        -: 1152:
+    14117: 1153:    level = unique->perm[index];
+    14117: 1154:    subtable = &(unique->subtables[level]);
+        -: 1155:
+        -: 1156:#ifdef DD_DEBUG
+        -: 1157:    assert(level < (unsigned) cuddI(unique,T->index));
+        -: 1158:    assert(level < (unsigned) cuddI(unique,Cudd_Regular(E)->index));
+        -: 1159:#endif
+        -: 1160:
+    14117: 1161:    pos = ddHash(T, E, subtable->shift);
+    14117: 1162:    nodelist = subtable->nodelist;
+    14117: 1163:    previousP = &(nodelist[pos]);
+    14117: 1164:    looking = *previousP;
+        -: 1165:
+    14155: 1166:    while (T < cuddT(looking)) {
+branch  0 taken 1%
+branch  1 taken 100% (fallthrough)
+       38: 1167:	previousP = &(looking->next);
+       38: 1168:	looking = *previousP;
+        -: 1169:#ifdef DD_UNIQUE_PROFILE
+        -: 1170:	unique->uniqueLinks++;
+        -: 1171:#endif
+        -: 1172:    }
+    14141: 1173:    while (T == cuddT(looking) && E < cuddE(looking)) {
+branch  0 taken 27% (fallthrough)
+branch  1 taken 73%
+branch  2 taken 1%
+branch  3 taken 99% (fallthrough)
+       24: 1174:	previousP = &(looking->next);
+       24: 1175:	looking = *previousP;
+        -: 1176:#ifdef DD_UNIQUE_PROFILE
+        -: 1177:	unique->uniqueLinks++;
+        -: 1178:#endif
+        -: 1179:    }
+    14117: 1180:    if (T == cuddT(looking) && E == cuddE(looking)) {
+branch  0 taken 27% (fallthrough)
+branch  1 taken 73%
+branch  2 taken 99% (fallthrough)
+branch  3 taken 1%
+     3707: 1181:	if (looking->ref == 0) {
+branch  0 taken 3% (fallthrough)
+branch  1 taken 97%
+      107: 1182:	    cuddReclaim(unique,looking);
+call    0 returned 100%
+        -: 1183:	}
+     3707: 1184:	return(looking);
+        -: 1185:    }
+        -: 1186:
+        -: 1187:    /* countDead is 0 if deads should be counted and ~0 if they should not. */
+    10410: 1188:    if (unique->autoDyn &&
+branch  0 taken 1% (fallthrough)
+branch  1 taken 100%
+      22*: 1189:        unique->keys - (unique->dead & unique->countDead) >= unique->nextDyn &&
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 1190:        unique->maxReorderings > 0) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1191:        unsigned long cpuTime;
+        -: 1192:#ifdef DD_DEBUG
+        -: 1193:	retval = Cudd_DebugCheck(unique);
+        -: 1194:	if (retval != 0) return(NULL);
+        -: 1195:	retval = Cudd_CheckKeys(unique);
+        -: 1196:	if (retval != 0) return(NULL);
+        -: 1197:#endif
+    #####: 1198:	retval = Cudd_ReduceHeap(unique,unique->autoMethod,10); /* 10 = whatever */
+call    0 never executed
+    #####: 1199:        unique->maxReorderings--;
+    #####: 1200:	if (retval == 0) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1201:            unique->reordered = 2;
+    #####: 1202:        } else if (unique->terminationCallback != NULL &&
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####: 1203:            unique->terminationCallback(unique->tcbArg)) {
+call    0 never executed
+    #####: 1204:            unique->errorCode = CUDD_TERMINATION;
+    #####: 1205:            unique->reordered = 0;
+    #####: 1206:        } else if ((cpuTime = util_cpu_time()) - unique->startTime >
+call    0 never executed
+    #####: 1207:                   unique->timeLimit) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1208:            unique->errorCode = CUDD_TIMEOUT_EXPIRED;
+    #####: 1209:            unique->reordered = 0;
+    #####: 1210:        } else if (unique->timeLimit - (cpuTime - unique->startTime)
+    #####: 1211:                   < unique->reordTime) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1212:            /* No risk of overflow because here unique->timeLimit is known
+        -: 1213:             * to be greater than or equal to (cpuTime - unique->startTime).
+        -: 1214:             * If the remaining time is less than the time spent on
+        -: 1215:             * reordering so far, we disable reordering.  */
+    #####: 1216:            unique->autoDyn = 0;
+        -: 1217:        }
+        -: 1218:#ifdef DD_DEBUG
+        -: 1219:	retval = Cudd_DebugCheck(unique);
+        -: 1220:	if (retval != 0) unique->reordered = 2;
+        -: 1221:	retval = Cudd_CheckKeys(unique);
+        -: 1222:	if (retval != 0) unique->reordered = 2;
+        -: 1223:#endif
+    #####: 1224:	return(NULL);
+        -: 1225:    }
+        -: 1226:
+    10410: 1227:    if (subtable->keys > subtable->maxKeys) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 1228:	if (unique->gcEnabled &&
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1229:	    ((unique->dead > unique->minDead) ||
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1230:	    ((unique->dead > unique->minDead / 2) &&
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1231:	    (subtable->dead > subtable->keys * 0.95)))) { /* too many dead */
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1232:            if (unique->terminationCallback != NULL &&
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####: 1233:                unique->terminationCallback(unique->tcbArg)) {
+call    0 never executed
+    #####: 1234:                unique->errorCode = CUDD_TERMINATION;
+    #####: 1235:                return(NULL);
+        -: 1236:            }
+    #####: 1237:            if (util_cpu_time() - unique->startTime > unique->timeLimit) {
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+    #####: 1238:                unique->errorCode = CUDD_TIMEOUT_EXPIRED;
+    #####: 1239:                return(NULL);
+        -: 1240:            }
+    #####: 1241:	    (void) cuddGarbageCollect(unique,1);
+call    0 never executed
+        -: 1242:	} else {
+    #####: 1243:	    cuddRehash(unique,(int)level);
+call    0 never executed
+        -: 1244:	}
+        -: 1245:	/* Update pointer to insertion point. In the case of rehashing,
+        -: 1246:	** the slot may have changed. In the case of garbage collection,
+        -: 1247:	** the predecessor may have been dead. */
+    #####: 1248:	pos = ddHash(T, E, subtable->shift);
+    #####: 1249:	nodelist = subtable->nodelist;
+    #####: 1250:	previousP = &(nodelist[pos]);
+    #####: 1251:	looking = *previousP;
+        -: 1252:
+    #####: 1253:	while (T < cuddT(looking)) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 1254:	    previousP = &(looking->next);
+    #####: 1255:	    looking = *previousP;
+        -: 1256:#ifdef DD_UNIQUE_PROFILE
+        -: 1257:	    unique->uniqueLinks++;
+        -: 1258:#endif
+        -: 1259:	}
+    #####: 1260:	while (T == cuddT(looking) && E < cuddE(looking)) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed (fallthrough)
+    #####: 1261:	    previousP = &(looking->next);
+    #####: 1262:	    looking = *previousP;
+        -: 1263:#ifdef DD_UNIQUE_PROFILE
+        -: 1264:	    unique->uniqueLinks++;
+        -: 1265:#endif
+        -: 1266:	}
+        -: 1267:    }
+        -: 1268:
+    10410: 1269:    gcNumber = unique->garbageCollections;
+    10410: 1270:    looking = cuddAllocNode(unique);
+call    0 returned 100%
+    10410: 1271:    if (looking == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 1272:	return(NULL);
+        -: 1273:    }
+    10410: 1274:    unique->keys++;
+    10410: 1275:    subtable->keys++;
+        -: 1276:
+    10410: 1277:    if (gcNumber != unique->garbageCollections) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1278:	DdNode *looking2;
+    #####: 1279:	pos = ddHash(T, E, subtable->shift);
+    #####: 1280:	nodelist = subtable->nodelist;
+    #####: 1281:	previousP = &(nodelist[pos]);
+    #####: 1282:	looking2 = *previousP;
+        -: 1283:
+    #####: 1284:	while (T < cuddT(looking2)) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 1285:	    previousP = &(looking2->next);
+    #####: 1286:	    looking2 = *previousP;
+        -: 1287:#ifdef DD_UNIQUE_PROFILE
+        -: 1288:	    unique->uniqueLinks++;
+        -: 1289:#endif
+        -: 1290:	}
+    #####: 1291:	while (T == cuddT(looking2) && E < cuddE(looking2)) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed (fallthrough)
+    #####: 1292:	    previousP = &(looking2->next);
+    #####: 1293:	    looking2 = *previousP;
+        -: 1294:#ifdef DD_UNIQUE_PROFILE
+        -: 1295:	    unique->uniqueLinks++;
+        -: 1296:#endif
+        -: 1297:	}
+        -: 1298:    }
+    10410: 1299:    looking->index = index;
+    10410: 1300:    cuddT(looking) = T;
+    10410: 1301:    cuddE(looking) = E;
+    10410: 1302:    looking->next = *previousP;
+    10410: 1303:    *previousP = looking;
+    10410: 1304:    cuddSatInc(T->ref);		/* we know T is a regular pointer */
+    10410: 1305:    cuddRef(E);
+        -: 1306:
+        -: 1307:#ifdef DD_DEBUG
+        -: 1308:    cuddCheckCollisionOrdering(unique,level,pos);
+        -: 1309:#endif
+        -: 1310:
+    10410: 1311:    return(looking);
+        -: 1312:
+        -: 1313:} /* end of cuddUniqueInter */
+        -: 1314:
+        -: 1315:
+        -: 1316:/**
+        -: 1317:  @brief Wrapper for cuddUniqueInter that is independent of variable
+        -: 1318:  ordering.
+        -: 1319:
+        -: 1320:  @details Wrapper for cuddUniqueInter that is independent of
+        -: 1321:  variable ordering (IVO). This function does not require parameter
+        -: 1322:  index to precede the indices of the top nodes of T and E in the
+        -: 1323:  variable order.
+        -: 1324:
+        -: 1325:  @return a pointer to the result node under normal conditions; NULL
+        -: 1326:  if reordering occurred or memory was exhausted.
+        -: 1327:
+        -: 1328:  @sideeffect None
+        -: 1329:
+        -: 1330:  @see cuddUniqueInter Cudd_MakeBddFromZddCover
+        -: 1331:
+        -: 1332:*/
+        -: 1333:DdNode *
+function cuddUniqueInterIVO called 0 returned 0% blocks executed 0%
+    #####: 1334:cuddUniqueInterIVO(
+        -: 1335:  DdManager * unique,
+        -: 1336:  int  index,
+        -: 1337:  DdNode * T,
+        -: 1338:  DdNode * E)
+        -: 1339:{
+        -: 1340:    DdNode *result;
+        -: 1341:    DdNode *v;
+        -: 1342:
+    #####: 1343:    v = cuddUniqueInter(unique, index, DD_ONE(unique),
+    #####: 1344:			Cudd_Not(DD_ONE(unique)));
+call    0 never executed
+    #####: 1345:    if (v == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1346:	return(NULL);
+        -: 1347:    /* Since v is a projection function, we can skip the call to cuddRef. */
+    #####: 1348:    result = cuddBddIteRecur(unique, v, T, E);
+call    0 never executed
+    #####: 1349:    return(result);
+        -: 1350:
+        -: 1351:} /* end of cuddUniqueInterIVO */
+        -: 1352:
+        -: 1353:
+        -: 1354:/**
+        -: 1355:  @brief Checks the unique table for the existence of an internal
+        -: 1356:  %ZDD node.
+        -: 1357:
+        -: 1358:  @details If it does not exist, it creates a new one.  Does not
+        -: 1359:  modify the reference count of whatever is returned.  A newly created
+        -: 1360:  internal node comes back with a reference count 0.  For a newly
+        -: 1361:  created node, increments the reference counts of what T and E point
+        -: 1362:  to.
+        -: 1363:
+        -: 1364:  @return a pointer to the new node if successful; NULL if memory is
+        -: 1365:  exhausted, if a termination request was detected, if a timeout expired,
+        -: 1366:  or if reordering took place.
+        -: 1367:
+        -: 1368:  @sideeffect None
+        -: 1369:
+        -: 1370:  @see cuddUniqueInter
+        -: 1371:
+        -: 1372:*/
+        -: 1373:DdNode *
+function cuddUniqueInterZdd called 313 returned 100% blocks executed 29%
+      313: 1374:cuddUniqueInterZdd(
+        -: 1375:  DdManager * unique,
+        -: 1376:  int  index,
+        -: 1377:  DdNode * T,
+        -: 1378:  DdNode * E)
+        -: 1379:{
+        -: 1380:    int pos;
+        -: 1381:    unsigned int level;
+        -: 1382:    int retval;
+        -: 1383:    DdNodePtr *nodelist;
+        -: 1384:    DdNode *looking;
+        -: 1385:    DdSubtable *subtable;
+        -: 1386:
+        -: 1387:#ifdef DD_UNIQUE_PROFILE
+        -: 1388:    unique->uniqueLookUps++;
+        -: 1389:#endif
+        -: 1390:
+      313: 1391:    if (((int64_t) 0x1ffff & (int64_t) unique->cacheMisses) == 0) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 1392:        if (unique->terminationCallback != NULL &&
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####: 1393:            unique->terminationCallback(unique->tcbArg)) {
+call    0 never executed
+    #####: 1394:            unique->errorCode = CUDD_TERMINATION;
+    #####: 1395:            return(NULL);
+        -: 1396:        }
+    #####: 1397:        if (util_cpu_time() - unique->startTime > unique->timeLimit) {
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+    #####: 1398:            unique->errorCode = CUDD_TIMEOUT_EXPIRED;
+    #####: 1399:            return(NULL);
+        -: 1400:        }
+        -: 1401:    }
+      313: 1402:    if (index >= unique->sizeZ) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 1403:	if (!cuddResizeTableZdd(unique,index)) return(NULL);
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+        -: 1404:    }
+        -: 1405:
+      313: 1406:    level = unique->permZ[index];
+      313: 1407:    subtable = &(unique->subtableZ[level]);
+        -: 1408:
+        -: 1409:#ifdef DD_DEBUG
+        -: 1410:    assert(level < (unsigned) cuddIZ(unique,T->index));
+        -: 1411:    assert(level < (unsigned) cuddIZ(unique,Cudd_Regular(E)->index));
+        -: 1412:#endif
+        -: 1413:
+      313: 1414:    if (subtable->keys > subtable->maxKeys) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 1415:	if (unique->gcEnabled && ((unique->deadZ > unique->minDead) ||
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####: 1416:	(10 * subtable->dead > 9 * subtable->keys))) {	/* too many dead */
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1417:            if (unique->terminationCallback != NULL &&
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####: 1418:                unique->terminationCallback(unique->tcbArg)) {
+call    0 never executed
+    #####: 1419:                unique->errorCode = CUDD_TERMINATION;
+    #####: 1420:                return(NULL);
+        -: 1421:            }
+    #####: 1422:            if (util_cpu_time() - unique->startTime > unique->timeLimit) {
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+    #####: 1423:                unique->errorCode = CUDD_TIMEOUT_EXPIRED;
+    #####: 1424:                return(NULL);
+        -: 1425:            }
+    #####: 1426:	    (void) cuddGarbageCollect(unique,1);
+call    0 never executed
+        -: 1427:	} else {
+    #####: 1428:	    ddRehashZdd(unique,(int)level);
+call    0 never executed
+        -: 1429:	}
+        -: 1430:    }
+        -: 1431:
+      313: 1432:    pos = ddHash(T, E, subtable->shift);
+      313: 1433:    nodelist = subtable->nodelist;
+      313: 1434:    looking = nodelist[pos];
+        -: 1435:
+      313: 1436:    while (looking != NULL) {
+branch  0 taken 5%
+branch  1 taken 95% (fallthrough)
+       15: 1437:	if (cuddT(looking) == T && cuddE(looking) == E) {
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+       15: 1438:	    if (looking->ref == 0) {
+branch  0 taken 13% (fallthrough)
+branch  1 taken 87%
+        2: 1439:		cuddReclaimZdd(unique,looking);
+call    0 returned 100%
+        -: 1440:	    }
+       15: 1441:	    return(looking);
+        -: 1442:	}
+    #####: 1443:	looking = looking->next;
+        -: 1444:#ifdef DD_UNIQUE_PROFILE
+        -: 1445:	unique->uniqueLinks++;
+        -: 1446:#endif
+        -: 1447:    }
+        -: 1448:
+        -: 1449:    /* countDead is 0 if deads should be counted and ~0 if they should not. */
+     298*: 1450:    if (unique->autoDynZ &&
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 1451:        unique->keysZ - (unique->deadZ & unique->countDead) >= unique->nextDyn) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1452:#ifdef DD_DEBUG
+        -: 1453:	retval = Cudd_DebugCheck(unique);
+        -: 1454:	if (retval != 0) return(NULL);
+        -: 1455:	retval = Cudd_CheckKeys(unique);
+        -: 1456:	if (retval != 0) return(NULL);
+        -: 1457:#endif
+    #####: 1458:	retval = Cudd_zddReduceHeap(unique,unique->autoMethodZ,10); /* 10 = whatever */
+call    0 never executed
+    #####: 1459:	if (retval == 0) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1460:            unique->reordered = 2;
+    #####: 1461:        } else if (unique->terminationCallback != NULL &&
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####: 1462:            unique->terminationCallback(unique->tcbArg)) {
+call    0 never executed
+    #####: 1463:            unique->errorCode = CUDD_TERMINATION;
+    #####: 1464:            unique->reordered = 0;
+    #####: 1465:        } else if (util_cpu_time() - unique->startTime > unique->timeLimit) {
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+    #####: 1466:            unique->errorCode = CUDD_TIMEOUT_EXPIRED;
+    #####: 1467:            unique->reordered = 0;
+        -: 1468:        }
+        -: 1469:#ifdef DD_DEBUG
+        -: 1470:	retval = Cudd_DebugCheck(unique);
+        -: 1471:	if (retval != 0) unique->reordered = 2;
+        -: 1472:	retval = Cudd_CheckKeys(unique);
+        -: 1473:	if (retval != 0) unique->reordered = 2;
+        -: 1474:#endif
+    #####: 1475:	return(NULL);
+        -: 1476:    }
+        -: 1477:
+      298: 1478:    unique->keysZ++;
+      298: 1479:    subtable->keys++;
+        -: 1480:
+      298: 1481:    looking = cuddAllocNode(unique);
+call    0 returned 100%
+     298*: 1482:    if (looking == NULL) return(NULL);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+      298: 1483:    looking->index = index;
+      298: 1484:    cuddT(looking) = T;
+      298: 1485:    cuddE(looking) = E;
+      298: 1486:    looking->next = nodelist[pos];
+      298: 1487:    nodelist[pos] = looking;
+      298: 1488:    cuddRef(T);
+      298: 1489:    cuddRef(E);
+        -: 1490:
+      298: 1491:    return(looking);
+        -: 1492:
+        -: 1493:} /* end of cuddUniqueInterZdd */
+        -: 1494:
+        -: 1495:
+        -: 1496:/**
+        -: 1497:  @brief Checks the unique table for the existence of a constant node.
+        -: 1498:
+        -: 1499:  @details If it does not exist, it creates a new one.  Does not
+        -: 1500:  modify the reference count of whatever is returned.  A newly created
+        -: 1501:  internal node comes back with a reference count 0.
+        -: 1502:
+        -: 1503:  @return a pointer to the new node.
+        -: 1504:
+        -: 1505:  @sideeffect None
+        -: 1506:
+        -: 1507:*/
+        -: 1508:DdNode *
+function cuddUniqueConst called 3475 returned 100% blocks executed 63%
+     3475: 1509:cuddUniqueConst(
+        -: 1510:  DdManager * unique,
+        -: 1511:  CUDD_VALUE_TYPE  value)
+        -: 1512:{
+        -: 1513:    int pos;
+        -: 1514:    DdNodePtr *nodelist;
+        -: 1515:    DdNode *looking;
+        -: 1516:    hack split;
+        -: 1517:
+        -: 1518:#ifdef DD_UNIQUE_PROFILE
+        -: 1519:    unique->uniqueLookUps++;
+        -: 1520:#endif
+        -: 1521:
+     3475: 1522:    if (unique->constants.keys > unique->constants.maxKeys) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 1523:	if (unique->gcEnabled && ((unique->dead > unique->minDead) ||
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####: 1524:	(10 * unique->constants.dead > 9 * unique->constants.keys))) {	/* too many dead */
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1525:            if (unique->terminationCallback != NULL &&
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####: 1526:                unique->terminationCallback(unique->tcbArg)) {
+call    0 never executed
+    #####: 1527:                unique->errorCode = CUDD_TERMINATION;
+    #####: 1528:                return(NULL);
+        -: 1529:            }
+    #####: 1530:            if (util_cpu_time() - unique->startTime > unique->timeLimit) {
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+    #####: 1531:                unique->errorCode = CUDD_TIMEOUT_EXPIRED;
+    #####: 1532:                return(NULL);
+        -: 1533:            }
+    #####: 1534:	    (void) cuddGarbageCollect(unique,1);
+call    0 never executed
+        -: 1535:	} else {
+    #####: 1536:	    cuddRehash(unique,CUDD_CONST_INDEX);
+call    0 never executed
+        -: 1537:	}
+        -: 1538:    }
+        -: 1539:
+        -: 1540:    cuddAdjust(value); /* for the case of crippled infinities */
+        -: 1541:
+     3475: 1542:    if (ddAbs(value) < unique->epsilon) {
+branch  0 taken 23% (fallthrough)
+branch  1 taken 77%
+branch  2 taken 24% (fallthrough)
+branch  3 taken 76%
+      837: 1543:	value = 0.0;
+        -: 1544:    }
+     3475: 1545:    split.value = value;
+        -: 1546:
+     3475: 1547:    pos = ddHash(split.bits[0], split.bits[1], unique->constants.shift);
+     3475: 1548:    nodelist = unique->constants.nodelist;
+     3475: 1549:    looking = nodelist[pos];
+        -: 1550:
+        -: 1551:    /* Here we compare values both for equality and for difference less
+        -: 1552:     * than epsilon. The first comparison is required when values are
+        -: 1553:     * infinite, since Infinity - Infinity is NaN and NaN < X is 0 for
+        -: 1554:     * every X.
+        -: 1555:     */
+     3479: 1556:    while (looking != NULL) {
+branch  0 taken 5%
+branch  1 taken 95% (fallthrough)
+      182: 1557:	if (looking->type.value == value ||
+branch  0 taken 2% (fallthrough)
+branch  1 taken 98%
+        4: 1558:	ddEqualVal(looking->type.value,value,unique->epsilon)) {
+branch  0 taken 75% (fallthrough)
+branch  1 taken 25%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+      178: 1559:	    if (looking->ref == 0) {
+branch  0 taken 2% (fallthrough)
+branch  1 taken 98%
+        4: 1560:		cuddReclaim(unique,looking);
+call    0 returned 100%
+        -: 1561:	    }
+      178: 1562:	    return(looking);
+        -: 1563:	}
+        4: 1564:	looking = looking->next;
+        -: 1565:#ifdef DD_UNIQUE_PROFILE
+        -: 1566:	unique->uniqueLinks++;
+        -: 1567:#endif
+        -: 1568:    }
+        -: 1569:
+     3297: 1570:    unique->keys++;
+     3297: 1571:    unique->constants.keys++;
+        -: 1572:
+     3297: 1573:    looking = cuddAllocNode(unique);
+call    0 returned 100%
+    3297*: 1574:    if (looking == NULL) return(NULL);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+     3297: 1575:    looking->index = CUDD_CONST_INDEX;
+     3297: 1576:    looking->type.value = value;
+     3297: 1577:    looking->next = nodelist[pos];
+     3297: 1578:    nodelist[pos] = looking;
+        -: 1579:
+     3297: 1580:    return(looking);
+        -: 1581:
+        -: 1582:} /* end of cuddUniqueConst */
+        -: 1583:
+        -: 1584:
+        -: 1585:/**
+        -: 1586:  @brief Rehashes a unique subtable.
+        -: 1587:
+        -: 1588:  @details Doubles the size of a unique subtable and rehashes its
+        -: 1589:  contents.
+        -: 1590:
+        -: 1591:  @sideeffect None
+        -: 1592:
+        -: 1593:*/
+        -: 1594:void
+function cuddRehash called 0 returned 0% blocks executed 0%
+    #####: 1595:cuddRehash(
+        -: 1596:  DdManager * unique,
+        -: 1597:  int i)
+        -: 1598:{
+        -: 1599:    unsigned int slots, oldslots;
+        -: 1600:    int shift, oldshift;
+        -: 1601:    int j, pos;
+        -: 1602:    DdNodePtr *nodelist, *oldnodelist;
+        -: 1603:    DdNode *node, *next;
+    #####: 1604:    DdNode *sentinel = &(unique->sentinel);
+        -: 1605:    hack split;
+        -: 1606:    extern DD_OOMFP MMoutOfMemory;
+        -: 1607:    DD_OOMFP saveHandler;
+        -: 1608:
+    #####: 1609:    if (unique->gcFrac == DD_GC_FRAC_HI && unique->slots > unique->looseUpTo) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####: 1610:	unique->gcFrac = DD_GC_FRAC_LO;
+    #####: 1611:	unique->minDead = (unsigned) (DD_GC_FRAC_LO * (double) unique->slots);
+        -: 1612:#ifdef DD_VERBOSE
+        -: 1613:	(void) fprintf(unique->err,"GC fraction = %.2f\t", DD_GC_FRAC_LO);
+        -: 1614:	(void) fprintf(unique->err,"minDead = %d\n", unique->minDead);
+        -: 1615:#endif
+        -: 1616:    }
+        -: 1617:
+    #####: 1618:    if (unique->gcFrac != DD_GC_FRAC_MIN && unique->memused > unique->maxmem) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####: 1619:	unique->gcFrac = DD_GC_FRAC_MIN;
+    #####: 1620:	unique->minDead = (unsigned) (DD_GC_FRAC_MIN * (double) unique->slots);
+        -: 1621:#ifdef DD_VERBOSE
+        -: 1622:	(void) fprintf(unique->err,"GC fraction = %.2f\t", DD_GC_FRAC_MIN);
+        -: 1623:	(void) fprintf(unique->err,"minDead = %d\n", unique->minDead);
+        -: 1624:#endif
+    #####: 1625:	cuddShrinkDeathRow(unique);
+call    0 never executed
+    #####: 1626:	if (cuddGarbageCollect(unique,1) > 0) return;
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+        -: 1627:    }
+        -: 1628:
+    #####: 1629:    if (i != CUDD_CONST_INDEX) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1630:	oldslots = unique->subtables[i].slots;
+    #####: 1631:	oldshift = unique->subtables[i].shift;
+    #####: 1632:	oldnodelist = unique->subtables[i].nodelist;
+        -: 1633:
+        -: 1634:	/* Compute the new size of the subtable. */
+    #####: 1635:	slots = oldslots << 1;
+    #####: 1636:	shift = oldshift - 1;
+        -: 1637:
+    #####: 1638:	saveHandler = MMoutOfMemory;
+    #####: 1639:	MMoutOfMemory = unique->outOfMemCallback;
+    #####: 1640:	nodelist = ALLOC(DdNodePtr, slots);
+call    0 never executed
+    #####: 1641:	MMoutOfMemory = saveHandler;
+    #####: 1642:	if (nodelist == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1643:	    (void) fprintf(unique->err,
+call    0 never executed
+        -: 1644:			   "Unable to resize subtable %d for lack of memory\n",
+        -: 1645:			   i);
+        -: 1646:	    /* Prevent frequent resizing attempts. */
+    #####: 1647:	    (void) cuddGarbageCollect(unique,1);
+call    0 never executed
+    #####: 1648:	    if (unique->stash != NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1649:		FREE(unique->stash);
+    #####: 1650:		unique->stash = NULL;
+        -: 1651:		/* Inhibit resizing of tables. */
+    #####: 1652:		cuddSlowTableGrowth(unique);
+call    0 never executed
+        -: 1653:	    }
+    #####: 1654:	    return;
+        -: 1655:	}
+    #####: 1656:	unique->subtables[i].nodelist = nodelist;
+    #####: 1657:	unique->subtables[i].slots = slots;
+    #####: 1658:	unique->subtables[i].shift = shift;
+    #####: 1659:	unique->subtables[i].maxKeys = slots * DD_MAX_SUBTABLE_DENSITY;
+        -: 1660:
+        -: 1661:	/* Move the nodes from the old table to the new table.
+        -: 1662:	** This code depends on the type of hash function.
+        -: 1663:	** It assumes that the effect of doubling the size of the table
+        -: 1664:	** is to retain one more bit of the 32-bit hash value.
+        -: 1665:	** The additional bit is the LSB. */
+    #####: 1666:	for (j = 0; (unsigned) j < oldslots; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+        -: 1667:	    DdNodePtr *evenP, *oddP;
+    #####: 1668:	    node = oldnodelist[j];
+    #####: 1669:	    evenP = &(nodelist[j<<1]);
+    #####: 1670:	    oddP = &(nodelist[(j<<1)+1]);
+    #####: 1671:	    while (node != sentinel) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 1672:		next = node->next;
+    #####: 1673:		pos = ddHash(cuddT(node), cuddE(node), shift);
+    #####: 1674:		if (pos & 1) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1675:		    *oddP = node;
+    #####: 1676:		    oddP = &(node->next);
+        -: 1677:		} else {
+    #####: 1678:		    *evenP = node;
+    #####: 1679:		    evenP = &(node->next);
+        -: 1680:		}
+    #####: 1681:		node = next;
+        -: 1682:	    }
+    #####: 1683:	    *evenP = *oddP = sentinel;
+        -: 1684:	}
+    #####: 1685:	FREE(oldnodelist);
+        -: 1686:
+        -: 1687:#ifdef DD_VERBOSE
+        -: 1688:	(void) fprintf(unique->err,
+        -: 1689:		       "rehashing layer %d: keys %d dead %d new size %d\n",
+        -: 1690:		       i, unique->subtables[i].keys,
+        -: 1691:		       unique->subtables[i].dead, slots);
+        -: 1692:#endif
+        -: 1693:    } else {
+    #####: 1694:	oldslots = unique->constants.slots;
+    #####: 1695:	oldshift = unique->constants.shift;
+    #####: 1696:	oldnodelist = unique->constants.nodelist;
+        -: 1697:
+        -: 1698:	/* The constant subtable is never subjected to reordering.
+        -: 1699:	** Therefore, when it is resized, it is because it has just
+        -: 1700:	** reached the maximum load. We can safely just double the size,
+        -: 1701:	** with no need for the loop we use for the other tables.
+        -: 1702:	*/
+    #####: 1703:	slots = oldslots << 1;
+    #####: 1704:	shift = oldshift - 1;
+    #####: 1705:	saveHandler = MMoutOfMemory;
+    #####: 1706:	MMoutOfMemory = unique->outOfMemCallback;
+    #####: 1707:	nodelist = ALLOC(DdNodePtr, slots);
+call    0 never executed
+    #####: 1708:	MMoutOfMemory = saveHandler;
+    #####: 1709:	if (nodelist == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1710:	    (void) fprintf(unique->err,
+call    0 never executed
+        -: 1711:			   "Unable to resize constant subtable for lack of memory\n");
+    #####: 1712:	    (void) cuddGarbageCollect(unique,1);
+call    0 never executed
+    #####: 1713:	    for (j = 0; j < unique->size; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 1714:		unique->subtables[j].maxKeys <<= 1;
+        -: 1715:	    }
+    #####: 1716:	    unique->constants.maxKeys <<= 1;
+    #####: 1717:	    return;
+        -: 1718:	}
+    #####: 1719:	unique->constants.slots = slots;
+    #####: 1720:	unique->constants.shift = shift;
+    #####: 1721:	unique->constants.maxKeys = slots * DD_MAX_SUBTABLE_DENSITY;
+    #####: 1722:	unique->constants.nodelist = nodelist;
+    #####: 1723:	for (j = 0; (unsigned) j < slots; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 1724:	    nodelist[j] = NULL;
+        -: 1725:	}
+    #####: 1726:	for (j = 0; (unsigned) j < oldslots; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 1727:	    node = oldnodelist[j];
+    #####: 1728:	    while (node != NULL) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 1729:		next = node->next;
+    #####: 1730:		split.value = cuddV(node);
+    #####: 1731:		pos = ddHash(split.bits[0], split.bits[1], shift);
+    #####: 1732:		node->next = nodelist[pos];
+    #####: 1733:		nodelist[pos] = node;
+    #####: 1734:		node = next;
+        -: 1735:	    }
+        -: 1736:	}
+    #####: 1737:	FREE(oldnodelist);
+        -: 1738:
+        -: 1739:#ifdef DD_VERBOSE
+        -: 1740:	(void) fprintf(unique->err,
+        -: 1741:		       "rehashing constants: keys %d dead %d new size %d\n",
+        -: 1742:		       unique->constants.keys,unique->constants.dead,slots);
+        -: 1743:#endif
+        -: 1744:    }
+        -: 1745:
+        -: 1746:    /* Update global data */
+        -: 1747:
+    #####: 1748:    unique->memused += (slots - oldslots) * sizeof(DdNodePtr);
+    #####: 1749:    unique->slots += (slots - oldslots);
+    #####: 1750:    ddFixLimits(unique);
+call    0 never executed
+        -: 1751:
+        -: 1752:} /* end of cuddRehash */
+        -: 1753:
+        -: 1754:
+        -: 1755:/**
+        -: 1756:  @brief Shrinks a subtable.
+        -: 1757:
+        -: 1758:  @sideeffect None
+        -: 1759:
+        -: 1760:  @see cuddRehash
+        -: 1761:
+        -: 1762:*/
+        -: 1763:void
+function cuddShrinkSubtable called 0 returned 0% blocks executed 0%
+    #####: 1764:cuddShrinkSubtable(
+        -: 1765:  DdManager *unique,
+        -: 1766:  int i)
+        -: 1767:{
+        -: 1768:    int j;
+        -: 1769:    int shift, posn;
+        -: 1770:    DdNodePtr *nodelist, *oldnodelist;
+        -: 1771:    DdNode *node, *next;
+    #####: 1772:    DdNode *sentinel = &(unique->sentinel);
+        -: 1773:    unsigned int slots, oldslots;
+        -: 1774:    extern DD_OOMFP MMoutOfMemory;
+        -: 1775:    DD_OOMFP saveHandler;
+        -: 1776:
+    #####: 1777:    oldnodelist = unique->subtables[i].nodelist;
+    #####: 1778:    oldslots = unique->subtables[i].slots;
+    #####: 1779:    slots = oldslots >> 1;
+    #####: 1780:    saveHandler = MMoutOfMemory;
+    #####: 1781:    MMoutOfMemory = unique->outOfMemCallback;
+    #####: 1782:    nodelist = ALLOC(DdNodePtr, slots);
+call    0 never executed
+    #####: 1783:    MMoutOfMemory = saveHandler;
+    #####: 1784:    if (nodelist == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1785:	return;
+        -: 1786:    }
+    #####: 1787:    unique->subtables[i].nodelist = nodelist;
+    #####: 1788:    unique->subtables[i].slots = slots;
+    #####: 1789:    unique->subtables[i].shift++;
+    #####: 1790:    unique->subtables[i].maxKeys = slots * DD_MAX_SUBTABLE_DENSITY;
+        -: 1791:#ifdef DD_VERBOSE
+        -: 1792:    (void) fprintf(unique->err,
+        -: 1793:		   "shrunk layer %d (%d keys) from %d to %d slots\n",
+        -: 1794:		   i, unique->subtables[i].keys, oldslots, slots);
+        -: 1795:#endif
+        -: 1796:
+    #####: 1797:    for (j = 0; (unsigned) j < slots; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 1798:	nodelist[j] = sentinel;
+        -: 1799:    }
+    #####: 1800:    shift = unique->subtables[i].shift;
+    #####: 1801:    for (j = 0; (unsigned) j < oldslots; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 1802:	node = oldnodelist[j];
+    #####: 1803:	while (node != sentinel) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+        -: 1804:	    DdNode *looking, *T, *E;
+        -: 1805:	    DdNodePtr *previousP;
+    #####: 1806:	    next = node->next;
+    #####: 1807:	    posn = ddHash(cuddT(node), cuddE(node), shift);
+    #####: 1808:	    previousP = &(nodelist[posn]);
+    #####: 1809:	    looking = *previousP;
+    #####: 1810:	    T = cuddT(node);
+    #####: 1811:	    E = cuddE(node);
+    #####: 1812:	    while (T < cuddT(looking)) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 1813:		previousP = &(looking->next);
+    #####: 1814:		looking = *previousP;
+        -: 1815:#ifdef DD_UNIQUE_PROFILE
+        -: 1816:		unique->uniqueLinks++;
+        -: 1817:#endif
+        -: 1818:	    }
+    #####: 1819:	    while (T == cuddT(looking) && E < cuddE(looking)) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed (fallthrough)
+    #####: 1820:		previousP = &(looking->next);
+    #####: 1821:		looking = *previousP;
+        -: 1822:#ifdef DD_UNIQUE_PROFILE
+        -: 1823:		unique->uniqueLinks++;
+        -: 1824:#endif
+        -: 1825:	    }
+    #####: 1826:	    node->next = *previousP;
+    #####: 1827:	    *previousP = node;
+    #####: 1828:	    node = next;
+        -: 1829:	}
+        -: 1830:    }
+    #####: 1831:    FREE(oldnodelist);
+        -: 1832:
+    #####: 1833:    unique->memused += ((long) slots - (long) oldslots) * sizeof(DdNode *);
+    #####: 1834:    unique->slots += slots - oldslots;
+    #####: 1835:    unique->minDead = (unsigned) (unique->gcFrac * (double) unique->slots);
+    #####: 1836:    unique->cacheSlack = (int)
+    #####: 1837:	ddMin(unique->maxCacheHard,DD_MAX_CACHE_TO_SLOTS_RATIO * unique->slots)
+    #####: 1838:	- 2 * (int) unique->cacheSlots;
+        -: 1839:
+        -: 1840:} /* end of cuddShrinkSubtable */
+        -: 1841:
+        -: 1842:
+        -: 1843:/**
+        -: 1844:  @brief Inserts n new subtables in a unique table at level.
+        -: 1845:
+        -: 1846:  @details The number n should be positive, and level should be an
+        -: 1847:  existing level.
+        -: 1848:
+        -: 1849:  @return 1 if successful; 0 otherwise.
+        -: 1850:
+        -: 1851:  @sideeffect None
+        -: 1852:
+        -: 1853:  @see cuddDestroySubtables
+        -: 1854:
+        -: 1855:*/
+        -: 1856:int
+function cuddInsertSubtables called 0 returned 0% blocks executed 0%
+    #####: 1857:cuddInsertSubtables(
+        -: 1858:  DdManager * unique,
+        -: 1859:  int  n,
+        -: 1860:  int  level)
+        -: 1861:{
+        -: 1862:    DdSubtable *newsubtables;
+        -: 1863:    DdNodePtr *newnodelist;
+        -: 1864:    DdNodePtr *newvars;
+    #####: 1865:    DdNode *sentinel = &(unique->sentinel);
+        -: 1866:    int oldsize,newsize;
+        -: 1867:    int i,j,index,reorderSave;
+    #####: 1868:    unsigned int numSlots = unique->initSlots;
+    #####: 1869:    int *newperm, *newinvperm, *newmap = NULL;
+        -: 1870:    DdNode *one, *zero;
+        -: 1871:
+        -: 1872:#ifdef DD_DEBUG
+        -: 1873:    assert(n > 0 && level < unique->size);
+        -: 1874:#endif
+        -: 1875:
+    #####: 1876:    oldsize = unique->size;
+        -: 1877:    /* Easy case: there is still room in the current table. */
+    #####: 1878:    if (oldsize + n <= unique->maxSize) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1879:	/* Shift the tables at and below level. */
+    #####: 1880:	for (i = oldsize - 1; i >= level; i--) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 1881:	    unique->subtables[i+n].slots    = unique->subtables[i].slots;
+    #####: 1882:	    unique->subtables[i+n].shift    = unique->subtables[i].shift;
+    #####: 1883:	    unique->subtables[i+n].keys     = unique->subtables[i].keys;
+    #####: 1884:	    unique->subtables[i+n].maxKeys  = unique->subtables[i].maxKeys;
+    #####: 1885:	    unique->subtables[i+n].dead     = unique->subtables[i].dead;
+    #####: 1886:            unique->subtables[i+n].next     = i+n;
+    #####: 1887:	    unique->subtables[i+n].nodelist = unique->subtables[i].nodelist;
+    #####: 1888:	    unique->subtables[i+n].bindVar  = unique->subtables[i].bindVar;
+    #####: 1889:	    unique->subtables[i+n].varType  = unique->subtables[i].varType;
+    #####: 1890:	    unique->subtables[i+n].pairIndex  = unique->subtables[i].pairIndex;
+    #####: 1891:	    unique->subtables[i+n].varHandled = unique->subtables[i].varHandled;
+    #####: 1892:	    unique->subtables[i+n].varToBeGrouped =
+    #####: 1893:		unique->subtables[i].varToBeGrouped;
+        -: 1894:
+    #####: 1895:	    index                           = unique->invperm[i];
+    #####: 1896:	    unique->invperm[i+n]            = index;
+    #####: 1897:	    unique->perm[index]            += n;
+        -: 1898:	}
+        -: 1899:	/* Create new subtables. */
+    #####: 1900:	for (i = 0; i < n; i++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 1901:	    unique->subtables[level+i].slots = numSlots;
+    #####: 1902:	    unique->subtables[level+i].shift = sizeof(int) * 8 -
+    #####: 1903:		cuddComputeFloorLog2(numSlots);
+call    0 never executed
+    #####: 1904:	    unique->subtables[level+i].keys = 0;
+    #####: 1905:	    unique->subtables[level+i].maxKeys = numSlots * DD_MAX_SUBTABLE_DENSITY;
+    #####: 1906:	    unique->subtables[level+i].dead = 0;
+    #####: 1907:            unique->subtables[level+i].next = level+i;
+    #####: 1908:	    unique->subtables[level+i].bindVar = 0;
+    #####: 1909:	    unique->subtables[level+i].varType = CUDD_VAR_PRIMARY_INPUT;
+    #####: 1910:	    unique->subtables[level+i].pairIndex = 0;
+    #####: 1911:	    unique->subtables[level+i].varHandled = 0;
+    #####: 1912:	    unique->subtables[level+i].varToBeGrouped = CUDD_LAZY_NONE;
+        -: 1913:
+    #####: 1914:	    unique->perm[oldsize+i] = level + i;
+    #####: 1915:	    unique->invperm[level+i] = oldsize + i;
+    #####: 1916:	    newnodelist = unique->subtables[level+i].nodelist =
+    #####: 1917:		ALLOC(DdNodePtr, numSlots);
+call    0 never executed
+    #####: 1918:	    if (newnodelist == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1919:		unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 1920:		return(0);
+        -: 1921:	    }
+    #####: 1922:	    for (j = 0; (unsigned) j < numSlots; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 1923:		newnodelist[j] = sentinel;
+        -: 1924:	    }
+        -: 1925:	}
+    #####: 1926:	if (unique->map != NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1927:	    for (i = 0; i < n; i++) {
+branch  0 never executed
+branch  1 never executed
+    #####: 1928:		unique->map[oldsize+i] = oldsize + i;
+        -: 1929:	    }
+        -: 1930:	}
+        -: 1931:    } else {
+        -: 1932:	/* The current table is too small: we need to allocate a new,
+        -: 1933:	** larger one; move all old subtables, and initialize the new
+        -: 1934:	** subtables.
+        -: 1935:	*/
+    #####: 1936:	newsize = oldsize + n + DD_DEFAULT_RESIZE;
+        -: 1937:#ifdef DD_VERBOSE
+        -: 1938:	(void) fprintf(unique->err,
+        -: 1939:		       "Increasing the table size from %d to %d\n",
+        -: 1940:	    unique->maxSize, newsize);
+        -: 1941:#endif
+        -: 1942:	/* Allocate memory for new arrays (except nodelists). */
+    #####: 1943:	newsubtables = ALLOC(DdSubtable,newsize);
+call    0 never executed
+    #####: 1944:	if (newsubtables == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1945:	    unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 1946:	    return(0);
+        -: 1947:	}
+    #####: 1948:	newvars = ALLOC(DdNodePtr,newsize);
+call    0 never executed
+    #####: 1949:	if (newvars == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1950:	    unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 1951:	    FREE(newsubtables);
+    #####: 1952:	    return(0);
+        -: 1953:	}
+    #####: 1954:	newperm = ALLOC(int,newsize);
+call    0 never executed
+    #####: 1955:	if (newperm == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1956:	    unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 1957:	    FREE(newsubtables);
+    #####: 1958:	    FREE(newvars);
+    #####: 1959:	    return(0);
+        -: 1960:	}
+    #####: 1961:	newinvperm = ALLOC(int,newsize);
+call    0 never executed
+    #####: 1962:	if (newinvperm == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1963:	    unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 1964:	    FREE(newsubtables);
+    #####: 1965:	    FREE(newvars);
+    #####: 1966:	    FREE(newperm);
+    #####: 1967:	    return(0);
+        -: 1968:	}
+    #####: 1969:	if (unique->map != NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1970:	    newmap = ALLOC(int,newsize);
+call    0 never executed
+    #####: 1971:	    if (newmap == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 1972:		unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 1973:		FREE(newsubtables);
+    #####: 1974:		FREE(newvars);
+    #####: 1975:		FREE(newperm);
+    #####: 1976:		FREE(newinvperm);
+    #####: 1977:		return(0);
+        -: 1978:	    }
+    #####: 1979:	    unique->memused += (newsize - unique->maxSize) * sizeof(int);
+        -: 1980:	}
+    #####: 1981:	unique->memused += (newsize - unique->maxSize) * ((numSlots+1) *
+    #####: 1982:	    sizeof(DdNode *) + 2 * sizeof(int) + sizeof(DdSubtable));
+        -: 1983:	/* Copy levels before insertion points from old tables. */
+    #####: 1984:	for (i = 0; i < level; i++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 1985:	    newsubtables[i].slots = unique->subtables[i].slots;
+    #####: 1986:	    newsubtables[i].shift = unique->subtables[i].shift;
+    #####: 1987:	    newsubtables[i].keys = unique->subtables[i].keys;
+    #####: 1988:	    newsubtables[i].maxKeys = unique->subtables[i].maxKeys;
+    #####: 1989:	    newsubtables[i].dead = unique->subtables[i].dead;
+    #####: 1990:            newsubtables[i].next = i;
+    #####: 1991:	    newsubtables[i].nodelist = unique->subtables[i].nodelist;
+    #####: 1992:	    newsubtables[i].bindVar = unique->subtables[i].bindVar;
+    #####: 1993:	    newsubtables[i].varType = unique->subtables[i].varType;
+    #####: 1994:	    newsubtables[i].pairIndex = unique->subtables[i].pairIndex;
+    #####: 1995:	    newsubtables[i].varHandled = unique->subtables[i].varHandled;
+    #####: 1996:	    newsubtables[i].varToBeGrouped = unique->subtables[i].varToBeGrouped;
+        -: 1997:
+    #####: 1998:	    newvars[i] = unique->vars[i];
+    #####: 1999:	    newperm[i] = unique->perm[i];
+    #####: 2000:	    newinvperm[i] = unique->invperm[i];
+        -: 2001:	}
+        -: 2002:	/* Finish initializing permutation for new table to old one. */
+    #####: 2003:	for (i = level; i < oldsize; i++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2004:	    newperm[i] = unique->perm[i];
+        -: 2005:	}
+        -: 2006:	/* Initialize new levels. */
+    #####: 2007:	for (i = level; i < level + n; i++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2008:	    newsubtables[i].slots = numSlots;
+    #####: 2009:	    newsubtables[i].shift = sizeof(int) * 8 -
+    #####: 2010:		cuddComputeFloorLog2(numSlots);
+call    0 never executed
+    #####: 2011:	    newsubtables[i].keys = 0;
+    #####: 2012:	    newsubtables[i].maxKeys = numSlots * DD_MAX_SUBTABLE_DENSITY;
+    #####: 2013:	    newsubtables[i].dead = 0;
+    #####: 2014:            newsubtables[i].next = i;
+    #####: 2015:	    newsubtables[i].bindVar = 0;
+    #####: 2016:	    newsubtables[i].varType = CUDD_VAR_PRIMARY_INPUT;
+    #####: 2017:	    newsubtables[i].pairIndex = 0;
+    #####: 2018:	    newsubtables[i].varHandled = 0;
+    #####: 2019:	    newsubtables[i].varToBeGrouped = CUDD_LAZY_NONE;
+        -: 2020:
+    #####: 2021:	    newperm[oldsize + i - level] = i;
+    #####: 2022:	    newinvperm[i] = oldsize + i - level;
+    #####: 2023:	    newnodelist = newsubtables[i].nodelist = ALLOC(DdNodePtr, numSlots);
+call    0 never executed
+    #####: 2024:	    if (newnodelist == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2025:		/* We are going to leak some memory.  We should clean up. */
+    #####: 2026:		unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 2027:		return(0);
+        -: 2028:	    }
+    #####: 2029:	    for (j = 0; (unsigned) j < numSlots; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2030:		newnodelist[j] = sentinel;
+        -: 2031:	    }
+        -: 2032:	}
+        -: 2033:	/* Copy the old tables for levels past the insertion point. */
+    #####: 2034:	for (i = level; i < oldsize; i++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2035:	    newsubtables[i+n].slots    = unique->subtables[i].slots;
+    #####: 2036:	    newsubtables[i+n].shift    = unique->subtables[i].shift;
+    #####: 2037:	    newsubtables[i+n].keys     = unique->subtables[i].keys;
+    #####: 2038:	    newsubtables[i+n].maxKeys  = unique->subtables[i].maxKeys;
+    #####: 2039:	    newsubtables[i+n].dead     = unique->subtables[i].dead;
+    #####: 2040:            newsubtables[i+n].next     = i+n;
+    #####: 2041:	    newsubtables[i+n].nodelist = unique->subtables[i].nodelist;
+    #####: 2042:	    newsubtables[i+n].bindVar  = unique->subtables[i].bindVar;
+    #####: 2043:	    newsubtables[i+n].varType  = unique->subtables[i].varType;
+    #####: 2044:	    newsubtables[i+n].pairIndex  = unique->subtables[i].pairIndex;
+    #####: 2045:	    newsubtables[i+n].varHandled  = unique->subtables[i].varHandled;
+    #####: 2046:	    newsubtables[i+n].varToBeGrouped  =
+    #####: 2047:		unique->subtables[i].varToBeGrouped;
+        -: 2048:
+    #####: 2049:	    newvars[i]                 = unique->vars[i];
+    #####: 2050:	    index                      = unique->invperm[i];
+    #####: 2051:	    newinvperm[i+n]            = index;
+    #####: 2052:	    newperm[index]            += n;
+        -: 2053:	}
+        -: 2054:	/* Update the map. */
+    #####: 2055:	if (unique->map != NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2056:	    for (i = 0; i < oldsize; i++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2057:		newmap[i] = unique->map[i];
+        -: 2058:	    }
+    #####: 2059:	    for (i = oldsize; i < oldsize + n; i++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2060:		newmap[i] = i;
+        -: 2061:	    }
+    #####: 2062:	    FREE(unique->map);
+    #####: 2063:	    unique->map = newmap;
+        -: 2064:	}
+        -: 2065:	/* Install the new tables and free the old ones. */
+    #####: 2066:	FREE(unique->subtables);
+    #####: 2067:	unique->subtables = newsubtables;
+    #####: 2068:	unique->maxSize = newsize;
+    #####: 2069:	FREE(unique->vars);
+    #####: 2070:	unique->vars = newvars;
+    #####: 2071:	FREE(unique->perm);
+    #####: 2072:	unique->perm = newperm;
+    #####: 2073:	FREE(unique->invperm);
+    #####: 2074:	unique->invperm = newinvperm;
+        -: 2075:	/* Update the stack for iterative procedures. */
+    #####: 2076:	if (newsize > unique->maxSizeZ) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2077:	    FREE(unique->stack);
+    #####: 2078:	    unique->stack = ALLOC(DdNodePtr,newsize + 1);
+call    0 never executed
+    #####: 2079:	    if (unique->stack == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2080:		unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 2081:		return(0);
+        -: 2082:	    }
+    #####: 2083:	    unique->stack[0] = NULL; /* to suppress harmless UMR */
+    #####: 2084:	    unique->memused +=
+    #####: 2085:		(newsize - ddMax(unique->maxSize,unique->maxSizeZ))
+    #####: 2086:		* sizeof(DdNode *);
+        -: 2087:	}
+        -: 2088:    }
+        -: 2089:    /* Update manager parameters to account for the new subtables. */
+    #####: 2090:    unique->slots += n * numSlots;
+    #####: 2091:    ddFixLimits(unique);
+call    0 never executed
+    #####: 2092:    unique->size += n;
+        -: 2093:
+        -: 2094:    /* Now that the table is in a coherent state, create the new
+        -: 2095:    ** projection functions. We need to temporarily disable reordering,
+        -: 2096:    ** because we cannot reorder without projection functions in place.
+        -: 2097:    **/
+    #####: 2098:    one = unique->one;
+    #####: 2099:    zero = Cudd_Not(one);
+        -: 2100:
+    #####: 2101:    reorderSave = unique->autoDyn;
+    #####: 2102:    unique->autoDyn = 0;
+    #####: 2103:    for (i = oldsize; i < oldsize + n; i++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2104:	unique->vars[i] = cuddUniqueInter(unique,i,one,zero);
+call    0 never executed
+    #####: 2105:	if (unique->vars[i] == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2106:	    unique->autoDyn = reorderSave;
+        -: 2107:	    /* Shift everything back so table remains coherent. */
+    #####: 2108:	    for (j = oldsize; j < i; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2109:		Cudd_IterDerefBdd(unique,unique->vars[j]);
+call    0 never executed
+    #####: 2110:		cuddDeallocNode(unique,unique->vars[j]);
+    #####: 2111:		unique->vars[j] = NULL;
+        -: 2112:	    }
+    #####: 2113:	    for (j = level; j < oldsize; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2114:		unique->subtables[j].slots    = unique->subtables[j+n].slots;
+    #####: 2115:		unique->subtables[j].slots    = unique->subtables[j+n].slots;
+    #####: 2116:		unique->subtables[j].shift    = unique->subtables[j+n].shift;
+    #####: 2117:		unique->subtables[j].keys     = unique->subtables[j+n].keys;
+    #####: 2118:		unique->subtables[j].maxKeys  =
+    #####: 2119:		    unique->subtables[j+n].maxKeys;
+    #####: 2120:		unique->subtables[j].dead     = unique->subtables[j+n].dead;
+    #####: 2121:                unique->subtables[j].next     = j;
+    #####: 2122:		FREE(unique->subtables[j].nodelist);
+    #####: 2123:		unique->subtables[j].nodelist =
+    #####: 2124:		    unique->subtables[j+n].nodelist;
+    #####: 2125:		unique->subtables[j+n].nodelist = NULL;
+    #####: 2126:		unique->subtables[j].bindVar  =
+    #####: 2127:		    unique->subtables[j+n].bindVar;
+    #####: 2128:		unique->subtables[j].varType  =
+    #####: 2129:		    unique->subtables[j+n].varType;
+    #####: 2130:		unique->subtables[j].pairIndex =
+    #####: 2131:		    unique->subtables[j+n].pairIndex;
+    #####: 2132:		unique->subtables[j].varHandled =
+    #####: 2133:		    unique->subtables[j+n].varHandled;
+    #####: 2134:		unique->subtables[j].varToBeGrouped =
+    #####: 2135:		    unique->subtables[j+n].varToBeGrouped;
+    #####: 2136:		index                         = unique->invperm[j+n];
+    #####: 2137:		unique->invperm[j]            = index;
+    #####: 2138:		unique->perm[index]          -= n;
+        -: 2139:	    }
+    #####: 2140:	    unique->size = oldsize;
+    #####: 2141:	    unique->slots -= n * numSlots;
+    #####: 2142:	    ddFixLimits(unique);
+call    0 never executed
+    #####: 2143:	    (void) Cudd_DebugCheck(unique);
+call    0 never executed
+    #####: 2144:	    return(0);
+        -: 2145:	}
+    #####: 2146:	cuddRef(unique->vars[i]);
+        -: 2147:    }
+    #####: 2148:    if (unique->tree != NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2149:	unique->tree->size += n;
+    #####: 2150:	unique->tree->index = unique->invperm[0];
+    #####: 2151:	ddPatchTree(unique,unique->tree);
+call    0 never executed
+        -: 2152:    }
+    #####: 2153:    unique->autoDyn = reorderSave;
+        -: 2154:
+    #####: 2155:    return(1);
+        -: 2156:
+        -: 2157:} /* end of cuddInsertSubtables */
+        -: 2158:
+        -: 2159:
+        -: 2160:/**
+        -: 2161:  @brief Destroys the n most recently created subtables in a unique table.
+        -: 2162:
+        -: 2163:  @details n should be positive. The subtables should not contain any live
+        -: 2164:  nodes, except the (isolated) projection function. The projection
+        -: 2165:  functions are freed.
+        -: 2166:
+        -: 2167:  @return 1 if successful; 0 otherwise.
+        -: 2168:
+        -: 2169:  @sideeffect The variable map used for fast variable substitution is
+        -: 2170:  destroyed if it exists. In this case the cache is also cleared.
+        -: 2171:
+        -: 2172:  @see cuddInsertSubtables Cudd_SetVarMap
+        -: 2173:
+        -: 2174:*/
+        -: 2175:int
+function cuddDestroySubtables called 0 returned 0% blocks executed 0%
+    #####: 2176:cuddDestroySubtables(
+        -: 2177:  DdManager * unique,
+        -: 2178:  int  n)
+        -: 2179:{
+        -: 2180:    DdSubtable *subtables;
+        -: 2181:    DdNodePtr *nodelist;
+        -: 2182:    DdNodePtr *vars;
+        -: 2183:    int firstIndex, lastIndex;
+        -: 2184:    int index, level, newlevel;
+        -: 2185:    int lowestLevel;
+        -: 2186:    int shift;
+        -: 2187:    int found;
+        -: 2188:
+        -: 2189:    /* Sanity check and set up. */
+    #####: 2190:    if (n <= 0) return(0);
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2191:    if (n > unique->size) n = unique->size;
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2192:
+    #####: 2193:    subtables = unique->subtables;
+    #####: 2194:    vars = unique->vars;
+    #####: 2195:    firstIndex = unique->size - n;
+    #####: 2196:    lastIndex  = unique->size;
+        -: 2197:
+        -: 2198:    /* Check for nodes labeled by the variables being destroyed
+        -: 2199:    ** that may still be in use.  It is allowed to destroy a variable
+        -: 2200:    ** only if there are no such nodes. Also, find the lowest level
+        -: 2201:    ** among the variables being destroyed. This will make further
+        -: 2202:    ** processing more efficient.
+        -: 2203:    */
+    #####: 2204:    lowestLevel = unique->size;
+    #####: 2205:    for (index = firstIndex; index < lastIndex; index++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2206:	level = unique->perm[index];
+    #####: 2207:	if (level < lowestLevel) lowestLevel = level;
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2208:	if (subtables[level].keys - subtables[level].dead != 1) return(0);
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2209:	/* The projection function should be isolated. If the ref count
+        -: 2210:	** is 1, everything is OK. If the ref count is saturated, then
+        -: 2211:	** we need to make sure that there are no nodes pointing to it.
+        -: 2212:	** As for the external references, we assume the application is
+        -: 2213:	** responsible for them.
+        -: 2214:	*/
+    #####: 2215:	if (vars[index]->ref != 1) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2216:	    if (vars[index]->ref != DD_MAXREF) return(0);
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2217:	    found = cuddFindParent(unique,vars[index]);
+call    0 never executed
+    #####: 2218:	    if (found) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2219:		return(0);
+        -: 2220:	    } else {
+    #####: 2221:		vars[index]->ref = 1;
+        -: 2222:	    }
+        -: 2223:	}
+    #####: 2224:	Cudd_RecursiveDeref(unique,vars[index]);
+call    0 never executed
+        -: 2225:    }
+        -: 2226:
+        -: 2227:    /* Collect garbage, because we cannot afford having dead nodes pointing
+        -: 2228:    ** to the dead nodes in the subtables being destroyed.
+        -: 2229:    */
+    #####: 2230:    (void) cuddGarbageCollect(unique,1);
+call    0 never executed
+        -: 2231:
+        -: 2232:    /* Here we know we can destroy our subtables. */
+    #####: 2233:    for (index = firstIndex; index < lastIndex; index++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2234:	level = unique->perm[index];
+    #####: 2235:	nodelist = subtables[level].nodelist;
+        -: 2236:#ifdef DD_DEBUG
+        -: 2237:	assert(subtables[level].keys == 0);
+        -: 2238:#endif
+    #####: 2239:	FREE(nodelist);
+    #####: 2240:	unique->memused -= sizeof(DdNodePtr) * subtables[level].slots;
+    #####: 2241:	unique->slots -= subtables[level].slots;
+    #####: 2242:	unique->dead -= subtables[level].dead;
+        -: 2243:    }
+        -: 2244:
+        -: 2245:    /* Here all subtables to be destroyed have their keys field == 0 and
+        -: 2246:    ** their hash tables have been freed.
+        -: 2247:    ** We now scan the subtables from level lowestLevel + 1 to level size - 1,
+        -: 2248:    ** shifting the subtables as required. We keep a running count of
+        -: 2249:    ** how many subtables have been moved, so that we know by how many
+        -: 2250:    ** positions each subtable should be shifted.
+        -: 2251:    */
+    #####: 2252:    shift = 1;
+    #####: 2253:    for (level = lowestLevel + 1; level < unique->size; level++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2254:	if (subtables[level].keys == 0) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2255:	    shift++;
+    #####: 2256:	    continue;
+        -: 2257:	}
+    #####: 2258:	newlevel = level - shift;
+    #####: 2259:	subtables[newlevel].slots = subtables[level].slots;
+    #####: 2260:	subtables[newlevel].shift = subtables[level].shift;
+    #####: 2261:	subtables[newlevel].keys = subtables[level].keys;
+    #####: 2262:	subtables[newlevel].maxKeys = subtables[level].maxKeys;
+    #####: 2263:	subtables[newlevel].dead = subtables[level].dead;
+    #####: 2264:        subtables[newlevel].next = newlevel;
+    #####: 2265:	subtables[newlevel].nodelist = subtables[level].nodelist;
+    #####: 2266:	index = unique->invperm[level];
+    #####: 2267:	unique->perm[index] = newlevel;
+    #####: 2268:	unique->invperm[newlevel]  = index;
+    #####: 2269:	subtables[newlevel].bindVar = subtables[level].bindVar;
+    #####: 2270:	subtables[newlevel].varType = subtables[level].varType;
+    #####: 2271:	subtables[newlevel].pairIndex = subtables[level].pairIndex;
+    #####: 2272:	subtables[newlevel].varHandled = subtables[level].varHandled;
+    #####: 2273:	subtables[newlevel].varToBeGrouped = subtables[level].varToBeGrouped;
+        -: 2274:    }
+        -: 2275:    /* Destroy the map. If a surviving variable is
+        -: 2276:    ** mapped to a dying variable, and the map were used again,
+        -: 2277:    ** an out-of-bounds access to unique->vars would result. */
+    #####: 2278:    if (unique->map != NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2279:	cuddCacheFlush(unique);
+call    0 never executed
+    #####: 2280:	FREE(unique->map);
+    #####: 2281:	unique->map = NULL;
+        -: 2282:    }
+        -: 2283:
+    #####: 2284:    unique->minDead = (unsigned) (unique->gcFrac * (double) unique->slots);
+    #####: 2285:    unique->size -= n;
+        -: 2286:
+    #####: 2287:    return(1);
+        -: 2288:
+        -: 2289:} /* end of cuddDestroySubtables */
+        -: 2290:
+        -: 2291:
+        -: 2292:/**
+        -: 2293:  @brief Increases the number of %ZDD subtables in a unique table so
+        -: 2294:  that it meets or exceeds index.
+        -: 2295:
+        -: 2296:  @details When new %ZDD variables are created, it is possible to
+        -: 2297:  preserve the functions unchanged, or it is possible to preserve the
+        -: 2298:  covers unchanged, but not both. cuddResizeTableZdd preserves the
+        -: 2299:  covers.
+        -: 2300:
+        -: 2301:  @return 1 if successful; 0 otherwise.
+        -: 2302:
+        -: 2303:  @sideeffect None
+        -: 2304:
+        -: 2305:  @see ddResizeTable
+        -: 2306:
+        -: 2307:*/
+        -: 2308:int
+function cuddResizeTableZdd called 8 returned 100% blocks executed 35%
+        8: 2309:cuddResizeTableZdd(
+        -: 2310:  DdManager * unique,
+        -: 2311:  int  index)
+        -: 2312:{
+        -: 2313:    DdSubtable *newsubtables;
+        -: 2314:    DdNodePtr *newnodelist;
+        -: 2315:    int oldsize,newsize;
+        -: 2316:    int i,j,reorderSave;
+        8: 2317:    unsigned int numSlots = unique->initSlots;
+        -: 2318:    int *newperm, *newinvperm;
+        -: 2319:
+        8: 2320:    oldsize = unique->sizeZ;
+        -: 2321:    /* Easy case: there is still room in the current table. */
+        8: 2322:    if (index < unique->maxSizeZ) {
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+       54: 2323:	for (i = oldsize; i <= index; i++) {
+branch  0 taken 85%
+branch  1 taken 15%
+       46: 2324:	    unique->subtableZ[i].slots = numSlots;
+       46: 2325:	    unique->subtableZ[i].shift = sizeof(int) * 8 -
+       46: 2326:		cuddComputeFloorLog2(numSlots);
+call    0 returned 100%
+       46: 2327:	    unique->subtableZ[i].keys = 0;
+       46: 2328:	    unique->subtableZ[i].maxKeys = numSlots * DD_MAX_SUBTABLE_DENSITY;
+       46: 2329:	    unique->subtableZ[i].dead = 0;
+       46: 2330:            unique->subtableZ[i].next = i;
+       46: 2331:	    unique->permZ[i] = i;
+       46: 2332:	    unique->invpermZ[i] = i;
+       92: 2333:	    newnodelist = unique->subtableZ[i].nodelist =
+       46: 2334:		ALLOC(DdNodePtr, numSlots);
+call    0 returned 100%
+       46: 2335:	    if (newnodelist == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 2336:		unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 2337:		return(0);
+        -: 2338:	    }
+    11822: 2339:	    for (j = 0; (unsigned) j < numSlots; j++) {
+branch  0 taken 100%
+branch  1 taken 1% (fallthrough)
+    11776: 2340:		newnodelist[j] = NULL;
+        -: 2341:	    }
+        -: 2342:	}
+        -: 2343:    } else {
+        -: 2344:	/* The current table is too small: we need to allocate a new,
+        -: 2345:	** larger one; move all old subtables, and initialize the new
+        -: 2346:	** subtables up to index included.
+        -: 2347:	*/
+    #####: 2348:	newsize = index + DD_DEFAULT_RESIZE;
+        -: 2349:#ifdef DD_VERBOSE
+        -: 2350:	(void) fprintf(unique->err,
+        -: 2351:		       "Increasing the ZDD table size from %d to %d\n",
+        -: 2352:	    unique->maxSizeZ, newsize);
+        -: 2353:#endif
+    #####: 2354:	newsubtables = ALLOC(DdSubtable,newsize);
+call    0 never executed
+    #####: 2355:	if (newsubtables == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2356:	    unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 2357:	    return(0);
+        -: 2358:	}
+    #####: 2359:	newperm = ALLOC(int,newsize);
+call    0 never executed
+    #####: 2360:	if (newperm == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2361:	    unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 2362:	    return(0);
+        -: 2363:	}
+    #####: 2364:	newinvperm = ALLOC(int,newsize);
+call    0 never executed
+    #####: 2365:	if (newinvperm == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2366:	    unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 2367:	    return(0);
+        -: 2368:	}
+    #####: 2369:	unique->memused += (newsize - unique->maxSizeZ) * ((numSlots+1) *
+    #####: 2370:	    sizeof(DdNode *) + 2 * sizeof(int) + sizeof(DdSubtable));
+    #####: 2371:	if (newsize > unique->maxSize) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2372:	    FREE(unique->stack);
+    #####: 2373:	    unique->stack = ALLOC(DdNodePtr,newsize + 1);
+call    0 never executed
+    #####: 2374:	    if (unique->stack == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2375:		unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 2376:		return(0);
+        -: 2377:	    }
+    #####: 2378:	    unique->stack[0] = NULL; /* to suppress harmless UMR */
+    #####: 2379:	    unique->memused +=
+    #####: 2380:		(newsize - ddMax(unique->maxSize,unique->maxSizeZ))
+    #####: 2381:		* sizeof(DdNode *);
+        -: 2382:	}
+    #####: 2383:	for (i = 0; i < oldsize; i++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2384:	    newsubtables[i].slots = unique->subtableZ[i].slots;
+    #####: 2385:	    newsubtables[i].shift = unique->subtableZ[i].shift;
+    #####: 2386:	    newsubtables[i].keys = unique->subtableZ[i].keys;
+    #####: 2387:	    newsubtables[i].maxKeys = unique->subtableZ[i].maxKeys;
+    #####: 2388:	    newsubtables[i].dead = unique->subtableZ[i].dead;
+    #####: 2389:            newsubtables[i].next = i;
+    #####: 2390:	    newsubtables[i].nodelist = unique->subtableZ[i].nodelist;
+    #####: 2391:	    newperm[i] = unique->permZ[i];
+    #####: 2392:	    newinvperm[i] = unique->invpermZ[i];
+        -: 2393:	}
+    #####: 2394:	for (i = oldsize; i <= index; i++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2395:	    newsubtables[i].slots = numSlots;
+    #####: 2396:	    newsubtables[i].shift = sizeof(int) * 8 -
+    #####: 2397:		cuddComputeFloorLog2(numSlots);
+call    0 never executed
+    #####: 2398:	    newsubtables[i].keys = 0;
+    #####: 2399:	    newsubtables[i].maxKeys = numSlots * DD_MAX_SUBTABLE_DENSITY;
+    #####: 2400:	    newsubtables[i].dead = 0;
+    #####: 2401:            newsubtables[i].next = i;
+    #####: 2402:	    newperm[i] = i;
+    #####: 2403:	    newinvperm[i] = i;
+    #####: 2404:	    newnodelist = newsubtables[i].nodelist = ALLOC(DdNodePtr, numSlots);
+call    0 never executed
+    #####: 2405:	    if (newnodelist == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2406:		unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 2407:		return(0);
+        -: 2408:	    }
+    #####: 2409:	    for (j = 0; (unsigned) j < numSlots; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2410:		newnodelist[j] = NULL;
+        -: 2411:	    }
+        -: 2412:	}
+    #####: 2413:	FREE(unique->subtableZ);
+    #####: 2414:	unique->subtableZ = newsubtables;
+    #####: 2415:	unique->maxSizeZ = newsize;
+    #####: 2416:	FREE(unique->permZ);
+    #####: 2417:	unique->permZ = newperm;
+    #####: 2418:	FREE(unique->invpermZ);
+    #####: 2419:	unique->invpermZ = newinvperm;
+        -: 2420:    }
+        8: 2421:    unique->slots += (index + 1 - unique->sizeZ) * numSlots;
+        8: 2422:    ddFixLimits(unique);
+call    0 returned 100%
+        8: 2423:    unique->sizeZ = index + 1;
+        -: 2424:
+        -: 2425:    /* Now that the table is in a coherent state, update the ZDD
+        -: 2426:    ** universe. We need to temporarily disable reordering,
+        -: 2427:    ** because we cannot reorder without universe in place.
+        -: 2428:    */
+        -: 2429:
+        8: 2430:    reorderSave = unique->autoDynZ;
+        8: 2431:    unique->autoDynZ = 0;
+        8: 2432:    cuddZddFreeUniv(unique);
+call    0 returned 100%
+        8: 2433:    if (!cuddZddInitUniv(unique)) {
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+    #####: 2434:	unique->autoDynZ = reorderSave;
+    #####: 2435:	return(0);
+        -: 2436:    }
+        8: 2437:    unique->autoDynZ = reorderSave;
+        -: 2438:
+        8: 2439:    return(1);
+        -: 2440:
+        -: 2441:} /* end of cuddResizeTableZdd */
+        -: 2442:
+        -: 2443:
+        -: 2444:/**
+        -: 2445:  @brief Adjusts parameters of a table to slow down its growth.
+        -: 2446:
+        -: 2447:  @sideeffect None
+        -: 2448:
+        -: 2449:*/
+        -: 2450:void
+function cuddSlowTableGrowth called 0 returned 0% blocks executed 0%
+    #####: 2451:cuddSlowTableGrowth(
+        -: 2452:  DdManager *unique)
+        -: 2453:{
+        -: 2454:    int i;
+        -: 2455:
+    #####: 2456:    unique->maxCacheHard = unique->cacheSlots - 1;
+    #####: 2457:    unique->cacheSlack = - (int) (unique->cacheSlots + 1);
+    #####: 2458:    for (i = 0; i < unique->size; i++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2459:	unique->subtables[i].maxKeys <<= 2;
+        -: 2460:    }
+    #####: 2461:    unique->gcFrac = DD_GC_FRAC_MIN;
+    #####: 2462:    unique->minDead = (unsigned) (DD_GC_FRAC_MIN * (double) unique->slots);
+    #####: 2463:    cuddShrinkDeathRow(unique);
+call    0 never executed
+        -: 2464:#ifdef DD_VERBOSE
+        -: 2465:    (void) fprintf(unique->err,"CUDD: slowing down table growth: ");
+        -: 2466:    (void) fprintf(unique->err,"GC fraction = %.2f\t", unique->gcFrac);
+        -: 2467:    (void) fprintf(unique->err,"minDead = %u\n", unique->minDead);
+        -: 2468:#endif
+        -: 2469:
+    #####: 2470:} /* end of cuddSlowTableGrowth */
+        -: 2471:
+        -: 2472:
+        -: 2473:/*---------------------------------------------------------------------------*/
+        -: 2474:/* Definition of static functions                                            */
+        -: 2475:/*---------------------------------------------------------------------------*/
+        -: 2476:
+        -: 2477:
+        -: 2478:/**
+        -: 2479:  @brief Rehashes a %ZDD unique subtable.
+        -: 2480:
+        -: 2481:  @sideeffect None
+        -: 2482:
+        -: 2483:  @see cuddRehash
+        -: 2484:
+        -: 2485:*/
+        -: 2486:static void
+function ddRehashZdd called 0 returned 0% blocks executed 0%
+    #####: 2487:ddRehashZdd(
+        -: 2488:  DdManager * unique,
+        -: 2489:  int  i)
+        -: 2490:{
+        -: 2491:    unsigned int slots, oldslots;
+        -: 2492:    int shift, oldshift;
+        -: 2493:    int j, pos;
+        -: 2494:    DdNodePtr *nodelist, *oldnodelist;
+        -: 2495:    DdNode *node, *next;
+        -: 2496:    extern DD_OOMFP MMoutOfMemory;
+        -: 2497:    DD_OOMFP saveHandler;
+        -: 2498:
+    #####: 2499:    if (unique->slots > unique->looseUpTo) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2500:	unique->minDead = (unsigned) (DD_GC_FRAC_LO * (double) unique->slots);
+        -: 2501:#ifdef DD_VERBOSE
+        -: 2502:	if (unique->gcFrac == DD_GC_FRAC_HI) {
+        -: 2503:	    (void) fprintf(unique->err,"GC fraction = %.2f\t",
+        -: 2504:			   DD_GC_FRAC_LO);
+        -: 2505:	    (void) fprintf(unique->err,"minDead = %d\n", unique->minDead);
+        -: 2506:	}
+        -: 2507:#endif
+    #####: 2508:	unique->gcFrac = DD_GC_FRAC_LO;
+        -: 2509:    }
+        -: 2510:
+        -: 2511:    assert(i != CUDD_MAXINDEX);
+    #####: 2512:    oldslots = unique->subtableZ[i].slots;
+    #####: 2513:    oldshift = unique->subtableZ[i].shift;
+    #####: 2514:    oldnodelist = unique->subtableZ[i].nodelist;
+        -: 2515:
+        -: 2516:    /* Compute the new size of the subtable. Normally, we just
+        -: 2517:    ** double.  However, after reordering, a table may be severely
+        -: 2518:    ** overloaded. Therefore, we iterate. */
+    #####: 2519:    slots = oldslots;
+    #####: 2520:    shift = oldshift;
+        -: 2521:    do {
+    #####: 2522:	slots <<= 1;
+    #####: 2523:	shift--;
+    #####: 2524:    } while (slots * DD_MAX_SUBTABLE_DENSITY < unique->subtableZ[i].keys);
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2525:
+    #####: 2526:    saveHandler = MMoutOfMemory;
+    #####: 2527:    MMoutOfMemory = unique->outOfMemCallback;
+    #####: 2528:    nodelist = ALLOC(DdNodePtr, slots);
+call    0 never executed
+    #####: 2529:    MMoutOfMemory = saveHandler;
+    #####: 2530:    if (nodelist == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2531:	(void) fprintf(unique->err,
+call    0 never executed
+        -: 2532:		       "Unable to resize ZDD subtable %d for lack of memory.\n",
+        -: 2533:		       i);
+    #####: 2534:	(void) cuddGarbageCollect(unique,1);
+call    0 never executed
+    #####: 2535:	for (j = 0; j < unique->sizeZ; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2536:	    unique->subtableZ[j].maxKeys <<= 1;
+        -: 2537:	}
+    #####: 2538:	return;
+        -: 2539:    }
+    #####: 2540:    unique->subtableZ[i].nodelist = nodelist;
+    #####: 2541:    unique->subtableZ[i].slots = slots;
+    #####: 2542:    unique->subtableZ[i].shift = shift;
+    #####: 2543:    unique->subtableZ[i].maxKeys = slots * DD_MAX_SUBTABLE_DENSITY;
+    #####: 2544:    for (j = 0; (unsigned) j < slots; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2545:	nodelist[j] = NULL;
+        -: 2546:    }
+    #####: 2547:    for (j = 0; (unsigned) j < oldslots; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2548:	node = oldnodelist[j];
+    #####: 2549:	while (node != NULL) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2550:	    next = node->next;
+    #####: 2551:	    pos = ddHash(cuddT(node), cuddE(node), shift);
+    #####: 2552:	    node->next = nodelist[pos];
+    #####: 2553:	    nodelist[pos] = node;
+    #####: 2554:	    node = next;
+        -: 2555:	}
+        -: 2556:    }
+    #####: 2557:    FREE(oldnodelist);
+        -: 2558:
+        -: 2559:#ifdef DD_VERBOSE
+        -: 2560:    (void) fprintf(unique->err,
+        -: 2561:		   "rehashing layer %d: keys %d dead %d new size %d\n",
+        -: 2562:		   i, unique->subtableZ[i].keys,
+        -: 2563:		   unique->subtableZ[i].dead, slots);
+        -: 2564:#endif
+        -: 2565:
+        -: 2566:    /* Update global data. */
+    #####: 2567:    unique->memused += (slots - oldslots) * sizeof(DdNode *);
+    #####: 2568:    unique->slots += (slots - oldslots);
+    #####: 2569:    ddFixLimits(unique);
+call    0 never executed
+        -: 2570:
+        -: 2571:} /* end of ddRehashZdd */
+        -: 2572:
+        -: 2573:
+        -: 2574:/**
+        -: 2575:  @brief Increases the number of subtables in a unique table so
+        -: 2576:  that it meets or exceeds index.
+        -: 2577:
+        -: 2578:  @details The parameter amount determines how much spare space is
+        -: 2579:  allocated to prevent too frequent resizing.  If index is negative,
+        -: 2580:  the table is resized, but no new variables are created.
+        -: 2581:
+        -: 2582:  @return 1 if successful; 0 otherwise.
+        -: 2583:
+        -: 2584:  @sideeffect None
+        -: 2585:
+        -: 2586:  @see Cudd_Reserve cuddResizeTableZdd
+        -: 2587:
+        -: 2588:*/
+        -: 2589:static int
+function ddResizeTable called 2426 returned 100% blocks executed 59%
+     2426: 2590:ddResizeTable(
+        -: 2591:  DdManager * unique,
+        -: 2592:  int index,
+        -: 2593:  int amount)
+        -: 2594:{
+        -: 2595:    DdSubtable *newsubtables;
+        -: 2596:    DdNodePtr *newnodelist;
+        -: 2597:    DdNodePtr *newvars;
+     2426: 2598:    DdNode *sentinel = &(unique->sentinel);
+        -: 2599:    int oldsize,newsize;
+        -: 2600:    int i,j,reorderSave;
+     2426: 2601:    int numSlots = unique->initSlots;
+     2426: 2602:    int *newperm, *newinvperm, *newmap = NULL;
+        -: 2603:    DdNode *one, *zero;
+        -: 2604:
+     2426: 2605:    oldsize = unique->size;
+        -: 2606:    /* Easy case: there is still room in the current table. */
+     2426: 2607:    if (index >= 0 && index < unique->maxSize) {
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 98% (fallthrough)
+branch  3 taken 2%
+     4770: 2608:	for (i = oldsize; i <= index; i++) {
+branch  0 taken 50%
+branch  1 taken 50% (fallthrough)
+     2388: 2609:	    unique->subtables[i].slots = numSlots;
+     2388: 2610:	    unique->subtables[i].shift = sizeof(int) * 8 -
+     2388: 2611:		cuddComputeFloorLog2(numSlots);
+call    0 returned 100%
+     2388: 2612:	    unique->subtables[i].keys = 0;
+     2388: 2613:	    unique->subtables[i].maxKeys = numSlots * DD_MAX_SUBTABLE_DENSITY;
+     2388: 2614:	    unique->subtables[i].dead = 0;
+     2388: 2615:            unique->subtables[i].next = i;
+     2388: 2616:	    unique->subtables[i].bindVar = 0;
+     2388: 2617:	    unique->subtables[i].varType = CUDD_VAR_PRIMARY_INPUT;
+     2388: 2618:	    unique->subtables[i].pairIndex = 0;
+     2388: 2619:	    unique->subtables[i].varHandled = 0;
+     2388: 2620:	    unique->subtables[i].varToBeGrouped = CUDD_LAZY_NONE;
+        -: 2621:
+     2388: 2622:	    unique->perm[i] = i;
+     2388: 2623:	    unique->invperm[i] = i;
+     4776: 2624:	    newnodelist = unique->subtables[i].nodelist =
+     2388: 2625:		ALLOC(DdNodePtr, numSlots);
+call    0 returned 100%
+     2388: 2626:	    if (newnodelist == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 2627:		for (j = oldsize; j < i; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2628:		    FREE(unique->subtables[j].nodelist);
+        -: 2629:		}
+    #####: 2630:		unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 2631:		return(0);
+        -: 2632:	    }
+   613468: 2633:	    for (j = 0; j < numSlots; j++) {
+branch  0 taken 100%
+branch  1 taken 1% (fallthrough)
+   611080: 2634:		newnodelist[j] = sentinel;
+        -: 2635:	    }
+        -: 2636:	}
+     2382: 2637:	if (unique->map != NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 2638:	    for (i = oldsize; i <= index; i++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2639:		unique->map[i] = i;
+        -: 2640:	    }
+        -: 2641:	}
+        -: 2642:    } else {
+        -: 2643:	/* The current table is too small: we need to allocate a new,
+        -: 2644:	** larger one; move all old subtables, and initialize the new
+        -: 2645:	** subtables up to index included.
+        -: 2646:	*/
+      44*: 2647:	newsize = (index < 0) ? amount + oldsize : index + amount;
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 2648:#ifdef DD_VERBOSE
+        -: 2649:	(void) fprintf(unique->err,
+        -: 2650:		       "Increasing the table size from %d to %d\n",
+        -: 2651:		       unique->maxSize, newsize);
+        -: 2652:#endif
+       44: 2653:	newsubtables = ALLOC(DdSubtable,newsize);
+call    0 returned 100%
+       44: 2654:	if (newsubtables == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 2655:	    unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 2656:	    return(0);
+        -: 2657:	}
+       44: 2658:	newvars = ALLOC(DdNodePtr,newsize);
+call    0 returned 100%
+       44: 2659:	if (newvars == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 2660:	    FREE(newsubtables);
+    #####: 2661:	    unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 2662:	    return(0);
+        -: 2663:	}
+       44: 2664:	newperm = ALLOC(int,newsize);
+call    0 returned 100%
+       44: 2665:	if (newperm == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 2666:	    FREE(newsubtables);
+    #####: 2667:	    FREE(newvars);
+    #####: 2668:	    unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 2669:	    return(0);
+        -: 2670:	}
+       44: 2671:	newinvperm = ALLOC(int,newsize);
+call    0 returned 100%
+       44: 2672:	if (newinvperm == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 2673:	    FREE(newsubtables);
+    #####: 2674:	    FREE(newvars);
+    #####: 2675:	    FREE(newperm);
+    #####: 2676:	    unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 2677:	    return(0);
+        -: 2678:	}
+       44: 2679:	if (unique->map != NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 2680:	    newmap = ALLOC(int,newsize);
+call    0 never executed
+    #####: 2681:	    if (newmap == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2682:		FREE(newsubtables);
+    #####: 2683:		FREE(newvars);
+    #####: 2684:		FREE(newperm);
+    #####: 2685:		FREE(newinvperm);
+    #####: 2686:		unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 2687:		return(0);
+        -: 2688:	    }
+    #####: 2689:	    unique->memused += (newsize - unique->maxSize) * sizeof(int);
+        -: 2690:	}
+       44: 2691:	unique->memused += (newsize - unique->maxSize) * ((numSlots+1) *
+       44: 2692:	    sizeof(DdNode *) + 2 * sizeof(int) + sizeof(DdSubtable));
+       44: 2693:	if (newsize > unique->maxSizeZ) {
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+       44: 2694:	    FREE(unique->stack);
+       44: 2695:	    unique->stack = ALLOC(DdNodePtr,newsize + 1);
+call    0 returned 100%
+       44: 2696:	    if (unique->stack == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 2697:		FREE(newsubtables);
+    #####: 2698:		FREE(newvars);
+    #####: 2699:		FREE(newperm);
+    #####: 2700:		FREE(newinvperm);
+    #####: 2701:		if (unique->map != NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2702:		    FREE(newmap);
+        -: 2703:		}
+    #####: 2704:		unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 2705:		return(0);
+        -: 2706:	    }
+       44: 2707:	    unique->stack[0] = NULL; /* to suppress harmless UMR */
+       44: 2708:	    unique->memused +=
+       44: 2709:		(newsize - ddMax(unique->maxSize,unique->maxSizeZ))
+       44: 2710:		* sizeof(DdNode *);
+        -: 2711:	}
+      644: 2712:	for (i = 0; i < oldsize; i++) {
+branch  0 taken 93%
+branch  1 taken 7% (fallthrough)
+      600: 2713:	    newsubtables[i].slots = unique->subtables[i].slots;
+      600: 2714:	    newsubtables[i].shift = unique->subtables[i].shift;
+      600: 2715:	    newsubtables[i].keys = unique->subtables[i].keys;
+      600: 2716:	    newsubtables[i].maxKeys = unique->subtables[i].maxKeys;
+      600: 2717:	    newsubtables[i].dead = unique->subtables[i].dead;
+      600: 2718:            newsubtables[i].next = i;
+      600: 2719:	    newsubtables[i].nodelist = unique->subtables[i].nodelist;
+      600: 2720:	    newsubtables[i].bindVar = unique->subtables[i].bindVar;
+      600: 2721:	    newsubtables[i].varType = unique->subtables[i].varType;
+      600: 2722:	    newsubtables[i].pairIndex = unique->subtables[i].pairIndex;
+      600: 2723:	    newsubtables[i].varHandled = unique->subtables[i].varHandled;
+      600: 2724:	    newsubtables[i].varToBeGrouped = unique->subtables[i].varToBeGrouped;
+        -: 2725:
+      600: 2726:	    newvars[i] = unique->vars[i];
+      600: 2727:	    newperm[i] = unique->perm[i];
+      600: 2728:	    newinvperm[i] = unique->invperm[i];
+        -: 2729:	}
+       88: 2730:	for (i = oldsize; i <= index; i++) {
+branch  0 taken 50%
+branch  1 taken 50% (fallthrough)
+       44: 2731:	    newsubtables[i].slots = numSlots;
+       44: 2732:	    newsubtables[i].shift = sizeof(int) * 8 -
+       44: 2733:		cuddComputeFloorLog2(numSlots);
+call    0 returned 100%
+       44: 2734:	    newsubtables[i].keys = 0;
+       44: 2735:	    newsubtables[i].maxKeys = numSlots * DD_MAX_SUBTABLE_DENSITY;
+       44: 2736:	    newsubtables[i].dead = 0;
+       44: 2737:            newsubtables[i].next = i;
+       44: 2738:	    newsubtables[i].bindVar = 0;
+       44: 2739:	    newsubtables[i].varType = CUDD_VAR_PRIMARY_INPUT;
+       44: 2740:	    newsubtables[i].pairIndex = 0;
+       44: 2741:	    newsubtables[i].varHandled = 0;
+       44: 2742:	    newsubtables[i].varToBeGrouped = CUDD_LAZY_NONE;
+        -: 2743:
+       44: 2744:	    newperm[i] = i;
+       44: 2745:	    newinvperm[i] = i;
+       44: 2746:	    newnodelist = newsubtables[i].nodelist = ALLOC(DdNodePtr, numSlots);
+call    0 returned 100%
+       44: 2747:	    if (newnodelist == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 2748:		unique->errorCode = CUDD_MEMORY_OUT;
+    #####: 2749:		return(0);
+        -: 2750:	    }
+    11308: 2751:	    for (j = 0; j < numSlots; j++) {
+branch  0 taken 100%
+branch  1 taken 1% (fallthrough)
+    11264: 2752:		newnodelist[j] = sentinel;
+        -: 2753:	    }
+        -: 2754:	}
+       44: 2755:	if (unique->map != NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 2756:	    for (i = 0; i < oldsize; i++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2757:		newmap[i] = unique->map[i];
+        -: 2758:	    }
+    #####: 2759:	    for (i = oldsize; i <= index; i++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2760:		newmap[i] = i;
+        -: 2761:	    }
+    #####: 2762:	    FREE(unique->map);
+    #####: 2763:	    unique->map = newmap;
+        -: 2764:	}
+       44: 2765:	FREE(unique->subtables);
+       44: 2766:	unique->subtables = newsubtables;
+       44: 2767:	unique->maxSize = newsize;
+       44: 2768:	FREE(unique->vars);
+       44: 2769:	unique->vars = newvars;
+       44: 2770:	FREE(unique->perm);
+       44: 2771:	unique->perm = newperm;
+       44: 2772:	FREE(unique->invperm);
+       44: 2773:	unique->invperm = newinvperm;
+        -: 2774:    }
+        -: 2775:
+        -: 2776:    /* Now that the table is in a coherent state, create the new
+        -: 2777:    ** projection functions. We need to temporarily disable reordering,
+        -: 2778:    ** because we cannot reorder without projection functions in place.
+        -: 2779:    **/
+     2426: 2780:    if (index >= 0) {
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+     2426: 2781:        one = unique->one;
+     2426: 2782:        zero = Cudd_Not(one);
+        -: 2783:
+     2426: 2784:        unique->size = index + 1;
+     2426: 2785:        if (unique->tree != NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 2786:	    unique->tree->size = ddMax(unique->tree->size, (MtrHalfWord) unique->size);
+        -: 2787:        }
+     2426: 2788:        unique->slots += (index + 1 - oldsize) * numSlots;
+     2426: 2789:        ddFixLimits(unique);
+call    0 returned 100%
+        -: 2790:
+     2426: 2791:        reorderSave = unique->autoDyn;
+     2426: 2792:        unique->autoDyn = 0;
+     4858: 2793:        for (i = oldsize; i <= index; i++) {
+branch  0 taken 50%
+branch  1 taken 50% (fallthrough)
+     2432: 2794:            unique->vars[i] = cuddUniqueInter(unique,i,one,zero);
+call    0 returned 100%
+     2432: 2795:            if (unique->vars[i] == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 2796:                unique->autoDyn = reorderSave;
+    #####: 2797:                for (j = oldsize; j < i; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2798:                    Cudd_IterDerefBdd(unique,unique->vars[j]);
+call    0 never executed
+    #####: 2799:                    cuddDeallocNode(unique,unique->vars[j]);
+    #####: 2800:                    unique->vars[j] = NULL;
+        -: 2801:                }
+    #####: 2802:                for (j = oldsize; j <= index; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2803:                    FREE(unique->subtables[j].nodelist);
+    #####: 2804:                    unique->subtables[j].nodelist = NULL;
+        -: 2805:                }
+    #####: 2806:                unique->size = oldsize;
+    #####: 2807:                unique->slots -= (index + 1 - oldsize) * numSlots;
+    #####: 2808:                ddFixLimits(unique);
+call    0 never executed
+    #####: 2809:                return(0);
+        -: 2810:            }
+     2432: 2811:            cuddRef(unique->vars[i]);
+        -: 2812:        }
+     2426: 2813:        unique->autoDyn = reorderSave;
+        -: 2814:    }
+        -: 2815:
+     2426: 2816:    return(1);
+        -: 2817:
+        -: 2818:} /* end of ddResizeTable */
+        -: 2819:
+        -: 2820:
+        -: 2821:/**
+        -: 2822:  @brief Searches the subtables above node for a parent.
+        -: 2823:
+        -: 2824:  @details Returns 1 as soon as one parent is found. Returns 0 is the
+        -: 2825:  search is fruitless.
+        -: 2826:
+        -: 2827:  @sideeffect None
+        -: 2828:
+        -: 2829:*/
+        -: 2830:static int
+function cuddFindParent called 0 returned 0% blocks executed 0%
+    #####: 2831:cuddFindParent(
+        -: 2832:  DdManager * table,
+        -: 2833:  DdNode * node)
+        -: 2834:{
+        -: 2835:    int         i,j;
+        -: 2836:    int		slots;
+        -: 2837:    DdNodePtr	*nodelist;
+        -: 2838:    DdNode	*f;
+        -: 2839:
+    #####: 2840:    for (i = cuddI(table,node->index) - 1; i >= 0; i--) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed (fallthrough)
+    #####: 2841:	nodelist = table->subtables[i].nodelist;
+    #####: 2842:	slots = table->subtables[i].slots;
+        -: 2843:
+    #####: 2844:	for (j = 0; j < slots; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2845:	    f = nodelist[j];
+    #####: 2846:	    while (cuddT(f) > node) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2847:		f = f->next;
+        -: 2848:	    }
+    #####: 2849:	    while (cuddT(f) == node && Cudd_Regular(cuddE(f)) > node) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed (fallthrough)
+    #####: 2850:		f = f->next;
+        -: 2851:	    }
+    #####: 2852:	    if (cuddT(f) == node && Cudd_Regular(cuddE(f)) == node) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####: 2853:		return(1);
+        -: 2854:	    }
+        -: 2855:	}
+        -: 2856:    }
+        -: 2857:
+    #####: 2858:    return(0);
+        -: 2859:
+        -: 2860:} /* end of cuddFindParent */
+        -: 2861:
+        -: 2862:
+        -: 2863:/**
+        -: 2864:  @brief Adjusts the values of table limits.
+        -: 2865:
+        -: 2866:  @details Adjusts the values of table fields controlling the sizes of
+        -: 2867:  subtables and computed table. If the computed table is too small
+        -: 2868:  according to the new values, it is resized.
+        -: 2869:
+        -: 2870:  @sideeffect Modifies manager fields. May resize computed table.
+        -: 2871:
+        -: 2872:*/
+        -: 2873:static void
+function ddFixLimits called 2434 returned 100% blocks executed 100%
+     2434: 2874:ddFixLimits(
+        -: 2875:  DdManager *unique)
+        -: 2876:{
+     2434: 2877:    unique->minDead = (unsigned) (unique->gcFrac * (double) unique->slots);
+     2434: 2878:    unique->cacheSlack = (int) ddMin(unique->maxCacheHard,
+     2434: 2879:	DD_MAX_CACHE_TO_SLOTS_RATIO * unique->slots) -
+     2434: 2880:	2 * (int) unique->cacheSlots;
+     2434: 2881:    if (unique->cacheSlots < unique->slots/2 && unique->cacheSlack >= 0)
+branch  0 taken 1% (fallthrough)
+branch  1 taken 100%
+branch  2 taken 92% (fallthrough)
+branch  3 taken 8%
+       11: 2882:	cuddCacheResize(unique);
+call    0 returned 100%
+     2434: 2883:    return;
+        -: 2884:
+        -: 2885:} /* end of ddFixLimits */
+        -: 2886:
+        -: 2887:
+        -: 2888:#ifndef DD_UNSORTED_FREE_LIST
+        -: 2889:#ifdef DD_RED_BLACK_FREE_LIST
+        -: 2890:/**
+        -: 2891:  @brief Inserts a DdNode in a red/black search tree.
+        -: 2892:
+        -: 2893:  @details Nodes from the same "page" (defined by DD_PAGE_MASK) are
+        -: 2894:  linked in a LIFO list.
+        -: 2895:
+        -: 2896:  @sideeffect None
+        -: 2897:
+        -: 2898:  @see cuddOrderedThread
+        -: 2899:
+        -: 2900:*/
+        -: 2901:static void
+        -: 2902:cuddOrderedInsert(
+        -: 2903:  DdNodePtr * root,
+        -: 2904:  DdNodePtr node)
+        -: 2905:{
+        -: 2906:    DdNode *scan;
+        -: 2907:    DdNodePtr *scanP;
+        -: 2908:    DdNodePtr *stack[DD_STACK_SIZE];
+        -: 2909:    int stackN = 0;
+        -: 2910:
+        -: 2911:    scanP = root;
+        -: 2912:    while ((scan = *scanP) != NULL) {
+        -: 2913:	stack[stackN++] = scanP;
+        -: 2914:	if (DD_INSERT_COMPARE(node, scan) == 0) { /* add to page list */
+        -: 2915:	    DD_NEXT(node) = DD_NEXT(scan);
+        -: 2916:	    DD_NEXT(scan) = node;
+        -: 2917:	    return;
+        -: 2918:	}
+        -: 2919:	scanP = (node < scan) ? &DD_LEFT(scan) : &DD_RIGHT(scan);
+        -: 2920:    }
+        -: 2921:    DD_RIGHT(node) = DD_LEFT(node) = DD_NEXT(node) = NULL;
+        -: 2922:    DD_COLOR(node) = DD_RED;
+        -: 2923:    *scanP = node;
+        -: 2924:    stack[stackN] = &node;
+        -: 2925:    cuddDoRebalance(stack,stackN);
+        -: 2926:
+        -: 2927:} /* end of cuddOrderedInsert */
+        -: 2928:
+        -: 2929:
+        -: 2930:/**
+        -: 2931:  @brief Threads all the nodes of a search tree into a linear list.
+        -: 2932:
+        -: 2933:  @details For each node of the search tree, the "left" child, if
+        -: 2934:  non-null, has a lower address than its parent, and the "right"
+        -: 2935:  child, if non-null, has a higher address than its parent.  The list
+        -: 2936:  is sorted in order of increasing addresses. The search tree is
+        -: 2937:  destroyed as a result of this operation. The last element of the
+        -: 2938:  linear list is made to point to the address passed in list. Each
+        -: 2939:  node if the search tree is a linearly-linked list of nodes from the
+        -: 2940:  same memory page (as defined in DD_PAGE_MASK). When a node is added
+        -: 2941:  to the linear list, all the elements of the linked list are added.
+        -: 2942:
+        -: 2943:  @sideeffect The search tree is destroyed as a result of this operation.
+        -: 2944:
+        -: 2945:  @see cuddOrderedInsert
+        -: 2946:
+        -: 2947:*/
+        -: 2948:static DdNode *
+        -: 2949:cuddOrderedThread(
+        -: 2950:  DdNode * root,
+        -: 2951:  DdNode * list)
+        -: 2952:{
+        -: 2953:    DdNode *current, *next, *prev, *end;
+        -: 2954:
+        -: 2955:    current = root;
+        -: 2956:    /* The first word in the node is used to implement a stack that holds
+        -: 2957:    ** the nodes from the root of the tree to the current node. Here we
+        -: 2958:    ** put the root of the tree at the bottom of the stack.
+        -: 2959:    */
+        -: 2960:    *((DdNodePtr *) current) = NULL;
+        -: 2961:
+        -: 2962:    while (current != NULL) {
+        -: 2963:	if (DD_RIGHT(current) != NULL) {
+        -: 2964:	    /* If possible, we follow the "right" link. Eventually we'll
+        -: 2965:	    ** find the node with the largest address in the current tree.
+        -: 2966:	    ** In this phase we use the first word of a node to implemen
+        -: 2967:	    ** a stack of the nodes on the path from the root to "current".
+        -: 2968:	    ** Also, we disconnect the "right" pointers to indicate that
+        -: 2969:	    ** we have already followed them.
+        -: 2970:	    */
+        -: 2971:	    next = DD_RIGHT(current);
+        -: 2972:	    DD_RIGHT(current) = NULL;
+        -: 2973:	    *((DdNodePtr *)next) = current;
+        -: 2974:	    current = next;
+        -: 2975:	} else {
+        -: 2976:	    /* We can't proceed along the "right" links any further.
+        -: 2977:	    ** Hence "current" is the largest element in the current tree.
+        -: 2978:	    ** We make this node the new head of "list". (Repeating this
+        -: 2979:	    ** operation until the tree is empty yields the desired linear
+        -: 2980:	    ** threading of all nodes.)
+        -: 2981:	    */
+        -: 2982:	    prev = *((DdNodePtr *) current); /* save prev node on stack in prev */
+        -: 2983:	    /* Traverse the linked list of current until the end. */
+        -: 2984:	    for (end = current; DD_NEXT(end) != NULL; end = DD_NEXT(end));
+        -: 2985:	    DD_NEXT(end) = list; /* attach "list" at end and make */
+        -: 2986:	    list = current;   /* "current" the new head of "list" */
+        -: 2987:	    /* Now, if current has a "left" child, we push it on the stack.
+        -: 2988:	    ** Otherwise, we just continue with the parent of "current".
+        -: 2989:	    */
+        -: 2990:	    if (DD_LEFT(current) != NULL) {
+        -: 2991:		next = DD_LEFT(current);
+        -: 2992:		*((DdNodePtr *) next) = prev;
+        -: 2993:		current = next;
+        -: 2994:	    } else {
+        -: 2995:		current = prev;
+        -: 2996:	    }
+        -: 2997:	}
+        -: 2998:    }
+        -: 2999:
+        -: 3000:    return(list);
+        -: 3001:
+        -: 3002:} /* end of cuddOrderedThread */
+        -: 3003:
+        -: 3004:
+        -: 3005:/**
+        -: 3006:  @brief Performs the left rotation for red/black trees.
+        -: 3007:
+        -: 3008:  @sideeffect None
+        -: 3009:
+        -: 3010:  @see cuddRotateRight
+        -: 3011:
+        -: 3012:*/
+        -: 3013:static void
+        -: 3014:cuddRotateLeft(
+        -: 3015:  DdNodePtr * nodeP)
+        -: 3016:{
+        -: 3017:    DdNode *newRoot;
+        -: 3018:    DdNode *oldRoot = *nodeP;
+        -: 3019:
+        -: 3020:    *nodeP = newRoot = DD_RIGHT(oldRoot);
+        -: 3021:    DD_RIGHT(oldRoot) = DD_LEFT(newRoot);
+        -: 3022:    DD_LEFT(newRoot) = oldRoot;
+        -: 3023:
+        -: 3024:} /* end of cuddRotateLeft */
+        -: 3025:
+        -: 3026:
+        -: 3027:/**
+        -: 3028:  @brief Performs the right rotation for red/black trees.
+        -: 3029:
+        -: 3030:  @sideeffect None
+        -: 3031:
+        -: 3032:  @see cuddRotateLeft
+        -: 3033:
+        -: 3034:*/
+        -: 3035:static void
+        -: 3036:cuddRotateRight(
+        -: 3037:  DdNodePtr * nodeP)
+        -: 3038:{
+        -: 3039:    DdNode *newRoot;
+        -: 3040:    DdNode *oldRoot = *nodeP;
+        -: 3041:
+        -: 3042:    *nodeP = newRoot = DD_LEFT(oldRoot);
+        -: 3043:    DD_LEFT(oldRoot) = DD_RIGHT(newRoot);
+        -: 3044:    DD_RIGHT(newRoot) = oldRoot;
+        -: 3045:
+        -: 3046:} /* end of cuddRotateRight */
+        -: 3047:
+        -: 3048:
+        -: 3049:/**
+        -: 3050:  @brief Rebalances a red/black tree.
+        -: 3051:
+        -: 3052:  @sideeffect None
+        -: 3053:
+        -: 3054:*/
+        -: 3055:static void
+        -: 3056:cuddDoRebalance(
+        -: 3057:  DdNodePtr ** stack,
+        -: 3058:  int  stackN)
+        -: 3059:{
+        -: 3060:    DdNodePtr *xP, *parentP, *grandpaP;
+        -: 3061:    DdNode *x, *y, *parent, *grandpa;
+        -: 3062:
+        -: 3063:    xP = stack[stackN];
+        -: 3064:    x = *xP;
+        -: 3065:    /* Work our way back up, re-balancing the tree. */
+        -: 3066:    while (--stackN >= 0) {
+        -: 3067:	parentP = stack[stackN];
+        -: 3068:	parent = *parentP;
+        -: 3069:	if (DD_IS_BLACK(parent)) break;
+        -: 3070:	/* Since the root is black, here a non-null grandparent exists. */
+        -: 3071:	grandpaP = stack[stackN-1];
+        -: 3072:	grandpa = *grandpaP;
+        -: 3073:	if (parent == DD_LEFT(grandpa)) {
+        -: 3074:	    y = DD_RIGHT(grandpa);
+        -: 3075:	    if (y != NULL && DD_IS_RED(y)) {
+        -: 3076:		DD_COLOR(parent) = DD_BLACK;
+        -: 3077:		DD_COLOR(y) = DD_BLACK;
+        -: 3078:		DD_COLOR(grandpa) = DD_RED;
+        -: 3079:		x = grandpa;
+        -: 3080:		stackN--;
+        -: 3081:	    } else {
+        -: 3082:		if (x == DD_RIGHT(parent)) {
+        -: 3083:		    cuddRotateLeft(parentP);
+        -: 3084:		    DD_COLOR(x) = DD_BLACK;
+        -: 3085:		} else {
+        -: 3086:		    DD_COLOR(parent) = DD_BLACK;
+        -: 3087:		}
+        -: 3088:		DD_COLOR(grandpa) = DD_RED;
+        -: 3089:		cuddRotateRight(grandpaP);
+        -: 3090:		break;
+        -: 3091:	    }
+        -: 3092:	} else {
+        -: 3093:	    y = DD_LEFT(grandpa);
+        -: 3094:	    if (y != NULL && DD_IS_RED(y)) {
+        -: 3095:		DD_COLOR(parent) = DD_BLACK;
+        -: 3096:		DD_COLOR(y) = DD_BLACK;
+        -: 3097:		DD_COLOR(grandpa) = DD_RED;
+        -: 3098:		x = grandpa;
+        -: 3099:		stackN--;
+        -: 3100:	    } else {
+        -: 3101:		if (x == DD_LEFT(parent)) {
+        -: 3102:		    cuddRotateRight(parentP);
+        -: 3103:		    DD_COLOR(x) = DD_BLACK;
+        -: 3104:		} else {
+        -: 3105:		    DD_COLOR(parent) = DD_BLACK;
+        -: 3106:		}
+        -: 3107:		DD_COLOR(grandpa) = DD_RED;
+        -: 3108:		cuddRotateLeft(grandpaP);
+        -: 3109:	    }
+        -: 3110:	}
+        -: 3111:    }
+        -: 3112:    DD_COLOR(*(stack[0])) = DD_BLACK;
+        -: 3113:
+        -: 3114:} /* end of cuddDoRebalance */
+        -: 3115:#endif
+        -: 3116:#endif
+        -: 3117:
+        -: 3118:
+        -: 3119:/**
+        -: 3120:  @brief Fixes a variable tree after the insertion of new subtables.
+        -: 3121:
+        -: 3122:  @details After such an insertion, the low fields of the tree below
+        -: 3123:  the insertion point are inconsistent.
+        -: 3124:
+        -: 3125:  @sideeffect None
+        -: 3126:
+        -: 3127:*/
+        -: 3128:static void
+function ddPatchTree called 0 returned 0% blocks executed 0%
+    #####: 3129:ddPatchTree(
+        -: 3130:  DdManager *dd,
+        -: 3131:  MtrNode *treenode)
+        -: 3132:{
+    #####: 3133:    MtrNode *auxnode = treenode;
+        -: 3134:
+    #####: 3135:    while (auxnode != NULL) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 3136:	auxnode->low = dd->perm[auxnode->index];
+    #####: 3137:	if (auxnode->child != NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 3138:	    ddPatchTree(dd, auxnode->child);
+call    0 never executed
+        -: 3139:	}
+    #####: 3140:	auxnode = auxnode->younger;
+        -: 3141:    }
+        -: 3142:
+    #####: 3143:    return;
+        -: 3144:
+        -: 3145:} /* end of ddPatchTree */
+        -: 3146:
+        -: 3147:
+        -: 3148:#ifdef DD_DEBUG
+        -: 3149:/**
+        -: 3150:  @brief Checks whether a collision list is ordered.
+        -: 3151:
+        -: 3152:  @sideeffect None
+        -: 3153:
+        -: 3154:*/
+        -: 3155:static int
+        -: 3156:cuddCheckCollisionOrdering(
+        -: 3157:  DdManager *unique,
+        -: 3158:  int i,
+        -: 3159:  int j)
+        -: 3160:{
+        -: 3161:    DdNode *node, *next;
+        -: 3162:    DdNodePtr *nodelist;
+        -: 3163:    DdNode *sentinel = &(unique->sentinel);
+        -: 3164:
+        -: 3165:    nodelist = unique->subtables[i].nodelist;
+        -: 3166:    node = nodelist[j];
+        -: 3167:    if (node == sentinel) return(1);
+        -: 3168:    next = node->next;
+        -: 3169:    while (next != sentinel) {
+        -: 3170:	if (cuddT(node) < cuddT(next) ||
+        -: 3171:	    (cuddT(node) == cuddT(next) && cuddE(node) < cuddE(next))) {
+        -: 3172:	    (void) fprintf(unique->err,
+        -: 3173:			   "Unordered list: index %u, position %d\n", i, j);
+        -: 3174:	    return(0);
+        -: 3175:	}
+        -: 3176:	node = next;
+        -: 3177:	next = node->next;
+        -: 3178:    }
+        -: 3179:    return(1);
+        -: 3180:
+        -: 3181:} /* end of cuddCheckCollisionOrdering */
+        -: 3182:#endif
+        -: 3183:
+        -: 3184:
+        -: 3185:
+        -: 3186:
+        -: 3187:/**
+        -: 3188:  @brief Reports problem in garbage collection.
+        -: 3189:
+        -: 3190:  @sideeffect None
+        -: 3191:
+        -: 3192:  @see cuddGarbageCollect cuddGarbageCollectZdd
+        -: 3193:
+        -: 3194:*/
+        -: 3195:static void
+function ddReportRefMess called 0 returned 0% blocks executed 0%
+    #####: 3196:ddReportRefMess(
+        -: 3197:  DdManager *unique /**< manager */,
+        -: 3198:  int i /**< table in which the problem occurred */,
+        -: 3199:  const char *caller /**< procedure that detected the problem */)
+        -: 3200:{
+    #####: 3201:    if (i == CUDD_CONST_INDEX) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 3202:	(void) fprintf(unique->err,
+call    0 never executed
+        -: 3203:			   "%s: problem in constants\n", caller);
+    #####: 3204:    } else if (i != -1) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 3205:	(void) fprintf(unique->err,
+call    0 never executed
+        -: 3206:			   "%s: problem in table %d\n", caller, i);
+        -: 3207:    }
+    #####: 3208:    (void) fprintf(unique->err, "  dead count != deleted\n");
+call    0 never executed
+    #####: 3209:    (void) fprintf(unique->err, "  This problem is often due to a missing \
+call    0 never executed
+        -: 3210:call to Cudd_Ref\n  or to an extra call to Cudd_RecursiveDeref.\n  \
+        -: 3211:See the CUDD Programmer's Guide for additional details.");
+    #####: 3212:    abort();
+        -: 3213:
+        -: 3214:} /* end of ddReportRefMess */
