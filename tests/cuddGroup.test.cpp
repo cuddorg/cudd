@@ -3,6 +3,7 @@
 // Include CUDD headers - include mtr.h before cudd.h to enable MTR functions
 extern "C" {
 #include "mtr.h"
+#include "mtrInt.h"  // Required for MtrNode struct fields (index, flags)
 }
 #include "cudd/cudd.h"
 #include "util.h"
