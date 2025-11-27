@@ -88,3 +88,4 @@ endif()
 
 include(Catch)
 catch_discover_tests(cudd_tests)
+# Temporary debug test
