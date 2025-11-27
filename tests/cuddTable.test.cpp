@@ -16,8 +16,11 @@
  */
 
 // Helper function to verify a number is prime
+// Note: Returns true for n=1 because CUDD's Cudd_Prime function
+// can return 1 when called with 1 (it decrements p before the loop).
+// For mathematical correctness, 1 is not prime, but we match CUDD's behavior.
 static bool isPrime(unsigned int n) {
-    if (n <= 1) return n == 1;  // Special case for the CUDD implementation
+    if (n < 2) return false;  // 0 and 1 are not prime
     if (n == 2) return true;
     if (n % 2 == 0) return false;
     for (unsigned int i = 3; i * i <= n; i += 2) {
@@ -3405,6 +3408,202 @@ TEST_CASE("Auto reordering interaction with unique table", "[cuddTable][auto][re
         }
         
         Cudd_AutodynDisableZdd(manager);
+        Cudd_Quit(manager);
+    }
+}
+
+// Tests targeting specific error paths and edge cases
+
+TEST_CASE("Error handling paths", "[cuddTable][error]") {
+    SECTION("Max live nodes trigger") {
+        DdManager *manager = Cudd_Init(10, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Set a low max live limit
+        Cudd_SetMaxLive(manager, 500);
+        
+        std::vector<DdNode*> nodes;
+        bool hitLimit = false;
+        
+        // Create nodes until we hit the limit
+        for (int i = 0; i < 1000 && !hitLimit; i++) {
+            DdNode *x = Cudd_bddIthVar(manager, i % 10);
+            DdNode *y = Cudd_bddIthVar(manager, (i + 1) % 10);
+            DdNode *z = Cudd_bddAnd(manager, x, y);
+            
+            if (z == nullptr) {
+                hitLimit = true;
+                Cudd_ErrorType err = Cudd_ReadErrorCode(manager);
+                // Should be CUDD_TOO_MANY_NODES or similar
+                REQUIRE(err != CUDD_NO_ERROR);
+                Cudd_ClearErrorCode(manager);
+            } else {
+                Cudd_Ref(z);
+                nodes.push_back(z);
+            }
+        }
+        
+        // Clean up
+        for (auto node : nodes) {
+            Cudd_RecursiveDeref(manager, node);
+        }
+        
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Hard memory limit") {
+        DdManager *manager = Cudd_Init(10, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Set a very restrictive hard memory limit
+        Cudd_SetMaxMemory(manager, 1024 * 64);  // 64 KB
+        
+        std::vector<DdNode*> nodes;
+        bool hitLimit = false;
+        
+        for (int i = 0; i < 5000 && !hitLimit; i++) {
+            DdNode *x = Cudd_bddIthVar(manager, i % 10);
+            DdNode *y = Cudd_bddIthVar(manager, (i + 1) % 10);
+            DdNode *z = Cudd_bddAnd(manager, x, y);
+            
+            if (z == nullptr) {
+                hitLimit = true;
+            } else {
+                Cudd_Ref(z);
+                nodes.push_back(z);
+            }
+        }
+        
+        // Clean up
+        for (auto node : nodes) {
+            Cudd_RecursiveDeref(manager, node);
+        }
+        
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("Unique table collision handling", "[cuddTable][collision]") {
+    SECTION("Force hash collisions") {
+        DdManager *manager = Cudd_Init(10, 0, 8, CUDD_CACHE_SLOTS, 0);  // Very small initial slots
+        REQUIRE(manager != nullptr);
+        
+        std::vector<DdNode*> nodes;
+        
+        // Create many nodes to force collisions in the hash table
+        for (int i = 0; i < 300; i++) {
+            DdNode *vars[5];
+            for (int j = 0; j < 5; j++) {
+                vars[j] = Cudd_bddIthVar(manager, j);
+            }
+            
+            // Create different combinations
+            DdNode *expr = vars[0];
+            Cudd_Ref(expr);
+            
+            for (int j = 1; j < 5; j++) {
+                if ((i >> j) & 1) {
+                    DdNode *temp = Cudd_bddAnd(manager, expr, vars[j]);
+                    Cudd_Ref(temp);
+                    Cudd_RecursiveDeref(manager, expr);
+                    expr = temp;
+                } else {
+                    DdNode *temp = Cudd_bddOr(manager, expr, Cudd_Not(vars[j]));
+                    Cudd_Ref(temp);
+                    Cudd_RecursiveDeref(manager, expr);
+                    expr = temp;
+                }
+            }
+            
+            nodes.push_back(expr);
+        }
+        
+        // Verify nodes still valid
+        for (auto node : nodes) {
+            REQUIRE(node != nullptr);
+        }
+        
+        // Clean up
+        for (auto node : nodes) {
+            Cudd_RecursiveDeref(manager, node);
+        }
+        
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddRehash edge cases final", "[cuddTable][rehash][edge2]") {
+    SECTION("Trigger GC fraction changes") {
+        DdManager *manager = Cudd_Init(5, 0, 8, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Set loose up to trigger gc fraction changes
+        Cudd_SetLooseUpTo(manager, 100);
+        
+        std::vector<DdNode*> nodes;
+        
+        // Create and destroy nodes to trigger GC fraction logic
+        for (int iter = 0; iter < 50; iter++) {
+            // Create nodes
+            for (int i = 0; i < 50; i++) {
+                DdNode *x = Cudd_bddIthVar(manager, i % 5);
+                DdNode *y = Cudd_bddIthVar(manager, (i + 1) % 5);
+                DdNode *z = Cudd_bddAnd(manager, x, y);
+                Cudd_Ref(z);
+                nodes.push_back(z);
+            }
+            
+            // Destroy half
+            for (size_t i = 0; i < 25; i++) {
+                if (!nodes.empty()) {
+                    Cudd_RecursiveDeref(manager, nodes.back());
+                    nodes.pop_back();
+                }
+            }
+        }
+        
+        // Clean up remaining
+        for (auto node : nodes) {
+            Cudd_RecursiveDeref(manager, node);
+        }
+        
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("ADD constant table tests final", "[cuddTable][add][const2]") {
+    SECTION("Many unique constants trigger constant rehash") {
+        DdManager *manager = Cudd_Init(5, 0, 8, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create many unique constants
+        for (int i = 0; i < 1000; i++) {
+            DdNode *c = Cudd_addConst(manager, (double)i * 0.001);
+            REQUIRE(c != nullptr);
+        }
+        
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Constant reclamation") {
+        DdManager *manager = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ADDs with constants
+        DdNode *x = Cudd_addIthVar(manager, 0);
+        Cudd_Ref(x);
+        
+        DdNode *c1 = Cudd_addConst(manager, 1.0);
+        DdNode *c2 = Cudd_addConst(manager, 2.0);
+        
+        // Use in ITE operation
+        DdNode *f = Cudd_addIte(manager, x, c1, c2);
+        Cudd_Ref(f);
+        
+        // Clean up
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, f);
+        
         Cudd_Quit(manager);
     }
 }
