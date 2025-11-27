@@ -8,7 +8,7 @@ verbosity=2
 sed_command='-r:-e:2,3d:-e:/Cache used slots/d:-e:/Average distance/d:-e:/modifiable/,$d:-e:s/[0-9][0-9]*\.?[0-9]* sec//:-e:/so far/d'
 
 echo TAP version 13
-echo 1..2
+echo 1..3
 exitstatus=0
 # Create empty file.
 : > ./cudd/differences
@@ -52,6 +52,15 @@ if test x$failed = x0 ; then
     echo ok 2 cudd extra
 else
     echo not ok 2 cudd extra
+fi
+exitstatus=`expr $exitstatus + $failed`
+
+cudd/testZddFuncs$EXE $verbosity > ./cudd/zddFuncs.tst 2>&1
+failed=`expr $? != 0`
+if test x$failed = x0 ; then
+    echo ok 3 cudd zddFuncs
+else
+    echo not ok 3 cudd zddFuncs
 fi
 exitstatus=`expr $exitstatus + $failed`
 

@@ -1,0 +1,41 @@
+# Build artifacts
+*.o
+*.lo
+*.la
+*.a
+*.so
+*.libs/
+.deps/
+.dirstamp
+
+# Test files
+*.tst
+*.log
+*.trs
+test-suite.log
+
+# Generated files
+*.test
+Makefile
+config.h
+config.h.in~
+config.log
+config.status
+stamp-h1
+libtool
+autom4te.cache/
+
+# Compiled programs
+testcudd
+testextra
+testst
+testmtr
+testobj
+testmulti
+testdddmp
+nanotrav/nanotrav
+
+# Editor files
+*~
+*.swp
+.DS_Store
