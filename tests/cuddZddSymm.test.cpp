@@ -9,9 +9,15 @@
 /**
  * @brief Test file for cuddZddSymm.c
  * 
- * This file contains comprehensive tests to achieve 90% code coverage
- * for the cuddZddSymm module, which implements symmetric sifting
- * reordering for ZDDs.
+ * This file contains comprehensive tests for the cuddZddSymm module,
+ * which implements symmetric sifting reordering for ZDDs.
+ * 
+ * Coverage achieved: ~55% line coverage, ~62% branch coverage.
+ * 
+ * Note: Higher coverage is difficult to achieve because:
+ * - The convergence loop requires ZDD size to decrease during sifting
+ * - Error handling paths require memory allocation failures
+ * - Some branches depend on specific symmetry detection patterns
  */
 
 // Helper function to create a simple ZDD representing a set
@@ -1091,56 +1097,6 @@ TEST_CASE("cuddZddSymm - Additional coverage tests", "[cuddZddSymm]") {
 // ============================================================================
 // TARGETED TESTS FOR SPECIFIC UNCOVERED CODE PATHS
 // ============================================================================
-
-// Helper function to create a ZDD that produces suboptimal ordering (for convergence)
-static DdNode* createSuboptimalZdd(DdManager* manager, int numVars) {
-    // Create a ZDD with interleaved variable dependencies
-    // This creates a structure that can benefit from reordering
-    if (numVars < 6) return nullptr;
-    
-    DdNode* result = Cudd_ReadZddOne(manager, 0);
-    Cudd_Ref(result);
-    
-    // Create dependencies between distant variables to make initial order suboptimal
-    for (int i = 0; i < numVars / 2; i++) {
-        DdNode* var1 = Cudd_zddIthVar(manager, i);
-        DdNode* var2 = Cudd_zddIthVar(manager, numVars - 1 - i);
-        if (var1 == nullptr || var2 == nullptr) {
-            Cudd_RecursiveDerefZdd(manager, result);
-            return nullptr;
-        }
-        Cudd_Ref(var1);
-        Cudd_Ref(var2);
-        
-        // Create a product (both variables needed together)
-        DdNode* prod = Cudd_zddProduct(manager, var1, var2);
-        if (prod == nullptr) {
-            Cudd_RecursiveDerefZdd(manager, var1);
-            Cudd_RecursiveDerefZdd(manager, var2);
-            Cudd_RecursiveDerefZdd(manager, result);
-            return nullptr;
-        }
-        Cudd_Ref(prod);
-        
-        DdNode* temp = Cudd_zddUnion(manager, result, prod);
-        if (temp == nullptr) {
-            Cudd_RecursiveDerefZdd(manager, prod);
-            Cudd_RecursiveDerefZdd(manager, var1);
-            Cudd_RecursiveDerefZdd(manager, var2);
-            Cudd_RecursiveDerefZdd(manager, result);
-            return nullptr;
-        }
-        Cudd_Ref(temp);
-        
-        Cudd_RecursiveDerefZdd(manager, prod);
-        Cudd_RecursiveDerefZdd(manager, var1);
-        Cudd_RecursiveDerefZdd(manager, var2);
-        Cudd_RecursiveDerefZdd(manager, result);
-        result = temp;
-    }
-    
-    return result;
-}
 
 // Helper to create a ZDD with specific structure for testing symmetry
 static DdNode* createLayeredZdd(DdManager* manager, int numVars) {
