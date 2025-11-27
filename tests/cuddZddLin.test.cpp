@@ -1231,3 +1231,476 @@ TEST_CASE("cuddZddLin - Additional coverage tests", "[cuddZddLin]") {
         Cudd_Quit(manager);
     }
 }
+
+// ============================================================================
+// Tests for timeout and termination callback handling
+// ============================================================================
+
+// Termination callback for testing
+static int terminationFlag = 0;
+static int terminationCallback(const void* /* arg */) {
+    return terminationFlag;
+}
+
+TEST_CASE("cuddZddLin - Timeout and termination handling", "[cuddZddLin]") {
+    SECTION("Reordering with time limit") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create a ZDD
+        DdNode* zdd = createInteractingZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        // Set a time limit (very short to potentially trigger timeout path)
+        Cudd_SetTimeLimit(manager, 1);
+        Cudd_ResetStartTime(manager);
+        
+        // This might or might not timeout, but it exercises the time limit checking code
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
+        // Result should be 1 (success) regardless of whether timeout was hit
+        REQUIRE(result == 1);
+        
+        // Clear time limit
+        Cudd_UnsetTimeLimit(manager);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Reordering with termination callback") {
+        DdManager* manager = Cudd_Init(0, 6, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create a ZDD
+        DdNode* zdd = createSimpleZdd(manager, 6);
+        REQUIRE(zdd != nullptr);
+        
+        // Register termination callback
+        terminationFlag = 0;
+        Cudd_RegisterTerminationCallback(manager, terminationCallback, nullptr);
+        
+        // First call should complete normally
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
+        REQUIRE(result == 1);
+        
+        // Now set the flag but the reordering should still return 1
+        terminationFlag = 1;
+        result = Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
+        REQUIRE(result == 1);
+        
+        // Clear callback
+        Cudd_UnregisterTerminationCallback(manager);
+        terminationFlag = 0;
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// Tests for specific cuddZddLinearAux branches
+// ============================================================================
+
+TEST_CASE("cuddZddLin - cuddZddLinearAux specific branches", "[cuddZddLin]") {
+    SECTION("x == xLow branch with many variables") {
+        // Create a structure where the first variable (at xLow) needs to be sifted down
+        DdManager* manager = Cudd_Init(0, 6, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ZDDs with first variable heavily used
+        DdNode* var0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(var0);
+        
+        DdNode* accum = var0;
+        for (int i = 1; i < 6; i++) {
+            DdNode* vari = Cudd_zddIthVar(manager, i);
+            Cudd_Ref(vari);
+            DdNode* prod = Cudd_zddProduct(manager, accum, vari);
+            Cudd_Ref(prod);
+            if (accum != var0) Cudd_RecursiveDerefZdd(manager, accum);
+            Cudd_RecursiveDerefZdd(manager, vari);
+            accum = prod;
+        }
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDerefZdd(manager, accum);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("x == xHigh branch with many variables") {
+        // Create a structure where the last variable (at xHigh) needs to be sifted up
+        DdManager* manager = Cudd_Init(0, 6, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ZDDs with last variable heavily used
+        DdNode* var5 = Cudd_zddIthVar(manager, 5);
+        Cudd_Ref(var5);
+        
+        DdNode* accum = var5;
+        for (int i = 4; i >= 0; i--) {
+            DdNode* vari = Cudd_zddIthVar(manager, i);
+            Cudd_Ref(vari);
+            DdNode* prod = Cudd_zddProduct(manager, accum, vari);
+            Cudd_Ref(prod);
+            if (accum != var5) Cudd_RecursiveDerefZdd(manager, accum);
+            Cudd_RecursiveDerefZdd(manager, vari);
+            accum = prod;
+        }
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDerefZdd(manager, accum);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("(x - xLow) > (xHigh - x) branch") {
+        // Create a structure where middle variable is closer to xHigh
+        DdManager* manager = Cudd_Init(0, 10, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ZDD with many nodes at position 7 (closer to xHigh=9)
+        DdNode* var7 = Cudd_zddIthVar(manager, 7);
+        Cudd_Ref(var7);
+        DdNode* var8 = Cudd_zddIthVar(manager, 8);
+        Cudd_Ref(var8);
+        DdNode* var9 = Cudd_zddIthVar(manager, 9);
+        Cudd_Ref(var9);
+        
+        DdNode* u1 = Cudd_zddUnion(manager, var7, var8);
+        Cudd_Ref(u1);
+        DdNode* u2 = Cudd_zddUnion(manager, u1, var9);
+        Cudd_Ref(u2);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDerefZdd(manager, u2);
+        Cudd_RecursiveDerefZdd(manager, u1);
+        Cudd_RecursiveDerefZdd(manager, var9);
+        Cudd_RecursiveDerefZdd(manager, var8);
+        Cudd_RecursiveDerefZdd(manager, var7);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("else branch - (x - xLow) <= (xHigh - x)") {
+        // Create a structure where middle variable is closer to xLow
+        DdManager* manager = Cudd_Init(0, 10, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ZDD with many nodes at position 2 (closer to xLow=0)
+        DdNode* var0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(var0);
+        DdNode* var1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(var1);
+        DdNode* var2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(var2);
+        
+        DdNode* u1 = Cudd_zddUnion(manager, var0, var1);
+        Cudd_Ref(u1);
+        DdNode* u2 = Cudd_zddUnion(manager, u1, var2);
+        Cudd_Ref(u2);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDerefZdd(manager, u2);
+        Cudd_RecursiveDerefZdd(manager, u1);
+        Cudd_RecursiveDerefZdd(manager, var2);
+        Cudd_RecursiveDerefZdd(manager, var1);
+        Cudd_RecursiveDerefZdd(manager, var0);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// Tests for cuddZddLinearInPlace internal paths
+// ============================================================================
+
+TEST_CASE("cuddZddLin - cuddZddLinearInPlace paths", "[cuddZddLin]") {
+    SECTION("Linear transform with nodes at both levels") {
+        DdManager* manager = Cudd_Init(0, 4, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create structure where adjacent variables have nodes at both levels
+        DdNode* var0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(var0);
+        DdNode* var1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(var1);
+        DdNode* var2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(var2);
+        DdNode* var3 = Cudd_zddIthVar(manager, 3);
+        Cudd_Ref(var3);
+        
+        // Create multiple products to ensure nodes at both levels
+        DdNode* p1 = Cudd_zddProduct(manager, var0, var1);
+        Cudd_Ref(p1);
+        DdNode* p2 = Cudd_zddProduct(manager, var1, var2);
+        Cudd_Ref(p2);
+        DdNode* p3 = Cudd_zddProduct(manager, var2, var3);
+        Cudd_Ref(p3);
+        
+        DdNode* u1 = Cudd_zddUnion(manager, p1, p2);
+        Cudd_Ref(u1);
+        DdNode* u2 = Cudd_zddUnion(manager, u1, p3);
+        Cudd_Ref(u2);
+        
+        // Multiple reorderings
+        for (int i = 0; i < 5; i++) {
+            int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
+            REQUIRE(result == 1);
+        }
+        
+        Cudd_RecursiveDerefZdd(manager, u2);
+        Cudd_RecursiveDerefZdd(manager, u1);
+        Cudd_RecursiveDerefZdd(manager, p3);
+        Cudd_RecursiveDerefZdd(manager, p2);
+        Cudd_RecursiveDerefZdd(manager, p1);
+        Cudd_RecursiveDerefZdd(manager, var3);
+        Cudd_RecursiveDerefZdd(manager, var2);
+        Cudd_RecursiveDerefZdd(manager, var1);
+        Cudd_RecursiveDerefZdd(manager, var0);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Linear transform with dense subtable") {
+        DdManager* manager = Cudd_Init(0, 6, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create a dense structure
+        DdNode* vars[6];
+        for (int i = 0; i < 6; i++) {
+            vars[i] = Cudd_zddIthVar(manager, i);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create all pairwise products
+        DdNode* products[15];
+        int idx = 0;
+        for (int i = 0; i < 6; i++) {
+            for (int j = i + 1; j < 6; j++) {
+                products[idx] = Cudd_zddProduct(manager, vars[i], vars[j]);
+                Cudd_Ref(products[idx]);
+                idx++;
+            }
+        }
+        
+        // Union all products
+        DdNode* result_zdd = products[0];
+        Cudd_Ref(result_zdd);
+        for (int i = 1; i < 15; i++) {
+            DdNode* temp = Cudd_zddUnion(manager, result_zdd, products[i]);
+            Cudd_Ref(temp);
+            Cudd_RecursiveDerefZdd(manager, result_zdd);
+            result_zdd = temp;
+        }
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDerefZdd(manager, result_zdd);
+        for (int i = 0; i < 15; i++) {
+            Cudd_RecursiveDerefZdd(manager, products[i]);
+        }
+        for (int i = 0; i < 6; i++) {
+            Cudd_RecursiveDerefZdd(manager, vars[i]);
+        }
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// Tests for special list handling in cuddZddLinearInPlace
+// ============================================================================
+
+TEST_CASE("cuddZddLin - Special list handling", "[cuddZddLin]") {
+    SECTION("Nodes where f1->index == yindex and cuddE(f1) == empty") {
+        DdManager* manager = Cudd_Init(0, 5, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create structure that creates special list scenario
+        DdNode* var0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(var0);
+        DdNode* var1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(var1);
+        
+        // Product of var0 and var1 creates a node where:
+        // - The node at level 0 has then-child at level 1
+        // - The else-child is empty
+        DdNode* prod = Cudd_zddProduct(manager, var0, var1);
+        Cudd_Ref(prod);
+        
+        // Add more structure
+        DdNode* var2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(var2);
+        DdNode* prod2 = Cudd_zddProduct(manager, prod, var2);
+        Cudd_Ref(prod2);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDerefZdd(manager, prod2);
+        Cudd_RecursiveDerefZdd(manager, var2);
+        Cudd_RecursiveDerefZdd(manager, prod);
+        Cudd_RecursiveDerefZdd(manager, var1);
+        Cudd_RecursiveDerefZdd(manager, var0);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Next pointer handling in special list") {
+        DdManager* manager = Cudd_Init(0, 4, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create multiple products to populate special list
+        DdNode* vars[4];
+        for (int i = 0; i < 4; i++) {
+            vars[i] = Cudd_zddIthVar(manager, i);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create chains of products
+        DdNode* p01 = Cudd_zddProduct(manager, vars[0], vars[1]);
+        Cudd_Ref(p01);
+        DdNode* p12 = Cudd_zddProduct(manager, vars[1], vars[2]);
+        Cudd_Ref(p12);
+        DdNode* p23 = Cudd_zddProduct(manager, vars[2], vars[3]);
+        Cudd_Ref(p23);
+        DdNode* p012 = Cudd_zddProduct(manager, p01, vars[2]);
+        Cudd_Ref(p012);
+        
+        DdNode* u1 = Cudd_zddUnion(manager, p01, p12);
+        Cudd_Ref(u1);
+        DdNode* u2 = Cudd_zddUnion(manager, u1, p23);
+        Cudd_Ref(u2);
+        DdNode* u3 = Cudd_zddUnion(manager, u2, p012);
+        Cudd_Ref(u3);
+        
+        // Multiple reorderings to exercise special list
+        for (int i = 0; i < 4; i++) {
+            int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
+            REQUIRE(result == 1);
+        }
+        
+        Cudd_RecursiveDerefZdd(manager, u3);
+        Cudd_RecursiveDerefZdd(manager, u2);
+        Cudd_RecursiveDerefZdd(manager, u1);
+        Cudd_RecursiveDerefZdd(manager, p012);
+        Cudd_RecursiveDerefZdd(manager, p23);
+        Cudd_RecursiveDerefZdd(manager, p12);
+        Cudd_RecursiveDerefZdd(manager, p01);
+        for (int i = 0; i < 4; i++) {
+            Cudd_RecursiveDerefZdd(manager, vars[i]);
+        }
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// Tests for cuddZddLinearBackward with INVERSE_TRANSFORM_MOVE
+// ============================================================================
+
+TEST_CASE("cuddZddLin - Backward with inverse transforms", "[cuddZddLin]") {
+    SECTION("Backward pass undoing linear transforms") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create structure that will require linear transforms during sifting
+        DdNode* vars[8];
+        for (int i = 0; i < 8; i++) {
+            vars[i] = Cudd_zddIthVar(manager, i);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create pairs and their products
+        DdNode* pairs[4];
+        for (int i = 0; i < 4; i++) {
+            pairs[i] = Cudd_zddUnion(manager, vars[i*2], vars[i*2+1]);
+            Cudd_Ref(pairs[i]);
+        }
+        
+        DdNode* prod1 = Cudd_zddProduct(manager, pairs[0], pairs[1]);
+        Cudd_Ref(prod1);
+        DdNode* prod2 = Cudd_zddProduct(manager, pairs[2], pairs[3]);
+        Cudd_Ref(prod2);
+        DdNode* final_zdd = Cudd_zddUnion(manager, prod1, prod2);
+        Cudd_Ref(final_zdd);
+        
+        // Apply convergent linear sifting (will call backward multiple times)
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR_CONVERGE, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDerefZdd(manager, final_zdd);
+        Cudd_RecursiveDerefZdd(manager, prod2);
+        Cudd_RecursiveDerefZdd(manager, prod1);
+        for (int i = 0; i < 4; i++) {
+            Cudd_RecursiveDerefZdd(manager, pairs[i]);
+        }
+        for (int i = 0; i < 8; i++) {
+            Cudd_RecursiveDerefZdd(manager, vars[i]);
+        }
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// Tests for extreme variable counts
+// ============================================================================
+
+TEST_CASE("cuddZddLin - Extreme variable counts", "[cuddZddLin]") {
+    SECTION("Linear sifting with 15 variables") {
+        DdManager* manager = Cudd_Init(0, 15, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create a complex structure
+        DdNode* accum = Cudd_ReadZddOne(manager, 0);
+        Cudd_Ref(accum);
+        
+        for (int i = 0; i < 15; i++) {
+            DdNode* var = Cudd_zddIthVar(manager, i);
+            Cudd_Ref(var);
+            DdNode* temp = Cudd_zddUnion(manager, accum, var);
+            Cudd_Ref(temp);
+            Cudd_RecursiveDerefZdd(manager, accum);
+            Cudd_RecursiveDerefZdd(manager, var);
+            accum = temp;
+        }
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDerefZdd(manager, accum);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Linear sifting with 20 variables") {
+        DdManager* manager = Cudd_Init(0, 20, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create sparse structure
+        DdNode* vars[5];
+        for (int i = 0; i < 5; i++) {
+            vars[i] = Cudd_zddIthVar(manager, i * 4);
+            Cudd_Ref(vars[i]);
+        }
+        
+        DdNode* accum = vars[0];
+        Cudd_Ref(accum);
+        for (int i = 1; i < 5; i++) {
+            DdNode* temp = Cudd_zddUnion(manager, accum, vars[i]);
+            Cudd_Ref(temp);
+            if (i > 1) Cudd_RecursiveDerefZdd(manager, accum);
+            accum = temp;
+        }
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDerefZdd(manager, accum);
+        for (int i = 0; i < 5; i++) {
+            Cudd_RecursiveDerefZdd(manager, vars[i]);
+        }
+        Cudd_Quit(manager);
+    }
+}
