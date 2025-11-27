@@ -776,6 +776,7 @@ Mtr_ReadGroups(
 		flags |= MTR_TERMINAL;
 		break;
 	    default:
+		Mtr_FreeTree(root);
 		return NULL;
 	    }
 	}
