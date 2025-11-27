@@ -28,6 +28,7 @@ autom4te.cache/
 # Compiled programs
 testcudd
 testextra
+testZddFuncs
 testst
 testmtr
 testobj
