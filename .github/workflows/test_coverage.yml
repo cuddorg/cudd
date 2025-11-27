@@ -2,10 +2,10 @@ name: Code Coverage
 
 on:
   pull_request:
-  push:
     branches:
       - main
       - 4.0.0
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
