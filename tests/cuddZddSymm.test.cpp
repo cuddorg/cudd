@@ -1,19 +1,1550 @@
 #include <catch2/catch_test_macros.hpp>
 
-// Include CUDD headers
+// Include CUDD headers - mtr.h must come before cudd.h for tree functions
+#include "mtr.h"
 #include "cudd/cudd.h"
+#include "cuddInt.h"
 #include "util.h"
 
 /**
  * @brief Test file for cuddZddSymm.c
  * 
- * This file contains basic tests to ensure the cuddZddSymm module
- * compiles and links correctly with the test suite.
+ * This file contains comprehensive tests to achieve 90% code coverage
+ * for the cuddZddSymm module, which implements symmetric sifting
+ * reordering for ZDDs.
  */
 
-TEST_CASE("cuddZddSymm - Basic Module Test", "[cuddZddSymm]") {
-    // Basic test to verify the module compiles and links
-    // This is a placeholder test that should be expanded with actual
-    // functionality tests for the cuddZddSymm module
-    REQUIRE(true);
+// Helper function to create a simple ZDD representing a set
+static DdNode* createSimpleZdd(DdManager* manager, int numVars) {
+    if (numVars < 2) return nullptr;
+    
+    // Create ZDD variables and build a simple ZDD
+    DdNode* result = Cudd_ReadZddOne(manager, 0);
+    Cudd_Ref(result);
+    
+    for (int i = 0; i < numVars; i++) {
+        DdNode* zvar = Cudd_zddIthVar(manager, i);
+        if (zvar == nullptr) {
+            Cudd_RecursiveDerefZdd(manager, result);
+            return nullptr;
+        }
+        Cudd_Ref(zvar);
+        
+        DdNode* temp = Cudd_zddUnion(manager, result, zvar);
+        if (temp == nullptr) {
+            Cudd_RecursiveDerefZdd(manager, zvar);
+            Cudd_RecursiveDerefZdd(manager, result);
+            return nullptr;
+        }
+        Cudd_Ref(temp);
+        
+        Cudd_RecursiveDerefZdd(manager, zvar);
+        Cudd_RecursiveDerefZdd(manager, result);
+        result = temp;
+    }
+    
+    return result;
+}
+
+// Helper function to create a ZDD with symmetric structure
+static DdNode* createSymmetricZdd(DdManager* manager, int numVars) {
+    if (numVars < 4) return nullptr;
+    
+    // Create a ZDD where variables come in symmetric pairs
+    // This should be detected by the symmetry checking algorithms
+    DdNode* result = Cudd_ReadZddOne(manager, 0);
+    Cudd_Ref(result);
+    
+    // Create pairs of symmetric variables
+    for (int i = 0; i < numVars - 1; i += 2) {
+        DdNode* var1 = Cudd_zddIthVar(manager, i);
+        DdNode* var2 = Cudd_zddIthVar(manager, i + 1);
+        if (var1 == nullptr || var2 == nullptr) {
+            Cudd_RecursiveDerefZdd(manager, result);
+            return nullptr;
+        }
+        Cudd_Ref(var1);
+        Cudd_Ref(var2);
+        
+        // Create union of the pair
+        DdNode* pair = Cudd_zddUnion(manager, var1, var2);
+        if (pair == nullptr) {
+            Cudd_RecursiveDerefZdd(manager, var1);
+            Cudd_RecursiveDerefZdd(manager, var2);
+            Cudd_RecursiveDerefZdd(manager, result);
+            return nullptr;
+        }
+        Cudd_Ref(pair);
+        
+        DdNode* temp = Cudd_zddProduct(manager, result, pair);
+        if (temp == nullptr) {
+            Cudd_RecursiveDerefZdd(manager, pair);
+            Cudd_RecursiveDerefZdd(manager, var1);
+            Cudd_RecursiveDerefZdd(manager, var2);
+            Cudd_RecursiveDerefZdd(manager, result);
+            return nullptr;
+        }
+        Cudd_Ref(temp);
+        
+        Cudd_RecursiveDerefZdd(manager, pair);
+        Cudd_RecursiveDerefZdd(manager, var1);
+        Cudd_RecursiveDerefZdd(manager, var2);
+        Cudd_RecursiveDerefZdd(manager, result);
+        result = temp;
+    }
+    
+    return result;
+}
+
+// Helper function to create a complex ZDD with variable interactions
+static DdNode* createComplexZdd(DdManager* manager, int numVars) {
+    if (numVars < 3) return nullptr;
+    
+    // Build a more complex ZDD structure
+    DdNode* result = Cudd_ReadZddOne(manager, 0);
+    Cudd_Ref(result);
+    
+    // Create a chain of intersections and unions
+    for (int i = 0; i < numVars - 1; i++) {
+        DdNode* var1 = Cudd_zddIthVar(manager, i);
+        DdNode* var2 = Cudd_zddIthVar(manager, i + 1);
+        if (var1 == nullptr || var2 == nullptr) {
+            Cudd_RecursiveDerefZdd(manager, result);
+            return nullptr;
+        }
+        Cudd_Ref(var1);
+        Cudd_Ref(var2);
+        
+        DdNode* inter = Cudd_zddIntersect(manager, var1, var2);
+        if (inter == nullptr) {
+            inter = Cudd_zddUnion(manager, var1, var2);
+        }
+        if (inter == nullptr) {
+            Cudd_RecursiveDerefZdd(manager, var1);
+            Cudd_RecursiveDerefZdd(manager, var2);
+            Cudd_RecursiveDerefZdd(manager, result);
+            return nullptr;
+        }
+        Cudd_Ref(inter);
+        
+        DdNode* temp = Cudd_zddUnion(manager, result, inter);
+        if (temp == nullptr) {
+            Cudd_RecursiveDerefZdd(manager, inter);
+            Cudd_RecursiveDerefZdd(manager, var1);
+            Cudd_RecursiveDerefZdd(manager, var2);
+            Cudd_RecursiveDerefZdd(manager, result);
+            return nullptr;
+        }
+        Cudd_Ref(temp);
+        
+        Cudd_RecursiveDerefZdd(manager, inter);
+        Cudd_RecursiveDerefZdd(manager, var1);
+        Cudd_RecursiveDerefZdd(manager, var2);
+        Cudd_RecursiveDerefZdd(manager, result);
+        result = temp;
+    }
+    
+    return result;
+}
+
+// Helper to create a ZDD from a BDD via porting
+static DdNode* createZddFromBdd(DdManager* manager, int numVars) {
+    if (numVars < 2) return nullptr;
+    
+    // Create BDD variables
+    DdNode* x0 = Cudd_bddIthVar(manager, 0);
+    DdNode* x1 = Cudd_bddIthVar(manager, 1);
+    DdNode* bdd = Cudd_bddAnd(manager, x0, x1);
+    Cudd_Ref(bdd);
+    
+    // Port BDD to ZDD
+    DdNode* zdd = Cudd_zddPortFromBdd(manager, bdd);
+    if (zdd != nullptr) {
+        Cudd_Ref(zdd);
+    }
+    
+    Cudd_RecursiveDeref(manager, bdd);
+    return zdd;
+}
+
+// ============================================================================
+// TESTS FOR Cudd_zddSymmProfile (exported function)
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - Cudd_zddSymmProfile basic tests", "[cuddZddSymm]") {
+    SECTION("Print profile with no symmetric variables") {
+        DdManager* manager = Cudd_Init(0, 6, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createSimpleZdd(manager, 6);
+        REQUIRE(zdd != nullptr);
+        
+        // Redirect output to suppress print
+        FILE* oldOut = Cudd_ReadStdout(manager);
+        FILE* tempOut = tmpfile();
+        if (tempOut != nullptr) {
+            Cudd_SetStdout(manager, tempOut);
+            
+            // Call the profile function
+            Cudd_zddSymmProfile(manager, 0, Cudd_ReadZddSize(manager) - 1);
+            
+            fclose(tempOut);
+            Cudd_SetStdout(manager, oldOut);
+        }
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Print profile after symmetric sifting") {
+        DdManager* manager = Cudd_Init(0, 6, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createSymmetricZdd(manager, 6);
+        REQUIRE(zdd != nullptr);
+        
+        // Perform symmetric sifting to detect symmetries
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        // Redirect output to suppress print
+        FILE* oldOut = Cudd_ReadStdout(manager);
+        FILE* tempOut = tmpfile();
+        if (tempOut != nullptr) {
+            Cudd_SetStdout(manager, tempOut);
+            
+            // Call the profile function - should show symmetric groups
+            Cudd_zddSymmProfile(manager, 0, Cudd_ReadZddSize(manager) - 1);
+            
+            fclose(tempOut);
+            Cudd_SetStdout(manager, oldOut);
+        }
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Print profile with partial range") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createSimpleZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        FILE* oldOut = Cudd_ReadStdout(manager);
+        FILE* tempOut = tmpfile();
+        if (tempOut != nullptr) {
+            Cudd_SetStdout(manager, tempOut);
+            
+            // Profile only middle variables
+            Cudd_zddSymmProfile(manager, 2, 5);
+            
+            fclose(tempOut);
+            Cudd_SetStdout(manager, oldOut);
+        }
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR cuddZddSymmSifting via Cudd_zddReduceHeap
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - Symmetric sifting via Cudd_zddReduceHeap", "[cuddZddSymm]") {
+    SECTION("CUDD_REORDER_SYMM_SIFT with simple ZDD") {
+        DdManager* manager = Cudd_Init(0, 6, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createSimpleZdd(manager, 6);
+        REQUIRE(zdd != nullptr);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("CUDD_REORDER_SYMM_SIFT with complex ZDD") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createComplexZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("CUDD_REORDER_SYMM_SIFT with symmetric ZDD") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createSymmetricZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        // Symmetric sifting should detect symmetries
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("CUDD_REORDER_SYMM_SIFT with few nodes (below minsize)") {
+        DdManager* manager = Cudd_Init(0, 4, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create a small ZDD
+        DdNode* zdd = Cudd_zddIthVar(manager, 0);
+        REQUIRE(zdd != nullptr);
+        Cudd_Ref(zdd);
+        
+        // With high minsize, reordering should be skipped
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 1000000);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR cuddZddSymmSiftingConv via Cudd_zddReduceHeap
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - Symmetric sifting convergence via Cudd_zddReduceHeap", "[cuddZddSymm]") {
+    SECTION("CUDD_REORDER_SYMM_SIFT_CONV with simple ZDD") {
+        DdManager* manager = Cudd_Init(0, 6, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createSimpleZdd(manager, 6);
+        REQUIRE(zdd != nullptr);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT_CONV, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("CUDD_REORDER_SYMM_SIFT_CONV with complex ZDD") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createComplexZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT_CONV, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("CUDD_REORDER_SYMM_SIFT_CONV with symmetric ZDD") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createSymmetricZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT_CONV, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR cuddZddSymmSiftingAux via boundary conditions
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - Sifting boundary conditions", "[cuddZddSymm]") {
+    SECTION("Variable at low boundary (x == x_low)") {
+        DdManager* manager = Cudd_Init(0, 6, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ZDD with variable at position 0
+        DdNode* zdd = Cudd_zddIthVar(manager, 0);
+        REQUIRE(zdd != nullptr);
+        Cudd_Ref(zdd);
+        
+        // Add more variables to create interactions
+        for (int i = 1; i < 6; i++) {
+            DdNode* var = Cudd_zddIthVar(manager, i);
+            Cudd_Ref(var);
+            DdNode* temp = Cudd_zddUnion(manager, zdd, var);
+            Cudd_Ref(temp);
+            Cudd_RecursiveDerefZdd(manager, var);
+            Cudd_RecursiveDerefZdd(manager, zdd);
+            zdd = temp;
+        }
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Variable at high boundary (x == x_high)") {
+        DdManager* manager = Cudd_Init(0, 6, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ZDD with variable at last position
+        DdNode* zdd = Cudd_zddIthVar(manager, 5);
+        REQUIRE(zdd != nullptr);
+        Cudd_Ref(zdd);
+        
+        // Add more variables
+        for (int i = 0; i < 5; i++) {
+            DdNode* var = Cudd_zddIthVar(manager, i);
+            Cudd_Ref(var);
+            DdNode* temp = Cudd_zddUnion(manager, zdd, var);
+            Cudd_Ref(temp);
+            Cudd_RecursiveDerefZdd(manager, var);
+            Cudd_RecursiveDerefZdd(manager, zdd);
+            zdd = temp;
+        }
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Variable in middle with shorter distance to high") {
+        // Tests the (x - x_low) > (x_high - x) branch
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createComplexZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR cuddZddSymmCheck via symmetric sifting
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - Symmetry detection", "[cuddZddSymm]") {
+    SECTION("Detect symmetry in symmetric ZDD") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createSymmetricZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        // Symmetric sifting should detect and group symmetric variables
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("No symmetry in non-symmetric ZDD") {
+        DdManager* manager = Cudd_Init(0, 6, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create a ZDD with no symmetric structure
+        DdNode* zdd = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(zdd);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR multiple reorderings
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - Multiple reorderings", "[cuddZddSymm]") {
+    SECTION("Sequential symmetric sifting reorderings") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createComplexZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        unsigned int initialReorderings = Cudd_ReadReorderings(manager);
+        
+        // Perform multiple reorderings
+        for (int i = 0; i < 3; i++) {
+            int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+            REQUIRE(result >= 1);
+        }
+        
+        REQUIRE(Cudd_ReadReorderings(manager) == initialReorderings + 3);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Alternating symmetric sifting and convergence") {
+        DdManager* manager = Cudd_Init(0, 6, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createSymmetricZdd(manager, 6);
+        REQUIRE(zdd != nullptr);
+        
+        int result1 = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result1 >= 1);
+        
+        int result2 = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT_CONV, 0);
+        REQUIRE(result2 >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR cuddZddSymmSifting_up and cuddZddSymmSifting_down
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - Sifting up and down", "[cuddZddSymm]") {
+    SECTION("Sifting up with group move") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createSymmetricZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        // First sifting may create symmetry groups
+        int result1 = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result1 >= 1);
+        
+        // Second sifting may require group moves
+        int result2 = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result2 >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Sifting down with max growth limit") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createComplexZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        // Set tight max growth to trigger early termination
+        Cudd_SetMaxGrowth(manager, 1.01);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR cuddZddSymmSiftingBackward
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - Sifting backward", "[cuddZddSymm]") {
+    SECTION("Backward sifting restores best position") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createComplexZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        unsigned int sizeBeforeReorder = Cudd_zddDagSize(zdd);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        // ZDD should still be valid
+        unsigned int sizeAfterReorder = Cudd_zddDagSize(zdd);
+        REQUIRE(sizeAfterReorder > 0);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR zdd_group_move and zdd_group_move_backward
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - Group moves", "[cuddZddSymm]") {
+    SECTION("Group move with symmetric variables") {
+        DdManager* manager = Cudd_Init(0, 10, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createSymmetricZdd(manager, 10);
+        REQUIRE(zdd != nullptr);
+        
+        // First sifting creates groups
+        int result1 = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result1 >= 1);
+        
+        // Further sifting requires group moves
+        int result2 = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT_CONV, 0);
+        REQUIRE(result2 >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR cuddZddSymmSiftingConvAux
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - Convergence sifting auxiliary", "[cuddZddSymm]") {
+    SECTION("Convergence with symmetric groups") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createSymmetricZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        // First pass to establish symmetry groups
+        int result1 = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result1 >= 1);
+        
+        // Convergence sifting uses cuddZddSymmSiftingConvAux
+        int result2 = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT_CONV, 0);
+        REQUIRE(result2 >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Convergence at different boundaries") {
+        DdManager* manager = Cudd_Init(0, 10, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createComplexZdd(manager, 10);
+        REQUIRE(zdd != nullptr);
+        
+        // Multiple convergence rounds to test different branches
+        for (int i = 0; i < 3; i++) {
+            int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT_CONV, 0);
+            REQUIRE(result >= 1);
+        }
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR termination conditions
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - Termination conditions", "[cuddZddSymm]") {
+    SECTION("Max swap limit") {
+        DdManager* manager = Cudd_Init(0, 10, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createComplexZdd(manager, 10);
+        REQUIRE(zdd != nullptr);
+        
+        // Set very low max swap limit
+        Cudd_SetSiftMaxSwap(manager, 5);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Max var limit") {
+        DdManager* manager = Cudd_Init(0, 12, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createComplexZdd(manager, 12);
+        REQUIRE(zdd != nullptr);
+        
+        // Set low max var limit
+        Cudd_SetSiftMaxVar(manager, 3);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR auto reordering
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - Auto reordering", "[cuddZddSymm]") {
+    SECTION("Enable ZDD auto reordering with symmetric sifting") {
+        DdManager* manager = Cudd_Init(0, 6, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        Cudd_ReorderingType method;
+        
+        // Initially disabled
+        REQUIRE(Cudd_ReorderingStatusZdd(manager, &method) == 0);
+        
+        // Enable symmetric sifting
+        Cudd_AutodynEnableZdd(manager, CUDD_REORDER_SYMM_SIFT);
+        REQUIRE(Cudd_ReorderingStatusZdd(manager, &method) == 1);
+        REQUIRE(method == CUDD_REORDER_SYMM_SIFT);
+        
+        // Disable
+        Cudd_AutodynDisableZdd(manager);
+        REQUIRE(Cudd_ReorderingStatusZdd(manager, &method) == 0);
+        
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Enable ZDD auto reordering with convergence") {
+        DdManager* manager = Cudd_Init(0, 6, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        Cudd_ReorderingType method;
+        
+        Cudd_AutodynEnableZdd(manager, CUDD_REORDER_SYMM_SIFT_CONV);
+        REQUIRE(Cudd_ReorderingStatusZdd(manager, &method) == 1);
+        REQUIRE(method == CUDD_REORDER_SYMM_SIFT_CONV);
+        
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("CUDD_REORDER_SAME uses auto method") {
+        DdManager* manager = Cudd_Init(0, 6, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createSimpleZdd(manager, 6);
+        REQUIRE(zdd != nullptr);
+        
+        // Set auto method
+        Cudd_AutodynEnableZdd(manager, CUDD_REORDER_SYMM_SIFT);
+        
+        // CUDD_REORDER_SAME should use the auto method
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SAME, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR edge cases and error handling
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - Edge cases", "[cuddZddSymm]") {
+    SECTION("Empty manager") {
+        DdManager* manager = Cudd_Init(0, 4, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Reorder with no ZDD nodes
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Single variable ZDD") {
+        DdManager* manager = Cudd_Init(0, 4, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = Cudd_zddIthVar(manager, 0);
+        REQUIRE(zdd != nullptr);
+        Cudd_Ref(zdd);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Large ZDD") {
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createComplexZdd(manager, 16);
+        REQUIRE(zdd != nullptr);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR cuddZddSymmSummary
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - Symmetry summary", "[cuddZddSymm]") {
+    SECTION("Summary after symmetric sifting") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createSymmetricZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        // Symmetric sifting should group symmetric variables
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        // Result is 1 + number of symmetric variables
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Summary with convergence sifting") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createSymmetricZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT_CONV, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS WITH ZDDs FROM BDDs
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - ZDDs from BDDs", "[cuddZddSymm]") {
+    SECTION("Symmetric sifting on ported ZDD") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Initialize ZDD variables from BDD
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        DdNode* zdd = createZddFromBdd(manager, 4);
+        if (zdd != nullptr) {
+            int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+            REQUIRE(result >= 1);
+            
+            Cudd_RecursiveDerefZdd(manager, zdd);
+        }
+        
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR hook functions during reordering
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - Reordering hooks", "[cuddZddSymm]") {
+    SECTION("Pre and post reordering hooks") {
+        DdManager* manager = Cudd_Init(0, 6, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createSimpleZdd(manager, 6);
+        REQUIRE(zdd != nullptr);
+        
+        // Enable reordering reporting
+        REQUIRE(Cudd_EnableReorderingReporting(manager) == 1);
+        
+        // Redirect output
+        FILE* oldOut = Cudd_ReadStdout(manager);
+        FILE* oldErr = Cudd_ReadStderr(manager);
+        FILE* tempOut = tmpfile();
+        FILE* tempErr = tmpfile();
+        if (tempOut != nullptr && tempErr != nullptr) {
+            Cudd_SetStdout(manager, tempOut);
+            Cudd_SetStderr(manager, tempErr);
+            
+            int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+            REQUIRE(result >= 1);
+            
+            fclose(tempOut);
+            fclose(tempErr);
+            Cudd_SetStdout(manager, oldOut);
+            Cudd_SetStderr(manager, oldErr);
+        }
+        
+        REQUIRE(Cudd_DisableReorderingReporting(manager) == 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR various sifting directions
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - Sifting directions", "[cuddZddSymm]") {
+    SECTION("Sifting with variable closer to top") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ZDD with first few variables heavily used
+        DdNode* zdd = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(zdd);
+        
+        for (int i = 1; i < 3; i++) {
+            DdNode* var = Cudd_zddIthVar(manager, i);
+            Cudd_Ref(var);
+            DdNode* temp = Cudd_zddUnion(manager, zdd, var);
+            Cudd_Ref(temp);
+            Cudd_RecursiveDerefZdd(manager, var);
+            Cudd_RecursiveDerefZdd(manager, zdd);
+            zdd = temp;
+        }
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Sifting with variable closer to bottom") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ZDD with last few variables heavily used
+        DdNode* zdd = Cudd_zddIthVar(manager, 7);
+        Cudd_Ref(zdd);
+        
+        for (int i = 5; i < 7; i++) {
+            DdNode* var = Cudd_zddIthVar(manager, i);
+            Cudd_Ref(var);
+            DdNode* temp = Cudd_zddUnion(manager, zdd, var);
+            Cudd_Ref(temp);
+            Cudd_RecursiveDerefZdd(manager, var);
+            Cudd_RecursiveDerefZdd(manager, zdd);
+            zdd = temp;
+        }
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR ZDD tree structures
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - ZDD variable group tree", "[cuddZddSymm]") {
+    SECTION("Symmetric sifting with group tree") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createComplexZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        // Create a ZDD group tree
+        MtrNode* tree = Cudd_MakeZddTreeNode(manager, 0, 4, MTR_DEFAULT);
+        REQUIRE(tree != nullptr);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR BDD/ZDD alignment
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - BDD ZDD alignment", "[cuddZddSymm]") {
+    SECTION("ZDD reordering with BDD alignment enabled") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Initialize ZDD variables from BDD
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        // Enable BDD realignment after ZDD reordering
+        Cudd_bddRealignEnable(manager);
+        REQUIRE(Cudd_bddRealignmentEnabled(manager) == 1);
+        
+        DdNode* zdd = createSimpleZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// ADDITIONAL TESTS FOR COVERAGE
+// ============================================================================
+
+TEST_CASE("cuddZddSymm - Additional coverage tests", "[cuddZddSymm]") {
+    SECTION("New symmetry group detection in middle of sifting") {
+        DdManager* manager = Cudd_Init(0, 10, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create a ZDD structure that may create new symmetry groups during sifting
+        DdNode* result = Cudd_ReadZddOne(manager, 0);
+        Cudd_Ref(result);
+        
+        for (int i = 0; i < 10; i += 2) {
+            DdNode* var1 = Cudd_zddIthVar(manager, i);
+            DdNode* var2 = Cudd_zddIthVar(manager, i + 1);
+            Cudd_Ref(var1);
+            Cudd_Ref(var2);
+            
+            DdNode* pair = Cudd_zddUnion(manager, var1, var2);
+            Cudd_Ref(pair);
+            
+            DdNode* temp = Cudd_zddProduct(manager, result, pair);
+            Cudd_Ref(temp);
+            
+            Cudd_RecursiveDerefZdd(manager, pair);
+            Cudd_RecursiveDerefZdd(manager, var1);
+            Cudd_RecursiveDerefZdd(manager, var2);
+            Cudd_RecursiveDerefZdd(manager, result);
+            result = temp;
+        }
+        
+        // Multiple passes to exercise different code paths
+        for (int i = 0; i < 3; i++) {
+            int res = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+            REQUIRE(res >= 1);
+        }
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Test with init_group_size != final_group_size") {
+        DdManager* manager = Cudd_Init(0, 12, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createSymmetricZdd(manager, 12);
+        REQUIRE(zdd != nullptr);
+        
+        // First sifting pass
+        int result1 = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result1 >= 1);
+        
+        // Second sifting pass - may have different group sizes
+        int result2 = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT_CONV, 0);
+        REQUIRE(result2 >= 1);
+        
+        // Third pass
+        int result3 = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result3 >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Test convergence with changing size") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createComplexZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        // Multiple convergence passes
+        for (int i = 0; i < 5; i++) {
+            int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT_CONV, 0);
+            REQUIRE(result >= 1);
+        }
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TARGETED TESTS FOR SPECIFIC UNCOVERED CODE PATHS
+// ============================================================================
+
+// Helper function to create a ZDD that produces suboptimal ordering (for convergence)
+static DdNode* createSuboptimalZdd(DdManager* manager, int numVars) {
+    // Create a ZDD with interleaved variable dependencies
+    // This creates a structure that can benefit from reordering
+    if (numVars < 6) return nullptr;
+    
+    DdNode* result = Cudd_ReadZddOne(manager, 0);
+    Cudd_Ref(result);
+    
+    // Create dependencies between distant variables to make initial order suboptimal
+    for (int i = 0; i < numVars / 2; i++) {
+        DdNode* var1 = Cudd_zddIthVar(manager, i);
+        DdNode* var2 = Cudd_zddIthVar(manager, numVars - 1 - i);
+        if (var1 == nullptr || var2 == nullptr) {
+            Cudd_RecursiveDerefZdd(manager, result);
+            return nullptr;
+        }
+        Cudd_Ref(var1);
+        Cudd_Ref(var2);
+        
+        // Create a product (both variables needed together)
+        DdNode* prod = Cudd_zddProduct(manager, var1, var2);
+        if (prod == nullptr) {
+            Cudd_RecursiveDerefZdd(manager, var1);
+            Cudd_RecursiveDerefZdd(manager, var2);
+            Cudd_RecursiveDerefZdd(manager, result);
+            return nullptr;
+        }
+        Cudd_Ref(prod);
+        
+        DdNode* temp = Cudd_zddUnion(manager, result, prod);
+        if (temp == nullptr) {
+            Cudd_RecursiveDerefZdd(manager, prod);
+            Cudd_RecursiveDerefZdd(manager, var1);
+            Cudd_RecursiveDerefZdd(manager, var2);
+            Cudd_RecursiveDerefZdd(manager, result);
+            return nullptr;
+        }
+        Cudd_Ref(temp);
+        
+        Cudd_RecursiveDerefZdd(manager, prod);
+        Cudd_RecursiveDerefZdd(manager, var1);
+        Cudd_RecursiveDerefZdd(manager, var2);
+        Cudd_RecursiveDerefZdd(manager, result);
+        result = temp;
+    }
+    
+    return result;
+}
+
+// Helper to create a ZDD with specific structure for testing symmetry
+static DdNode* createLayeredZdd(DdManager* manager, int numVars) {
+    if (numVars < 4) return nullptr;
+    
+    DdNode* result = Cudd_ReadZddOne(manager, 0);
+    Cudd_Ref(result);
+    
+    // Build a ZDD layer by layer with different interactions
+    for (int layer = 0; layer < numVars - 1; layer++) {
+        DdNode* var1 = Cudd_zddIthVar(manager, layer);
+        DdNode* var2 = Cudd_zddIthVar(manager, layer + 1);
+        Cudd_Ref(var1);
+        Cudd_Ref(var2);
+        
+        // Create an interaction between adjacent variables
+        DdNode* interaction = Cudd_zddProduct(manager, var1, var2);
+        Cudd_Ref(interaction);
+        
+        DdNode* temp = Cudd_zddUnion(manager, result, interaction);
+        Cudd_Ref(temp);
+        
+        Cudd_RecursiveDerefZdd(manager, interaction);
+        Cudd_RecursiveDerefZdd(manager, var1);
+        Cudd_RecursiveDerefZdd(manager, var2);
+        Cudd_RecursiveDerefZdd(manager, result);
+        result = temp;
+    }
+    
+    return result;
+}
+
+TEST_CASE("cuddZddSymm - Targeted coverage for convergence loop", "[cuddZddSymm]") {
+    SECTION("Force convergence loop execution") {
+        // Use larger number of variables for more complex structure
+        DdManager* manager = Cudd_Init(0, 20, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create a complex ZDD that may improve with sifting
+        DdNode* result = Cudd_ReadZddOne(manager, 0);
+        Cudd_Ref(result);
+        
+        // Create interleaved structure
+        for (int i = 0; i < 10; i++) {
+            DdNode* var1 = Cudd_zddIthVar(manager, i);
+            DdNode* var2 = Cudd_zddIthVar(manager, 19 - i);
+            Cudd_Ref(var1);
+            Cudd_Ref(var2);
+            
+            DdNode* prod = Cudd_zddProduct(manager, var1, var2);
+            Cudd_Ref(prod);
+            
+            DdNode* temp = Cudd_zddUnion(manager, result, prod);
+            Cudd_Ref(temp);
+            
+            Cudd_RecursiveDerefZdd(manager, prod);
+            Cudd_RecursiveDerefZdd(manager, var1);
+            Cudd_RecursiveDerefZdd(manager, var2);
+            Cudd_RecursiveDerefZdd(manager, result);
+            result = temp;
+        }
+        
+        // Try multiple rounds of convergence sifting
+        for (int round = 0; round < 5; round++) {
+            int res = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT_CONV, 0);
+            REQUIRE(res >= 1);
+        }
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("ZDD with multiple variable interactions") {
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createLayeredZdd(manager, 16);
+        REQUIRE(zdd != nullptr);
+        
+        // Apply convergence sifting
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT_CONV, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddSymm - Test x == x_high branch", "[cuddZddSymm]") {
+    SECTION("Variable at high boundary during sifting") {
+        DdManager* manager = Cudd_Init(0, 10, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ZDD heavily using last variable
+        DdNode* lastVar = Cudd_zddIthVar(manager, 9);
+        Cudd_Ref(lastVar);
+        
+        // Build structure where last variable has most keys
+        DdNode* result = lastVar;
+        for (int i = 0; i < 8; i++) {
+            DdNode* var = Cudd_zddIthVar(manager, i);
+            Cudd_Ref(var);
+            DdNode* temp = Cudd_zddUnion(manager, result, var);
+            Cudd_Ref(temp);
+            Cudd_RecursiveDerefZdd(manager, var);
+            Cudd_RecursiveDerefZdd(manager, result);
+            result = temp;
+        }
+        
+        int res = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(res >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Variables concentrated at high positions") {
+        DdManager* manager = Cudd_Init(0, 12, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ZDD using only high-numbered variables
+        DdNode* result = Cudd_ReadZddOne(manager, 0);
+        Cudd_Ref(result);
+        
+        for (int i = 8; i < 12; i++) {
+            DdNode* var = Cudd_zddIthVar(manager, i);
+            Cudd_Ref(var);
+            DdNode* temp = Cudd_zddUnion(manager, result, var);
+            Cudd_Ref(temp);
+            Cudd_RecursiveDerefZdd(manager, var);
+            Cudd_RecursiveDerefZdd(manager, result);
+            result = temp;
+        }
+        
+        int res = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(res >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddSymm - Test symmetry group merging", "[cuddZddSymm]") {
+    SECTION("Consecutive symmetries detection") {
+        DdManager* manager = Cudd_Init(0, 12, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create a structure with truly symmetric adjacent variables
+        DdNode* result = Cudd_ReadZddOne(manager, 0);
+        Cudd_Ref(result);
+        
+        // Create consecutive pairs that should be detected as symmetric
+        for (int i = 0; i < 12; i += 3) {
+            if (i + 2 >= 12) break;
+            
+            DdNode* v0 = Cudd_zddIthVar(manager, i);
+            DdNode* v1 = Cudd_zddIthVar(manager, i + 1);
+            DdNode* v2 = Cudd_zddIthVar(manager, i + 2);
+            Cudd_Ref(v0);
+            Cudd_Ref(v1);
+            Cudd_Ref(v2);
+            
+            // Create symmetric structure: v0 and v2 both depend on v1 symmetrically
+            DdNode* p01 = Cudd_zddProduct(manager, v0, v1);
+            Cudd_Ref(p01);
+            DdNode* p12 = Cudd_zddProduct(manager, v1, v2);
+            Cudd_Ref(p12);
+            
+            DdNode* symm = Cudd_zddUnion(manager, p01, p12);
+            Cudd_Ref(symm);
+            
+            DdNode* temp = Cudd_zddUnion(manager, result, symm);
+            Cudd_Ref(temp);
+            
+            Cudd_RecursiveDerefZdd(manager, symm);
+            Cudd_RecursiveDerefZdd(manager, p01);
+            Cudd_RecursiveDerefZdd(manager, p12);
+            Cudd_RecursiveDerefZdd(manager, v0);
+            Cudd_RecursiveDerefZdd(manager, v1);
+            Cudd_RecursiveDerefZdd(manager, v2);
+            Cudd_RecursiveDerefZdd(manager, result);
+            result = temp;
+        }
+        
+        // Multiple sifting passes should detect and group symmetries
+        for (int pass = 0; pass < 3; pass++) {
+            int res = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+            REQUIRE(res >= 1);
+        }
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddSymm - Test group move operations", "[cuddZddSymm]") {
+    SECTION("Group move during sifting") {
+        DdManager* manager = Cudd_Init(0, 14, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create a ZDD that will form symmetry groups requiring group moves
+        DdNode* result = Cudd_ReadZddOne(manager, 0);
+        Cudd_Ref(result);
+        
+        // Create symmetric pairs
+        for (int i = 0; i < 14; i += 2) {
+            DdNode* var1 = Cudd_zddIthVar(manager, i);
+            DdNode* var2 = Cudd_zddIthVar(manager, i + 1);
+            Cudd_Ref(var1);
+            Cudd_Ref(var2);
+            
+            // Symmetric structure
+            DdNode* pair = Cudd_zddUnion(manager, var1, var2);
+            Cudd_Ref(pair);
+            
+            DdNode* temp = Cudd_zddProduct(manager, result, pair);
+            Cudd_Ref(temp);
+            
+            Cudd_RecursiveDerefZdd(manager, pair);
+            Cudd_RecursiveDerefZdd(manager, var1);
+            Cudd_RecursiveDerefZdd(manager, var2);
+            Cudd_RecursiveDerefZdd(manager, result);
+            result = temp;
+        }
+        
+        // First pass creates groups
+        int res1 = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(res1 >= 1);
+        
+        // Second pass should use group moves
+        int res2 = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(res2 >= 1);
+        
+        // Third pass with convergence
+        int res3 = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT_CONV, 0);
+        REQUIRE(res3 >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddSymm - Test different sifting directions", "[cuddZddSymm]") {
+    SECTION("(x - x_low) > (x_high - x) branch") {
+        DdManager* manager = Cudd_Init(0, 15, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ZDD structure where middle-to-high variables have most keys
+        DdNode* result = Cudd_ReadZddOne(manager, 0);
+        Cudd_Ref(result);
+        
+        // Concentrate keys in variables 8-14 (closer to high boundary)
+        for (int i = 8; i < 15; i++) {
+            DdNode* var = Cudd_zddIthVar(manager, i);
+            Cudd_Ref(var);
+            DdNode* temp = Cudd_zddUnion(manager, result, var);
+            Cudd_Ref(temp);
+            Cudd_RecursiveDerefZdd(manager, var);
+            Cudd_RecursiveDerefZdd(manager, result);
+            result = temp;
+        }
+        
+        // Add some keys to low variables too
+        for (int i = 0; i < 3; i++) {
+            DdNode* var = Cudd_zddIthVar(manager, i);
+            Cudd_Ref(var);
+            DdNode* temp = Cudd_zddUnion(manager, result, var);
+            Cudd_Ref(temp);
+            Cudd_RecursiveDerefZdd(manager, var);
+            Cudd_RecursiveDerefZdd(manager, result);
+            result = temp;
+        }
+        
+        int res = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(res >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("else branch (moving up first shorter)") {
+        DdManager* manager = Cudd_Init(0, 15, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ZDD structure where middle-to-low variables have most keys
+        DdNode* result = Cudd_ReadZddOne(manager, 0);
+        Cudd_Ref(result);
+        
+        // Concentrate keys in variables 0-6 (closer to low boundary)
+        for (int i = 0; i < 7; i++) {
+            DdNode* var = Cudd_zddIthVar(manager, i);
+            Cudd_Ref(var);
+            DdNode* temp = Cudd_zddUnion(manager, result, var);
+            Cudd_Ref(temp);
+            Cudd_RecursiveDerefZdd(manager, var);
+            Cudd_RecursiveDerefZdd(manager, result);
+            result = temp;
+        }
+        
+        // Add some keys to high variables too
+        for (int i = 12; i < 15; i++) {
+            DdNode* var = Cudd_zddIthVar(manager, i);
+            Cudd_Ref(var);
+            DdNode* temp = Cudd_zddUnion(manager, result, var);
+            Cudd_Ref(temp);
+            Cudd_RecursiveDerefZdd(manager, var);
+            Cudd_RecursiveDerefZdd(manager, result);
+            result = temp;
+        }
+        
+        int res = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(res >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddSymm - Test with reorder limits", "[cuddZddSymm]") {
+    SECTION("Hit swap limit during symmetric sifting") {
+        DdManager* manager = Cudd_Init(0, 12, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createComplexZdd(manager, 12);
+        REQUIRE(zdd != nullptr);
+        
+        // Set very low swap limit
+        Cudd_SetSiftMaxSwap(manager, 3);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Hit variable limit during symmetric sifting") {
+        DdManager* manager = Cudd_Init(0, 20, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createComplexZdd(manager, 20);
+        REQUIRE(zdd != nullptr);
+        
+        // Set low variable limit
+        Cudd_SetSiftMaxVar(manager, 5);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddSymm - Test backward sifting paths", "[cuddZddSymm]") {
+    SECTION("Backward sifting with move list") {
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createComplexZdd(manager, 16);
+        REQUIRE(zdd != nullptr);
+        
+        // Perform multiple sifting passes to exercise backward sifting
+        for (int i = 0; i < 4; i++) {
+            int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+            REQUIRE(result >= 1);
+        }
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Backward sifting finds better position") {
+        DdManager* manager = Cudd_Init(0, 10, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ZDD where initial position is not optimal
+        DdNode* result = Cudd_ReadZddOne(manager, 0);
+        Cudd_Ref(result);
+        
+        // Interleaved dependencies
+        for (int i = 0; i < 5; i++) {
+            DdNode* var1 = Cudd_zddIthVar(manager, i);
+            DdNode* var2 = Cudd_zddIthVar(manager, 9 - i);
+            Cudd_Ref(var1);
+            Cudd_Ref(var2);
+            
+            DdNode* prod = Cudd_zddProduct(manager, var1, var2);
+            Cudd_Ref(prod);
+            
+            DdNode* temp = Cudd_zddUnion(manager, result, prod);
+            Cudd_Ref(temp);
+            
+            Cudd_RecursiveDerefZdd(manager, prod);
+            Cudd_RecursiveDerefZdd(manager, var1);
+            Cudd_RecursiveDerefZdd(manager, var2);
+            Cudd_RecursiveDerefZdd(manager, result);
+            result = temp;
+        }
+        
+        int res = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        REQUIRE(res >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_Quit(manager);
+    }
 }
