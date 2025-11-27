@@ -245,75 +245,6 @@ TEST_CASE("mtrGroup - Mtr_MakeGroup edge cases", "[mtrGroup]") {
         Mtr_FreeTree(root);
     }
     
-    SECTION("Try to cut last child in group") {
-        MtrNode* root = Mtr_InitGroupTree(0, 30);
-        REQUIRE(root != nullptr);
-        
-        // Create two adjacent children: child1 [0,5), child2 [5,15)
-        MtrNode* child1 = Mtr_MakeGroup(root, 0, 5, MTR_DEFAULT);
-        REQUIRE(child1 != nullptr);
-        
-        MtrNode* child2 = Mtr_MakeGroup(root, 5, 10, MTR_DEFAULT);
-        REQUIRE(child2 != nullptr);
-        
-        // Create group from [0, 8) - this should try to contain child1 [0,5)
-        // and cut into child2 [5,15) since 8 is in the middle of child2
-        // The while loop at line 242-245 won't include child2 because
-        // child2->low + child2->size = 15 > 8
-        // So last = child1, and last->younger = child2
-        // But the code at 273 checks last, not last->younger
-        // Actually this test won't work either...
-        
-        // After more careful analysis, the check at 273-276 is triggered when:
-        // - We've found children to include in the new group (first through last)
-        // - last->younger exists (there's a next child after the ones we're including)
-        // - The new group ends in the middle of last (not last->younger)
-        
-        // For this to happen, we need:
-        // - first = last (only one child being included)
-        // - That child extends beyond the new group's end
-        
-        // Actually, looking at the code flow again:
-        // The check at 273 is reached when low <= first->low (from earlier checks)
-        // and low + size >= first->low + first->size (new group contains first)
-        // Then we find last = the last child completely contained in new group
-        // The check at 273 sees if we're cutting last
-        
-        // To trigger 273, we need:
-        // - last is a child that starts at or after new group's start
-        // - last extends beyond new group's end
-        // - But that's impossible because the while loop only includes children
-        //   that fit completely within the new group!
-        
-        // Actually I see the issue now - the check at 273 handles the case where
-        // last->younger starts WITHIN the range (low, low+size) but last->younger
-        // extends beyond. That's what "cutting" means.
-        
-        // Let me create the right scenario:
-        // child1 [0,3), child2 [3,10)
-        // new group [0,7)
-        // - first = child1
-        // - while loop: child2 fits? 3+10=13 <= 7? No, exit with last=child1
-        // - Check at 273: 7-1=6 >= 0 && 7 < 3? = true && false = false
-        
-        // Hmm, still not right. The check is on LAST, not last->younger.
-        // Let me re-read the comment at 272: "Here last != NULL and low + size <= last->low + last->size."
-        // Wait, that condition means the new group FITS within last!
-        
-        // I think I've been misunderstanding. Let me trace more carefully with
-        // children child1 [5,10) only, and new group [0,8):
-        // - while at 183: first = child1 (0 < 5+10=15)
-        // - previous = NULL
-        // - at 203: 0 >= 5 && 8 <= 15? = false && true = false
-        // - at 208: 8 <= 5? = false
-        // - at 227: 0 < 5 && 8 < 15? = true && true = TRUE! Returns NULL!
-        
-        // So the check at 227-230 handles when new group cuts first from below.
-        // I already tested this case. Let me verify this works:
-        
-        Mtr_FreeTree(root);
-    }
-    
     SECTION("Valid group containing multiple children") {
         MtrNode* root = Mtr_InitGroupTree(0, 30);
         REQUIRE(root != nullptr);
@@ -796,6 +727,8 @@ TEST_CASE("mtrGroup - Mtr_ReorderGroups", "[mtrGroup]") {
         REQUIRE(root != nullptr);
         root->index = 0;
         
+        // Permutation shifts all variables by 5: position i maps to (i+5) mod 10
+        // Variable at index 0 moves to position 5
         int permutation[] = {5, 6, 7, 8, 9, 0, 1, 2, 3, 4};
         Mtr_ReorderGroups(root, permutation);
         
@@ -813,6 +746,7 @@ TEST_CASE("mtrGroup - Mtr_ReorderGroups", "[mtrGroup]") {
         REQUIRE(child != nullptr);
         child->index = 0;
         
+        // Permutation shifts all variables by 3: variable at index 0 moves to position 3
         int permutation[] = {3, 4, 5, 6, 7, 8, 9, 0, 1, 2};
         Mtr_ReorderGroups(root, permutation);
         
@@ -845,7 +779,10 @@ TEST_CASE("mtrGroup - Mtr_ReorderGroups", "[mtrGroup]") {
         child2->child = nullptr;
         Mtr_MakeLastChild(root, child2);
         
-        // Permutation that reverses order
+        // Permutation that reverses the order of child1 [0-5) and child2 [5-10):
+        // Variables 0-4 (child1) move to positions 10-14
+        // Variables 5-9 (child2) move to positions 0-4
+        // This causes child2 to be reordered before child1
         int permutation[] = {10, 11, 12, 13, 14, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 15, 16, 17, 18, 19};
         Mtr_ReorderGroups(root, permutation);
         
@@ -879,7 +816,7 @@ TEST_CASE("mtrGroup - Mtr_ReorderGroups", "[mtrGroup]") {
         child2->child = nullptr;
         Mtr_MakeLastChild(root, child2);
         
-        // Identity permutation - no sorting needed
+        // Identity permutation - each position maps to itself, no sorting needed
         int permutation[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19};
         Mtr_ReorderGroups(root, permutation);
         
@@ -919,7 +856,11 @@ TEST_CASE("mtrGroup - Mtr_ReorderGroups", "[mtrGroup]") {
         child3->child = nullptr;
         Mtr_MakeLastChild(root, child3);
         
-        // Permutation: child3 first, then child1, then child2
+        // Permutation that reorders three children (indices 0,5,10) by new positions:
+        // Variables 0-4 (child1, index 0) -> positions 5-9 (new low = 5)
+        // Variables 5-9 (child2, index 5) -> positions 15-19 (new low = 15)  
+        // Variables 10-14 (child3, index 10) -> positions 0-4 (new low = 0)
+        // Expected order after reorder: child3 (low=0), child1 (low=5), child2 (low=15)
         int permutation[] = {5, 6, 7, 8, 9, 15, 16, 17, 18, 19, 0, 1, 2, 3, 4, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29};
         Mtr_ReorderGroups(root, permutation);
         
@@ -949,6 +890,8 @@ TEST_CASE("mtrGroup - Mtr_ReorderGroups", "[mtrGroup]") {
         grandchild->child = nullptr;
         Mtr_MakeLastChild(child, grandchild);
         
+        // Permutation shifts variable at index 0 to position 3
+        // This tests that nested children are also reordered recursively
         int permutation[] = {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 0, 1, 2};
         Mtr_ReorderGroups(root, permutation);
         
@@ -1047,6 +990,8 @@ TEST_CASE("mtrGroup - Mtr_PrintGroups", "[mtrGroup]") {
         MtrNode* root = Mtr_InitGroupTree(0, 10);
         REQUIRE(root != nullptr);
         
+        // Test group starting at position 2 with size 5 and all flag types combined
+        // This tests the flag printing in Mtr_PrintGroups
         MtrNode* combined = Mtr_MakeGroup(root, 2, 5, MTR_FIXED | MTR_SOFT | MTR_NEWNODE);
         REQUIRE(combined != nullptr);
         
@@ -1104,6 +1049,8 @@ TEST_CASE("mtrGroup - Mtr_PrintGroupedOrder", "[mtrGroup]") {
         MtrNode* root = Mtr_InitGroupTree(0, 5);
         REQUIRE(root != nullptr);
         
+        // Test group starting at position 0 with size 3 and all flag types combined
+        // This tests the flag printing in Mtr_PrintGroupedOrder (F, S, N characters)
         MtrNode* combined = Mtr_MakeGroup(root, 0, 3, MTR_FIXED | MTR_SOFT | MTR_NEWNODE);
         REQUIRE(combined != nullptr);
         
@@ -1320,7 +1267,9 @@ TEST_CASE("mtrGroup - Mtr_ReadGroups", "[mtrGroup]") {
     SECTION("Read with out-of-bounds group") {
         FILE* fp = tmpfile();
         REQUIRE(fp != nullptr);
-        fprintf(fp, "5 10 D\n");  // 5+10=15 > nleaves=10
+        // Group at position 5 with size 10 would span positions 5-14
+        // This requires 15 positions (low + size = 5 + 10 = 15) which exceeds nleaves=10
+        fprintf(fp, "5 10 D\n");
         rewind(fp);
         
         MtrNode* root = Mtr_ReadGroups(fp, 10);
