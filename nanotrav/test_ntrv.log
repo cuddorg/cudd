@@ -1,0 +1,55 @@
+TAP version 13
+1..13
+# executing nanotrav/nanotrav -p 1 -cover ./nanotrav/C17.blif > ./nanotrav/C17.tst
+# comparing ./nanotrav/C17.tst to ./nanotrav/C17.out
+ok 1 C17
+PASS: nanotrav/test_ntrv.test 1 C17
+# executing nanotrav/nanotrav -p 1 -ordering dfs -autodyn -automethod sifting -reordering sifting -drop ./nanotrav/C880.blif > ./nanotrav/C880.tst
+# comparing ./nanotrav/C880.tst to ./nanotrav/C880.out
+ok 2 C880
+PASS: nanotrav/test_ntrv.test 2 C880
+# executing nanotrav/nanotrav -p 1 -ordering hw -reordering annealing -trav ./nanotrav/s27.blif > ./nanotrav/s27.tst
+# comparing ./nanotrav/s27.tst to ./nanotrav/s27.out
+ok 3 s27
+PASS: nanotrav/test_ntrv.test 3 s27
+# executing nanotrav/nanotrav -p 1 -ordering dfs -reordering win4 -verify ./nanotrav/s27.blif ./nanotrav/s27b.blif > ./nanotrav/s27b.tst
+# comparing ./nanotrav/s27b.tst to ./nanotrav/s27b.out
+ok 4 s27b
+PASS: nanotrav/test_ntrv.test 4 s27b
+# executing nanotrav/nanotrav -p 1 -trav -image depend -depend ./nanotrav/s27c.blif > ./nanotrav/s27c.tst
+# comparing ./nanotrav/s27c.tst to ./nanotrav/s27c.out
+ok 5 s27c
+PASS: nanotrav/test_ntrv.test 5 s27c
+# executing nanotrav/nanotrav -p 1 -autodyn -reordering sifting -trav ./nanotrav/mult32a.blif > ./nanotrav/mult32a.tst
+# comparing ./nanotrav/mult32a.tst to ./nanotrav/mult32a.out
+ok 6 mult32a
+PASS: nanotrav/test_ntrv.test 6 mult32a
+# executing nanotrav/nanotrav -p 1 -trav -image part -autodyn -automethod sifting -drop -scc -shortpaths bellman ./nanotrav/s382.blif > ./nanotrav/s382.tst
+# comparing ./nanotrav/s382.tst to ./nanotrav/s382.out
+ok 7 s382
+PASS: nanotrav/test_ntrv.test 7 s382
+# executing nanotrav/nanotrav -p 1 -trav -autodyn -automethod group -drop -clauses -density -decomp -zdd ./nanotrav/s641.blif > ./nanotrav/s641.tst
+# comparing ./nanotrav/s641.tst to ./nanotrav/s641.out
+ok 8 s641
+PASS: nanotrav/test_ntrv.test 8 s641
+# executing nanotrav/nanotrav -p 1 -reordering genetic -drop -closest ./nanotrav/closest.blif > ./nanotrav/closest.tst
+# comparing ./nanotrav/closest.tst to ./nanotrav/closest.out
+ok 9 closest
+PASS: nanotrav/test_ntrv.test 9 closest
+# executing nanotrav/nanotrav -p 1 -ordering dfs -reordering cogroup -drop -char2vect -cofest ./nanotrav/adj49.blif > ./nanotrav/adj49.tst
+# comparing ./nanotrav/adj49.tst to ./nanotrav/adj49.out
+ok 10 adj49
+PASS: nanotrav/test_ntrv.test 10 adj49
+# executing nanotrav/nanotrav -p 1 -reordering linear ./nanotrav/ham01.blif > ./nanotrav/ham01.tst
+# comparing ./nanotrav/ham01.tst to ./nanotrav/ham01.out
+ok 11 ham01
+PASS: nanotrav/test_ntrv.test 11 ham01
+# executing nanotrav/nanotrav -p 1 -second ./nanotrav/miniSecond.blif ./nanotrav/miniFirst.blif > ./nanotrav/miniFirst.tst
+# comparing ./nanotrav/miniFirst.tst to ./nanotrav/miniFirst.out
+ok 12 miniFirst
+PASS: nanotrav/test_ntrv.test 12 miniFirst
+# executing nanotrav/nanotrav -p 1 -envelope ./nanotrav/rcn25.blif > ./nanotrav/rcn25.tst
+# comparing ./nanotrav/rcn25.tst to ./nanotrav/rcn25.out
+ok 13 rcn25
+PASS: nanotrav/test_ntrv.test 13 rcn25
+# 0 failed sub-tests out of 13

@@ -1,0 +1,12 @@
+TAP version 13
+1..2
+sed: -e expression #5, char 17: unknown command: `/'
+sed: -e expression #5, char 17: unknown command: `/'
+# comparing ./cplusplus/test.tst to ./cplusplus/test.out
+ok 1 BDD ADD ZDD basic test
+PASS: cplusplus/test_obj.test 1 BDD ADD ZDD basic test
+sed: -e expression #5, char 17: unknown command: `/'
+sed: -e expression #5, char 17: unknown command: `/'
+# comparing ./cplusplus/multi.tst to ./cplusplus/multi.out
+ok 2 multi-threaded multiple managers
+PASS: cplusplus/test_obj.test 2 multi-threaded multiple managers

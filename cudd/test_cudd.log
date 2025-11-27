@@ -1,0 +1,8 @@
+TAP version 13
+1..2
+# comparing ./cudd/r7x8.1.tst to ./cudd/r7x8.1.out
+ok 1 cudd basic
+PASS: cudd/test_cudd.test 1 cudd basic
+# comparing ./cudd/extra.tst to ./cudd/extra.out
+ok 2 cudd extra
+PASS: cudd/test_cudd.test 2 cudd extra
