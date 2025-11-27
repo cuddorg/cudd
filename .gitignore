@@ -7,6 +7,8 @@
 *.libs/
 .deps/
 .dirstamp
+*.Plo
+*.Po
 
 # Test files
 *.tst
@@ -24,6 +26,7 @@ config.status
 stamp-h1
 libtool
 autom4te.cache/
+dddmp/exp/test*.sh
 
 # Compiled programs
 testcudd
