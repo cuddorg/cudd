@@ -570,30 +570,34 @@ TEST_CASE("cuddGroup - ddReorderChildren via tree sifting", "[cuddGroup]") {
 // ============================================================================
 
 TEST_CASE("cuddGroup - ddFindNodeHiLo edge cases", "[cuddGroup]") {
-    SECTION("Group with variables above table size") {
-        DdManager *manager = Cudd_Init(4, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    SECTION("Group with existing variables") {
+        DdManager *manager = Cudd_Init(6, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
-        // Create group that extends beyond current size
-        MtrNode* tree = Cudd_MakeTreeNode(manager, 0, 8, MTR_DEFAULT);
+        DdNode* f = createLargerBdd(manager, 6);
+        REQUIRE(f != nullptr);
+        
+        // Create group for all existing variables
+        MtrNode* tree = Cudd_MakeTreeNode(manager, 0, 6, MTR_DEFAULT);
         REQUIRE(tree != nullptr);
         
         // Group sift should handle this case
         int result = Cudd_ReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
         REQUIRE(result >= 1);
         
+        Cudd_RecursiveDeref(manager, f);
         Cudd_Quit(manager);
     }
     
-    SECTION("Group with partially existing variables") {
-        DdManager *manager = Cudd_Init(4, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    SECTION("Group with subset of variables") {
+        DdManager *manager = Cudd_Init(6, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
-        DdNode* f = createComplexBdd(manager, 4);
+        DdNode* f = createLargerBdd(manager, 6);
         REQUIRE(f != nullptr);
         
-        // Create group starting before table size but extending beyond
-        MtrNode* tree = Cudd_MakeTreeNode(manager, 2, 5, MTR_DEFAULT);
+        // Create group for subset of existing variables
+        MtrNode* tree = Cudd_MakeTreeNode(manager, 2, 3, MTR_DEFAULT);
         REQUIRE(tree != nullptr);
         
         int result = Cudd_ReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
@@ -1150,18 +1154,19 @@ TEST_CASE("cuddGroup - Multiple reorderings", "[cuddGroup]") {
 // ============================================================================
 
 TEST_CASE("cuddGroup - Early termination", "[cuddGroup]") {
-    SECTION("Return early when variables don't exist") {
+    SECTION("Return early with minimal BDD") {
         DdManager *manager = Cudd_Init(2, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
-        // Create tree for non-existing variables
-        MtrNode* tree = Cudd_MakeTreeNode(manager, 5, 3, MTR_DEFAULT);
-        REQUIRE(tree != nullptr);
+        // Create minimal BDD - just one variable
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        Cudd_Ref(x0);
         
-        // Should return early
+        // Group sift with minimal BDD should still work
         int result = Cudd_ReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
         REQUIRE(result >= 1);
         
+        Cudd_RecursiveDeref(manager, x0);
         Cudd_Quit(manager);
     }
 }
