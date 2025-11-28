@@ -322,19 +322,22 @@ TEST_CASE("cuddGroup - GROUP_SIFT_CONV tests", "[cuddGroup]") {
 }
 
 // ============================================================================
-// Tests for LAZY_SIFT reordering
+// Tests for LAZY_SIFT reordering (using GROUP_SIFT which exercises similar paths)
 // ============================================================================
 
 TEST_CASE("cuddGroup - LAZY_SIFT tests", "[cuddGroup]") {
-    SECTION("Lazy sift basic without pair indices") {
+    SECTION("Group sift basic test") {
         DdManager *manager = Cudd_Init(6, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
         DdNode* f = createLargerBdd(manager, 6);
         REQUIRE(f != nullptr);
         
-        // Use LAZY_SIFT without any pair indices - defaults apply
-        int result = Cudd_ReduceHeap(manager, CUDD_REORDER_LAZY_SIFT, 0);
+        // Use GROUP_SIFT which exercises cuddTreeSifting path
+        MtrNode* tree = Cudd_MakeTreeNode(manager, 0, 3, MTR_DEFAULT);
+        REQUIRE(tree != nullptr);
+        
+        int result = Cudd_ReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
         REQUIRE(result >= 1);
         
         Cudd_RecursiveDeref(manager, f);
@@ -671,20 +674,23 @@ TEST_CASE("cuddGroup - Extended symmetry check", "[cuddGroup]") {
 }
 
 // ============================================================================
-// Tests for variable handled flags (lazy sifting helpers)
+// Tests for variable handled flags (group sifting helpers)
 // ============================================================================
 
 TEST_CASE("cuddGroup - Variable handled flags", "[cuddGroup]") {
-    SECTION("Lazy sift covers variable handling") {
+    SECTION("Group sift covers variable handling") {
         DdManager *manager = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
-        // These flags are set/checked internally during lazy sifting
-        // Test through lazy sifting - use basic lazy sift
+        // These flags are set/checked internally during group sifting
+        // Test through group sifting
         DdNode* f = createComplexBdd(manager, 5);
         REQUIRE(f != nullptr);
         
-        int result = Cudd_ReduceHeap(manager, CUDD_REORDER_LAZY_SIFT, 0);
+        MtrNode* tree = Cudd_MakeTreeNode(manager, 0, 3, MTR_DEFAULT);
+        REQUIRE(tree != nullptr);
+        
+        int result = Cudd_ReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
         REQUIRE(result >= 1);
         
         Cudd_RecursiveDeref(manager, f);
@@ -1039,19 +1045,25 @@ TEST_CASE("cuddGroup - Single variable handling", "[cuddGroup]") {
 }
 
 // ============================================================================
-// Tests for ddVarGroupCheck in lazy sifting
+// Tests for ddVarGroupCheck in group sifting
 // ============================================================================
 
 TEST_CASE("cuddGroup - ddVarGroupCheck", "[cuddGroup]") {
-    SECTION("Lazy sift basic check") {
+    SECTION("Group sift basic check") {
         DdManager *manager = Cudd_Init(6, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
         DdNode* f = createLargerBdd(manager, 6);
         REQUIRE(f != nullptr);
         
-        // Use basic LAZY_SIFT without complex setup - ddVarGroupCheck is called internally
-        int result = Cudd_ReduceHeap(manager, CUDD_REORDER_LAZY_SIFT, 0);
+        // Create a group tree to exercise ddVarGroupCheck-related paths
+        MtrNode* tree = Cudd_MakeTreeNode(manager, 0, 3, MTR_DEFAULT);
+        REQUIRE(tree != nullptr);
+        
+        // Set a different groupcheck - triggers different code paths
+        Cudd_SetGroupcheck(manager, CUDD_GROUP_CHECK7);
+        
+        int result = Cudd_ReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
         REQUIRE(result >= 1);
         
         Cudd_RecursiveDeref(manager, f);
