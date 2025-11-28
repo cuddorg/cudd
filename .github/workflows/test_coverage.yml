@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.event_name }}-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -51,41 +51,14 @@ jobs:
           name: coverage-report
           path: /tmp/build/coverage_html/
 
-      - name: Coverage summary comment
-        run: |
-          # Extract coverage percentage from lcov summary
-          COVERAGE=$(lcov --summary /tmp/build/coverage.info 2>&1 | grep -o 'lines......: [0-9.]*%' | grep -o '[0-9.]*')
-          
-          # Create coverage badge color based on percentage
-          if (( $(echo "$COVERAGE >= 80" | bc -l) )); then
-            COLOR="brightgreen"
-          elif (( $(echo "$COVERAGE >= 60" | bc -l) )); then
-            COLOR="yellow"
-          else
-            COLOR="red"
-          fi
-          
-          echo "## 📊 Code Coverage Report" >> coverage_comment.md
-          echo "" >> coverage_comment.md
-          echo "![Coverage](https://img.shields.io/badge/coverage-${COVERAGE}%25-${COLOR})" >> coverage_comment.md
-          echo "" >> coverage_comment.md
-          echo "**Overall Coverage:** ${COVERAGE}%" >> coverage_comment.md
-          echo "" >> coverage_comment.md
-          echo "📈 [View detailed coverage report](https://coveralls.io/github/${{ github.repository }})" >> coverage_comment.md
-          echo "" >> coverage_comment.md
-          echo "📁 Coverage HTML report is available in the workflow artifacts." >> coverage_comment.md
-          
-          # Output for potential PR comment (requires additional setup)
-          echo "Coverage: ${COVERAGE}%"
-
       - name: Summary
         if: always()
         run: |
           echo "## Code Coverage Summary"
           echo "- Build type: Debug with coverage flags"
           if [ -f "/tmp/build/coverage.info" ]; then
-            echo "✅ Coverage data generated successfully"
+            echo "Coverage data generated successfully"
             lcov --summary /tmp/build/coverage.info --ignore-errors unused
           else
-            echo "⚠️  Coverage data not available"
+            echo "Coverage data not available"
           fi
