@@ -8,9 +8,13 @@
  * @brief Test file for cuddBridge.c
  * 
  * This file contains comprehensive tests for the cuddBridge module
- * to achieve 90%+ code coverage. The cuddBridge module provides
- * translation from BDD to ADD and vice versa, and transfer between
- * different managers.
+ * with 100% function coverage and 76%+ line coverage. The cuddBridge 
+ * module provides translation from BDD to ADD and vice versa, and 
+ * transfer between different managers.
+ * 
+ * Note: The remaining uncovered lines are error handling paths that
+ * require failure injection to test (NULL returns, timeout handlers,
+ * memory allocation failures).
  */
 
 TEST_CASE("Cudd_addBddThreshold - Basic threshold conversion", "[cuddBridge]") {
@@ -812,15 +816,18 @@ TEST_CASE("cuddBridge - Round trip conversions", "[cuddBridge]") {
         DdNode *addConst = Cudd_addConst(manager, 5.0);
         Cudd_Ref(addConst);
         
+        DdNode *one = Cudd_ReadOne(manager);
+        DdNode *zero = Cudd_Not(one);
+        
         // 5 >= 5 -> 1
         DdNode *threshold = Cudd_addBddThreshold(manager, addConst, 5.0);
         Cudd_Ref(threshold);
-        REQUIRE(threshold == Cudd_ReadOne(manager));
+        REQUIRE(threshold == one);
         
         // 5 > 5 -> 0
         DdNode *strict = Cudd_addBddStrictThreshold(manager, addConst, 5.0);
         Cudd_Ref(strict);
-        REQUIRE(strict == Cudd_Not(Cudd_ReadOne(manager)));
+        REQUIRE(strict == zero);
         
         Cudd_RecursiveDeref(manager, strict);
         Cudd_RecursiveDeref(manager, threshold);
@@ -1327,6 +1334,11 @@ TEST_CASE("cuddBridge - T == E branch coverage", "[cuddBridge]") {
     DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
     REQUIRE(manager != nullptr);
     
+    // These tests exercise the (T == E) optimization branch in the recursive
+    // conversion functions. When T equals E after recursive processing, the
+    // code uses a simpler result construction path instead of creating a new
+    // internal node.
+    
     SECTION("Threshold where T equals E") {
         // Create ADD where threshold makes T == E in recursive call
         DdNode *x = Cudd_addIthVar(manager, 0);
@@ -1340,7 +1352,7 @@ TEST_CASE("cuddBridge - T == E branch coverage", "[cuddBridge]") {
         Cudd_Ref(val7);
         
         // x ? (y ? 3 : 3) : (y ? 7 : 7)
-        // This creates T == E for the inner branches
+        // This creates T == E for the inner branches since y ? 3 : 3 = 3
         DdNode *tBranch = Cudd_addIte(manager, y, val3, val3);
         Cudd_Ref(tBranch);
         DdNode *eBranch = Cudd_addIte(manager, y, val7, val7);
@@ -1448,8 +1460,8 @@ TEST_CASE("cuddBridge - T == E branch coverage", "[cuddBridge]") {
         Cudd_Ref(x);
         Cudd_Ref(y);
         
-        DdNode *val4 = Cudd_addConst(manager, 4.0);  // bit 1 = 0
-        DdNode *val6 = Cudd_addConst(manager, 6.0);  // bit 1 = 1
+        DdNode *val4 = Cudd_addConst(manager, 4.0);  // 4 = binary 100, bit1 = 0
+        DdNode *val6 = Cudd_addConst(manager, 6.0);  // 6 = binary 110, bit1 = 1
         Cudd_Ref(val4);
         Cudd_Ref(val6);
         
@@ -1460,7 +1472,7 @@ TEST_CASE("cuddBridge - T == E branch coverage", "[cuddBridge]") {
         DdNode *add = Cudd_addIte(manager, x, tBranch, eBranch);
         Cudd_Ref(add);
         
-        // Bit 1: 4 = 100 (bit1=0), 6 = 110 (bit1=1)
+        // Bit 1: x=1 gives 4 (bit1=0), x=0 gives 6 (bit1=1), so bit1 = NOT x
         DdNode *bdd = Cudd_addBddIthBit(manager, add, 1);
         REQUIRE(bdd != nullptr);
         Cudd_Ref(bdd);
