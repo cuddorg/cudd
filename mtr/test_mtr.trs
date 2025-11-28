@@ -1,0 +1,4 @@
+:global-test-result: PASS
+:recheck: no
+:copy-in-global-log: no
+:test-result: PASS
