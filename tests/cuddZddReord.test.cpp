@@ -1035,3 +1035,479 @@ TEST_CASE("cuddZddReord - cuddZddSiftingBackward via sifting", "[cuddZddReord]")
         Cudd_Quit(manager);
     }
 }
+
+// ============================================================================
+// TESTS FOR zddFixTree (via cuddZddAlignToBdd)
+// ============================================================================
+
+TEST_CASE("cuddZddReord - zddFixTree via alignment", "[cuddZddReord]") {
+    SECTION("Exercise zddFixTree with tree hierarchy") {
+        DdManager *manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ZDD tree with children and siblings
+        MtrNode* root = Cudd_MakeZddTreeNode(manager, 0, 8, MTR_DEFAULT);
+        REQUIRE(root != nullptr);
+        
+        MtrNode* child1 = Cudd_MakeZddTreeNode(manager, 0, 4, MTR_DEFAULT);
+        MtrNode* child2 = Cudd_MakeZddTreeNode(manager, 4, 4, MTR_DEFAULT);
+        
+        DdNode* zdd = createSimpleZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        // Trigger zddFixTree via cuddZddAlignToBdd
+        int result = cuddZddAlignToBdd(manager);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("ZDD tree with multiple levels") {
+        DdManager *manager = Cudd_Init(4, 12, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create a multi-level tree structure
+        MtrNode* root = Cudd_MakeZddTreeNode(manager, 0, 12, MTR_DEFAULT);
+        REQUIRE(root != nullptr);
+        
+        MtrNode* tree1 = Cudd_MakeZddTreeNode(manager, 0, 6, MTR_DEFAULT);
+        MtrNode* tree2 = Cudd_MakeZddTreeNode(manager, 6, 6, MTR_DEFAULT);
+        
+        DdNode* zdd = createComplexZdd(manager, 12);
+        REQUIRE(zdd != nullptr);
+        
+        int result = cuddZddAlignToBdd(manager);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR zddReorderPostprocess subtable shrinking
+// ============================================================================
+
+TEST_CASE("cuddZddReord - zddReorderPostprocess subtable management", "[cuddZddReord]") {
+    SECTION("Create sparse subtables that trigger shrinking") {
+        // Use large initial slots to create sparse subtables
+        DdManager *manager = Cudd_Init(0, 16, 4096, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ZDD with many nodes
+        DdNode* result = Cudd_ReadZddOne(manager, 0);
+        Cudd_Ref(result);
+        
+        for (int i = 0; i < 16; i++) {
+            DdNode* var1 = Cudd_zddIthVar(manager, i);
+            Cudd_Ref(var1);
+            
+            for (int j = i + 1; j < 16; j++) {
+                DdNode* var2 = Cudd_zddIthVar(manager, j);
+                Cudd_Ref(var2);
+                
+                DdNode* prod = Cudd_zddProduct(manager, var1, var2);
+                Cudd_Ref(prod);
+                
+                DdNode* temp = Cudd_zddUnion(manager, result, prod);
+                Cudd_Ref(temp);
+                
+                Cudd_RecursiveDerefZdd(manager, prod);
+                Cudd_RecursiveDerefZdd(manager, var2);
+                Cudd_RecursiveDerefZdd(manager, result);
+                result = temp;
+            }
+            Cudd_RecursiveDerefZdd(manager, var1);
+        }
+        
+        // Multiple reorderings should trigger postprocess shrinking
+        for (int i = 0; i < 10; i++) {
+            int reorderResult = Cudd_zddReduceHeap(manager, CUDD_REORDER_SIFT, 0);
+            REQUIRE(reorderResult >= 1);
+        }
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR cuddZddSiftingBackward finding better positions
+// ============================================================================
+
+TEST_CASE("cuddZddReord - cuddZddSiftingBackward improvements", "[cuddZddReord]") {
+    SECTION("Sifting that finds improved position") {
+        DdManager *manager = Cudd_Init(0, 12, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create interleaved ZDD structure that benefits from reordering
+        DdNode* result = Cudd_ReadZddOne(manager, 0);
+        Cudd_Ref(result);
+        
+        // Create poor initial order: variables that interact are far apart
+        for (int i = 0; i < 6; i++) {
+            DdNode* var1 = Cudd_zddIthVar(manager, i);
+            DdNode* var2 = Cudd_zddIthVar(manager, 11 - i);
+            Cudd_Ref(var1);
+            Cudd_Ref(var2);
+            
+            DdNode* prod = Cudd_zddProduct(manager, var1, var2);
+            Cudd_Ref(prod);
+            
+            DdNode* temp = Cudd_zddUnion(manager, result, prod);
+            Cudd_Ref(temp);
+            
+            Cudd_RecursiveDerefZdd(manager, prod);
+            Cudd_RecursiveDerefZdd(manager, var1);
+            Cudd_RecursiveDerefZdd(manager, var2);
+            Cudd_RecursiveDerefZdd(manager, result);
+            result = temp;
+        }
+        
+        int reorderResult = Cudd_zddReduceHeap(manager, CUDD_REORDER_SIFT, 0);
+        REQUIRE(reorderResult >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Sifting convergence finds optimal") {
+        DdManager *manager = Cudd_Init(0, 10, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* result = Cudd_ReadZddOne(manager, 0);
+        Cudd_Ref(result);
+        
+        // Chain structure
+        for (int i = 0; i < 9; i++) {
+            DdNode* var1 = Cudd_zddIthVar(manager, i);
+            DdNode* var2 = Cudd_zddIthVar(manager, i + 1);
+            Cudd_Ref(var1);
+            Cudd_Ref(var2);
+            
+            DdNode* prod = Cudd_zddProduct(manager, var1, var2);
+            Cudd_Ref(prod);
+            
+            DdNode* temp = Cudd_zddUnion(manager, result, prod);
+            Cudd_Ref(temp);
+            
+            Cudd_RecursiveDerefZdd(manager, prod);
+            Cudd_RecursiveDerefZdd(manager, var1);
+            Cudd_RecursiveDerefZdd(manager, var2);
+            Cudd_RecursiveDerefZdd(manager, result);
+            result = temp;
+        }
+        
+        int reorderResult = Cudd_zddReduceHeap(manager, CUDD_REORDER_SIFT_CONVERGE, 0);
+        REQUIRE(reorderResult >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR cuddZddSwapInPlace edge cases
+// ============================================================================
+
+TEST_CASE("cuddZddReord - cuddZddSwapInPlace edge cases", "[cuddZddReord]") {
+    SECTION("Swap with f1 children not at yindex") {
+        DdManager *manager = Cudd_Init(0, 6, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create specific structure to hit f11 = empty branch
+        DdNode* var0 = Cudd_zddIthVar(manager, 0);
+        DdNode* var2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(var0);
+        Cudd_Ref(var2);
+        
+        DdNode* prod = Cudd_zddProduct(manager, var0, var2);
+        Cudd_Ref(prod);
+        
+        // Shuffle to swap adjacent vars, triggering swap in place
+        int perm[] = {1, 0, 2, 3, 4, 5};
+        int result = Cudd_zddShuffleHeap(manager, perm);
+        REQUIRE(result == 1);
+        
+        Cudd_RecursiveDerefZdd(manager, prod);
+        Cudd_RecursiveDerefZdd(manager, var0);
+        Cudd_RecursiveDerefZdd(manager, var2);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Swap with complex cofactor structure") {
+        DdManager *manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ZDD where swapping creates new nodes
+        DdNode* result = Cudd_ReadZddOne(manager, 0);
+        Cudd_Ref(result);
+        
+        for (int i = 0; i < 4; i++) {
+            DdNode* var1 = Cudd_zddIthVar(manager, 2*i);
+            DdNode* var2 = Cudd_zddIthVar(manager, 2*i + 1);
+            Cudd_Ref(var1);
+            Cudd_Ref(var2);
+            
+            DdNode* u = Cudd_zddUnion(manager, var1, var2);
+            Cudd_Ref(u);
+            
+            DdNode* temp = Cudd_zddProduct(manager, result, u);
+            Cudd_Ref(temp);
+            
+            Cudd_RecursiveDerefZdd(manager, u);
+            Cudd_RecursiveDerefZdd(manager, var1);
+            Cudd_RecursiveDerefZdd(manager, var2);
+            Cudd_RecursiveDerefZdd(manager, result);
+            result = temp;
+        }
+        
+        // This creates a complex structure for swapping
+        int perm[] = {1, 0, 3, 2, 5, 4, 7, 6};
+        int shuffleResult = Cudd_zddShuffleHeap(manager, perm);
+        REQUIRE(shuffleResult == 1);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR cuddZddSwapping edge cases
+// ============================================================================
+
+TEST_CASE("cuddZddReord - cuddZddSwapping comprehensive tests", "[cuddZddReord]") {
+    SECTION("RANDOM_PIVOT with pivot at various positions") {
+        DdManager *manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create structure where pivot will be at different positions
+        DdNode* result = Cudd_ReadZddOne(manager, 0);
+        Cudd_Ref(result);
+        
+        // Make var 0 have most keys (pivot = 0 case)
+        for (int j = 1; j < 8; j++) {
+            DdNode* var0 = Cudd_zddIthVar(manager, 0);
+            DdNode* varj = Cudd_zddIthVar(manager, j);
+            Cudd_Ref(var0);
+            Cudd_Ref(varj);
+            
+            DdNode* prod = Cudd_zddProduct(manager, var0, varj);
+            Cudd_Ref(prod);
+            
+            DdNode* temp = Cudd_zddUnion(manager, result, prod);
+            Cudd_Ref(temp);
+            
+            Cudd_RecursiveDerefZdd(manager, prod);
+            Cudd_RecursiveDerefZdd(manager, var0);
+            Cudd_RecursiveDerefZdd(manager, varj);
+            Cudd_RecursiveDerefZdd(manager, result);
+            result = temp;
+        }
+        
+        // This should trigger modulo < 1 branch (pivot at low position)
+        for (int i = 0; i < 5; i++) {
+            int reorderResult = Cudd_zddReduceHeap(manager, CUDD_REORDER_RANDOM_PIVOT, 0);
+            REQUIRE(reorderResult >= 1);
+        }
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("RANDOM_PIVOT with pivot at high position") {
+        DdManager *manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create structure where pivot will be at high position
+        DdNode* result = Cudd_ReadZddOne(manager, 0);
+        Cudd_Ref(result);
+        
+        // Make var 7 have most keys
+        for (int j = 0; j < 7; j++) {
+            DdNode* var7 = Cudd_zddIthVar(manager, 7);
+            DdNode* varj = Cudd_zddIthVar(manager, j);
+            Cudd_Ref(var7);
+            Cudd_Ref(varj);
+            
+            DdNode* prod = Cudd_zddProduct(manager, var7, varj);
+            Cudd_Ref(prod);
+            
+            DdNode* temp = Cudd_zddUnion(manager, result, prod);
+            Cudd_Ref(temp);
+            
+            Cudd_RecursiveDerefZdd(manager, prod);
+            Cudd_RecursiveDerefZdd(manager, var7);
+            Cudd_RecursiveDerefZdd(manager, varj);
+            Cudd_RecursiveDerefZdd(manager, result);
+            result = temp;
+        }
+        
+        // This should trigger modulo == 0 branch (y = pivot)
+        for (int i = 0; i < 5; i++) {
+            int reorderResult = Cudd_zddReduceHeap(manager, CUDD_REORDER_RANDOM_PIVOT, 0);
+            REQUIRE(reorderResult >= 1);
+        }
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR zddSwapAny comprehensive paths
+// ============================================================================
+
+TEST_CASE("cuddZddReord - zddSwapAny all paths", "[cuddZddReord]") {
+    SECTION("SwapAny with x == y_next case") {
+        DdManager *manager = Cudd_Init(0, 6, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createComplexZdd(manager, 6);
+        REQUIRE(zdd != nullptr);
+        
+        // Multiple random iterations to hit x == y_next path
+        for (int i = 0; i < 20; i++) {
+            int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_RANDOM, 0);
+            REQUIRE(result >= 1);
+        }
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("SwapAny with x_next == y_next case") {
+        DdManager *manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createLargeZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        // Many iterations to hit x_next == y_next path
+        for (int i = 0; i < 30; i++) {
+            int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_RANDOM, 0);
+            REQUIRE(result >= 1);
+        }
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("SwapAny growth limit test") {
+        DdManager *manager = Cudd_Init(0, 10, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createLargeZdd(manager, 10);
+        REQUIRE(zdd != nullptr);
+        
+        // Set tight growth limit to trigger break
+        Cudd_SetMaxGrowth(manager, 1.001);
+        
+        for (int i = 0; i < 10; i++) {
+            int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_RANDOM, 0);
+            REQUIRE(result >= 1);
+        }
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR cuddZddSifting termination callbacks
+// ============================================================================
+
+TEST_CASE("cuddZddReord - cuddZddSifting time limit", "[cuddZddReord]") {
+    SECTION("Time limit during sifting") {
+        DdManager *manager = Cudd_Init(0, 20, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createLargeZdd(manager, 20);
+        REQUIRE(zdd != nullptr);
+        
+        // Set very short time limit
+        Cudd_SetTimeLimit(manager, 1);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        // Reset time limit
+        Cudd_SetTimeLimit(manager, 0);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// ADDITIONAL EDGE CASE TESTS
+// ============================================================================
+
+TEST_CASE("cuddZddReord - Additional edge cases", "[cuddZddReord]") {
+    SECTION("Swap creates new nodes requiring allocation") {
+        DdManager *manager = Cudd_Init(0, 10, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create dense ZDD structure
+        DdNode* result = Cudd_ReadZddOne(manager, 0);
+        Cudd_Ref(result);
+        
+        for (int i = 0; i < 10; i++) {
+            for (int j = i + 1; j < 10; j++) {
+                DdNode* vi = Cudd_zddIthVar(manager, i);
+                DdNode* vj = Cudd_zddIthVar(manager, j);
+                Cudd_Ref(vi);
+                Cudd_Ref(vj);
+                
+                DdNode* prod = Cudd_zddProduct(manager, vi, vj);
+                Cudd_Ref(prod);
+                
+                DdNode* temp = Cudd_zddUnion(manager, result, prod);
+                Cudd_Ref(temp);
+                
+                Cudd_RecursiveDerefZdd(manager, prod);
+                Cudd_RecursiveDerefZdd(manager, vi);
+                Cudd_RecursiveDerefZdd(manager, vj);
+                Cudd_RecursiveDerefZdd(manager, result);
+                result = temp;
+            }
+        }
+        
+        // Force swaps that create new nodes
+        int perm[] = {9, 8, 7, 6, 5, 4, 3, 2, 1, 0};
+        int shuffleResult = Cudd_zddShuffleHeap(manager, perm);
+        REQUIRE(shuffleResult == 1);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Exercise all reorder methods") {
+        DdManager *manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createComplexZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        // Try each reorder method
+        Cudd_ReorderingType methods[] = {
+            CUDD_REORDER_SIFT,
+            CUDD_REORDER_SIFT_CONVERGE,
+            CUDD_REORDER_RANDOM,
+            CUDD_REORDER_RANDOM_PIVOT,
+            CUDD_REORDER_LINEAR,
+            CUDD_REORDER_LINEAR_CONVERGE,
+            CUDD_REORDER_SYMM_SIFT,
+            CUDD_REORDER_SYMM_SIFT_CONV
+        };
+        
+        for (int i = 0; i < 8; i++) {
+            int result = Cudd_zddReduceHeap(manager, methods[i], 0);
+            REQUIRE(result >= 1);
+        }
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_Quit(manager);
+    }
+}
