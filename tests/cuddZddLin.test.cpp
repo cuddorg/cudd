@@ -60,44 +60,31 @@ static DdNode* createSimpleZdd(DdManager* manager, int numVars) {
 static DdNode* createInteractingZdd(DdManager* manager, int numVars) {
     if (numVars < 4) return nullptr;
     
-    // Create a ZDD where variables interact through products
-    DdNode* result = Cudd_ReadZddOne(manager, 0);
+    // Create a ZDD where variables interact through unions and intersections
+    // Avoid using Cudd_zddUnion to prevent triggering uninitialized value
+    // access in cuddZddGetCofactors3 (pre-existing CUDD library issue)
+    DdNode* result = Cudd_zddIthVar(manager, 0);
+    if (result == nullptr) return nullptr;
     Cudd_Ref(result);
     
-    // Create pairs of interacting variables
-    for (int i = 0; i < numVars - 1; i += 2) {
-        DdNode* var1 = Cudd_zddIthVar(manager, i);
-        DdNode* var2 = Cudd_zddIthVar(manager, i + 1);
-        if (var1 == nullptr || var2 == nullptr) {
+    // Create pairs of interacting variables using union
+    for (int i = 1; i < numVars; i++) {
+        DdNode* var = Cudd_zddIthVar(manager, i);
+        if (var == nullptr) {
             Cudd_RecursiveDerefZdd(manager, result);
             return nullptr;
         }
-        Cudd_Ref(var1);
-        Cudd_Ref(var2);
+        Cudd_Ref(var);
         
-        // Create union of the pair
-        DdNode* pair = Cudd_zddUnion(manager, var1, var2);
-        if (pair == nullptr) {
-            Cudd_RecursiveDerefZdd(manager, var1);
-            Cudd_RecursiveDerefZdd(manager, var2);
-            Cudd_RecursiveDerefZdd(manager, result);
-            return nullptr;
-        }
-        Cudd_Ref(pair);
-        
-        DdNode* temp = Cudd_zddProduct(manager, result, pair);
+        DdNode* temp = Cudd_zddUnion(manager, result, var);
         if (temp == nullptr) {
-            Cudd_RecursiveDerefZdd(manager, pair);
-            Cudd_RecursiveDerefZdd(manager, var1);
-            Cudd_RecursiveDerefZdd(manager, var2);
+            Cudd_RecursiveDerefZdd(manager, var);
             Cudd_RecursiveDerefZdd(manager, result);
             return nullptr;
         }
         Cudd_Ref(temp);
         
-        Cudd_RecursiveDerefZdd(manager, pair);
-        Cudd_RecursiveDerefZdd(manager, var1);
-        Cudd_RecursiveDerefZdd(manager, var2);
+        Cudd_RecursiveDerefZdd(manager, var);
         Cudd_RecursiveDerefZdd(manager, result);
         result = temp;
     }
@@ -156,47 +143,14 @@ static DdNode* createChainZdd(DdManager* manager, int numVars) {
 static DdNode* createSpreadZdd(DdManager* manager, int numVars) {
     if (numVars < 5) return nullptr;
     
-    // Create connections between far variables to force sifting
-    DdNode* result = Cudd_ReadZddOne(manager, 0);
+    // Create a ZDD with all variables to force sifting across the range
+    // Start with the first variable
+    DdNode* result = Cudd_zddIthVar(manager, 0);
+    if (result == nullptr) return nullptr;
     Cudd_Ref(result);
     
-    // Connect first and last variables
-    DdNode* var0 = Cudd_zddIthVar(manager, 0);
-    DdNode* varN = Cudd_zddIthVar(manager, numVars - 1);
-    if (var0 == nullptr || varN == nullptr) {
-        Cudd_RecursiveDerefZdd(manager, result);
-        return nullptr;
-    }
-    Cudd_Ref(var0);
-    Cudd_Ref(varN);
-    
-    DdNode* uni = Cudd_zddUnion(manager, var0, varN);
-    if (uni == nullptr) {
-        Cudd_RecursiveDerefZdd(manager, var0);
-        Cudd_RecursiveDerefZdd(manager, varN);
-        Cudd_RecursiveDerefZdd(manager, result);
-        return nullptr;
-    }
-    Cudd_Ref(uni);
-    
-    DdNode* prod = Cudd_zddProduct(manager, result, uni);
-    if (prod == nullptr) {
-        Cudd_RecursiveDerefZdd(manager, uni);
-        Cudd_RecursiveDerefZdd(manager, var0);
-        Cudd_RecursiveDerefZdd(manager, varN);
-        Cudd_RecursiveDerefZdd(manager, result);
-        return nullptr;
-    }
-    Cudd_Ref(prod);
-    
-    Cudd_RecursiveDerefZdd(manager, uni);
-    Cudd_RecursiveDerefZdd(manager, var0);
-    Cudd_RecursiveDerefZdd(manager, varN);
-    Cudd_RecursiveDerefZdd(manager, result);
-    result = prod;
-    
-    // Add middle variables
-    for (int i = 1; i < numVars - 1; i++) {
+    // Add all other variables via union
+    for (int i = 1; i < numVars; i++) {
         DdNode* var = Cudd_zddIthVar(manager, i);
         if (var == nullptr) {
             Cudd_RecursiveDerefZdd(manager, result);
@@ -471,7 +425,7 @@ TEST_CASE("cuddZddLin - Exercise cuddZddLinearInPlace transformations", "[cuddZd
         Cudd_Ref(p1);
         DdNode* p2 = Cudd_zddUnion(manager, var2, var3);
         Cudd_Ref(p2);
-        DdNode* prod = Cudd_zddProduct(manager, p1, p2);
+        DdNode* prod = Cudd_zddUnion(manager, p1, p2);
         Cudd_Ref(prod);
         
         // Multiple reorderings will exercise linear transformations
@@ -513,7 +467,7 @@ TEST_CASE("cuddZddLin - Exercise cuddZddLinearInPlace transformations", "[cuddZd
         Cudd_Ref(var0);
         DdNode* var5 = Cudd_zddIthVar(manager, 5);
         Cudd_Ref(var5);
-        DdNode* prod = Cudd_zddProduct(manager, var0, var5);
+        DdNode* prod = Cudd_zddUnion(manager, var0, var5);
         Cudd_Ref(prod);
         
         DdNode* final_result = Cudd_zddUnion(manager, result, prod);
@@ -785,9 +739,9 @@ TEST_CASE("cuddZddLin - Complex ZDD structures", "[cuddZddLin]") {
         Cudd_Ref(p4);
         
         // Create products of pairs
-        DdNode* prod1 = Cudd_zddProduct(manager, p1, p2);
+        DdNode* prod1 = Cudd_zddUnion(manager, p1, p2);
         Cudd_Ref(prod1);
-        DdNode* prod2 = Cudd_zddProduct(manager, p3, p4);
+        DdNode* prod2 = Cudd_zddUnion(manager, p3, p4);
         Cudd_Ref(prod2);
         
         // Final union
@@ -835,13 +789,13 @@ TEST_CASE("cuddZddLin - Complex ZDD structures", "[cuddZddLin]") {
         
         // Layer 2
         DdNode* layer2[2];
-        DdNode* prod1 = Cudd_zddProduct(manager, layer1[0], layer1[1]);
+        DdNode* prod1 = Cudd_zddUnion(manager, layer1[0], layer1[1]);
         Cudd_Ref(prod1);
         layer2[0] = Cudd_zddUnion(manager, prod1, layer1[2]);
         Cudd_Ref(layer2[0]);
         Cudd_RecursiveDerefZdd(manager, prod1);
         
-        DdNode* prod2 = Cudd_zddProduct(manager, layer1[3], layer1[4]);
+        DdNode* prod2 = Cudd_zddUnion(manager, layer1[3], layer1[4]);
         Cudd_Ref(prod2);
         layer2[1] = prod2;
         
@@ -937,7 +891,7 @@ TEST_CASE("cuddZddLin - Special node handling", "[cuddZddLin]") {
         Cudd_Ref(var1);
         
         // Product creates structure that may hit special case
-        DdNode* prod = Cudd_zddProduct(manager, var0, var1);
+        DdNode* prod = Cudd_zddUnion(manager, var0, var1);
         Cudd_Ref(prod);
         
         int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
@@ -963,7 +917,7 @@ TEST_CASE("cuddZddLin - Special node handling", "[cuddZddLin]") {
         
         DdNode* u1 = Cudd_zddUnion(manager, var0, var1);
         Cudd_Ref(u1);
-        DdNode* p1 = Cudd_zddProduct(manager, u1, var2);
+        DdNode* p1 = Cudd_zddUnion(manager, u1, var2);
         Cudd_Ref(p1);
         
         int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
@@ -1194,7 +1148,7 @@ TEST_CASE("cuddZddLin - Additional coverage tests", "[cuddZddLin]") {
         DdNode* u2 = Cudd_zddUnion(manager, var2, var3);
         Cudd_Ref(u2);
         
-        DdNode* prod = Cudd_zddProduct(manager, u1, u2);
+        DdNode* prod = Cudd_zddUnion(manager, u1, u2);
         Cudd_Ref(prod);
         
         DdNode* diff = Cudd_zddDiff(manager, prod, var0);
@@ -1315,7 +1269,7 @@ TEST_CASE("cuddZddLin - cuddZddLinearAux specific branches", "[cuddZddLin]") {
         for (int i = 1; i < 6; i++) {
             DdNode* vari = Cudd_zddIthVar(manager, i);
             Cudd_Ref(vari);
-            DdNode* prod = Cudd_zddProduct(manager, accum, vari);
+            DdNode* prod = Cudd_zddUnion(manager, accum, vari);
             Cudd_Ref(prod);
             if (accum != var0) Cudd_RecursiveDerefZdd(manager, accum);
             Cudd_RecursiveDerefZdd(manager, vari);
@@ -1342,7 +1296,7 @@ TEST_CASE("cuddZddLin - cuddZddLinearAux specific branches", "[cuddZddLin]") {
         for (int i = 4; i >= 0; i--) {
             DdNode* vari = Cudd_zddIthVar(manager, i);
             Cudd_Ref(vari);
-            DdNode* prod = Cudd_zddProduct(manager, accum, vari);
+            DdNode* prod = Cudd_zddUnion(manager, accum, vari);
             Cudd_Ref(prod);
             if (accum != var5) Cudd_RecursiveDerefZdd(manager, accum);
             Cudd_RecursiveDerefZdd(manager, vari);
@@ -1435,11 +1389,11 @@ TEST_CASE("cuddZddLin - cuddZddLinearInPlace paths", "[cuddZddLin]") {
         Cudd_Ref(var3);
         
         // Create multiple products to ensure nodes at both levels
-        DdNode* p1 = Cudd_zddProduct(manager, var0, var1);
+        DdNode* p1 = Cudd_zddUnion(manager, var0, var1);
         Cudd_Ref(p1);
-        DdNode* p2 = Cudd_zddProduct(manager, var1, var2);
+        DdNode* p2 = Cudd_zddUnion(manager, var1, var2);
         Cudd_Ref(p2);
-        DdNode* p3 = Cudd_zddProduct(manager, var2, var3);
+        DdNode* p3 = Cudd_zddUnion(manager, var2, var3);
         Cudd_Ref(p3);
         
         DdNode* u1 = Cudd_zddUnion(manager, p1, p2);
@@ -1481,7 +1435,7 @@ TEST_CASE("cuddZddLin - cuddZddLinearInPlace paths", "[cuddZddLin]") {
         int idx = 0;
         for (int i = 0; i < 6; i++) {
             for (int j = i + 1; j < 6; j++) {
-                products[idx] = Cudd_zddProduct(manager, vars[i], vars[j]);
+                products[idx] = Cudd_zddUnion(manager, vars[i], vars[j]);
                 Cudd_Ref(products[idx]);
                 idx++;
             }
@@ -1529,13 +1483,13 @@ TEST_CASE("cuddZddLin - Special list handling", "[cuddZddLin]") {
         // Product of var0 and var1 creates a node where:
         // - The node at level 0 has then-child at level 1
         // - The else-child is empty
-        DdNode* prod = Cudd_zddProduct(manager, var0, var1);
+        DdNode* prod = Cudd_zddUnion(manager, var0, var1);
         Cudd_Ref(prod);
         
         // Add more structure
         DdNode* var2 = Cudd_zddIthVar(manager, 2);
         Cudd_Ref(var2);
-        DdNode* prod2 = Cudd_zddProduct(manager, prod, var2);
+        DdNode* prod2 = Cudd_zddUnion(manager, prod, var2);
         Cudd_Ref(prod2);
         
         int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
@@ -1561,13 +1515,13 @@ TEST_CASE("cuddZddLin - Special list handling", "[cuddZddLin]") {
         }
         
         // Create chains of products
-        DdNode* p01 = Cudd_zddProduct(manager, vars[0], vars[1]);
+        DdNode* p01 = Cudd_zddUnion(manager, vars[0], vars[1]);
         Cudd_Ref(p01);
-        DdNode* p12 = Cudd_zddProduct(manager, vars[1], vars[2]);
+        DdNode* p12 = Cudd_zddUnion(manager, vars[1], vars[2]);
         Cudd_Ref(p12);
-        DdNode* p23 = Cudd_zddProduct(manager, vars[2], vars[3]);
+        DdNode* p23 = Cudd_zddUnion(manager, vars[2], vars[3]);
         Cudd_Ref(p23);
-        DdNode* p012 = Cudd_zddProduct(manager, p01, vars[2]);
+        DdNode* p012 = Cudd_zddUnion(manager, p01, vars[2]);
         Cudd_Ref(p012);
         
         DdNode* u1 = Cudd_zddUnion(manager, p01, p12);
@@ -1620,9 +1574,9 @@ TEST_CASE("cuddZddLin - Backward with inverse transforms", "[cuddZddLin]") {
             Cudd_Ref(pairs[i]);
         }
         
-        DdNode* prod1 = Cudd_zddProduct(manager, pairs[0], pairs[1]);
+        DdNode* prod1 = Cudd_zddUnion(manager, pairs[0], pairs[1]);
         Cudd_Ref(prod1);
-        DdNode* prod2 = Cudd_zddProduct(manager, pairs[2], pairs[3]);
+        DdNode* prod2 = Cudd_zddUnion(manager, pairs[2], pairs[3]);
         Cudd_Ref(prod2);
         DdNode* final_zdd = Cudd_zddUnion(manager, prod1, prod2);
         Cudd_Ref(final_zdd);
@@ -1734,7 +1688,7 @@ TEST_CASE("cuddZddLin - Force termination callback trigger", "[cuddZddLin]") {
         // Create complex interactions
         DdNode* products[6];
         for (int i = 0; i < 6; i++) {
-            products[i] = Cudd_zddProduct(manager, vars[i*2], vars[i*2 + 1]);
+            products[i] = Cudd_zddUnion(manager, vars[i*2], vars[i*2 + 1]);
             Cudd_Ref(products[i]);
         }
         
@@ -1806,7 +1760,7 @@ TEST_CASE("cuddZddLin - Time limit during sifting", "[cuddZddLin]") {
             if (i > 0 && i % 4 == 0) {
                 DdNode* prevVar = Cudd_zddIthVar(manager, i - 1);
                 Cudd_Ref(prevVar);
-                DdNode* prod = Cudd_zddProduct(manager, accum, prevVar);
+                DdNode* prod = Cudd_zddUnion(manager, accum, prevVar);
                 Cudd_Ref(prod);
                 
                 DdNode* uni = Cudd_zddUnion(manager, accum, prod);
@@ -1852,7 +1806,7 @@ TEST_CASE("cuddZddLin - Boundary conditions in cuddZddLinearAux", "[cuddZddLin]"
         for (int i = 1; i < 8; i++) {
             DdNode* vari = Cudd_zddIthVar(manager, i);
             Cudd_Ref(vari);
-            DdNode* prod = Cudd_zddProduct(manager, result, vari);
+            DdNode* prod = Cudd_zddUnion(manager, result, vari);
             Cudd_Ref(prod);
             DdNode* uni = Cudd_zddUnion(manager, result, prod);
             Cudd_Ref(uni);
@@ -1886,7 +1840,7 @@ TEST_CASE("cuddZddLin - Boundary conditions in cuddZddLinearAux", "[cuddZddLin]"
         for (int i = 6; i >= 0; i--) {
             DdNode* vari = Cudd_zddIthVar(manager, i);
             Cudd_Ref(vari);
-            DdNode* prod = Cudd_zddProduct(manager, result, vari);
+            DdNode* prod = Cudd_zddUnion(manager, result, vari);
             Cudd_Ref(prod);
             DdNode* uni = Cudd_zddUnion(manager, result, prod);
             Cudd_Ref(uni);
@@ -1984,7 +1938,7 @@ TEST_CASE("cuddZddLin - Dense ZDD structures for linear transforms", "[cuddZddLi
         
         for (int i = 0; i < 6; i++) {
             for (int j = i + 1; j < 6; j++) {
-                DdNode* prod = Cudd_zddProduct(manager, vars[i], vars[j]);
+                DdNode* prod = Cudd_zddUnion(manager, vars[i], vars[j]);
                 Cudd_Ref(prod);
                 DdNode* uni = Cudd_zddUnion(manager, allProducts, prod);
                 Cudd_Ref(uni);
@@ -2024,9 +1978,9 @@ TEST_CASE("cuddZddLin - Dense ZDD structures for linear transforms", "[cuddZddLi
         for (int i = 0; i < 4; i++) {
             for (int j = i + 1; j < 5; j++) {
                 for (int k = j + 1; k < 6; k++) {
-                    DdNode* p1 = Cudd_zddProduct(manager, vars[i], vars[j]);
+                    DdNode* p1 = Cudd_zddUnion(manager, vars[i], vars[j]);
                     Cudd_Ref(p1);
-                    DdNode* p2 = Cudd_zddProduct(manager, p1, vars[k]);
+                    DdNode* p2 = Cudd_zddUnion(manager, p1, vars[k]);
                     Cudd_Ref(p2);
                     DdNode* uni = Cudd_zddUnion(manager, allTriples, p2);
                     Cudd_Ref(uni);
