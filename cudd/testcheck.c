@@ -433,6 +433,11 @@ testPrintNode(int verbosity)
   } else {
     /* Run silently to dev/null for coverage */
     FILE *devnull = fopen("/dev/null", "w");
+    if (devnull == NULL) {
+      Cudd_RecursiveDeref(dd, f);
+      Cudd_Quit(dd);
+      return -1;
+    }
     cuddPrintNode(f, devnull);
     cuddPrintNode(Cudd_Regular(cuddT(Cudd_Regular(f))), devnull);
     cuddPrintNode(DD_ONE(dd), devnull);
