@@ -1,4 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
+// Include CUDD headers - mtr.h must come before cudd.h for tree functions
+#include "mtr.h"
 #include "cudd/cudd.h"
 #include "util.h"
 #include <cstdio>
@@ -1125,5 +1127,437 @@ TEST_CASE("PrintGroupedOrder function", "[cuddAPI]") {
     
     fclose(fp);
     Cudd_SetStdout(dd, stdout);
+    Cudd_Quit(dd);
+}
+
+// ============================================================================
+// Extended zddVarsFromBddVars Tests for Better Coverage
+// ============================================================================
+
+TEST_CASE("Cudd_zddVarsFromBddVars - Extended coverage", "[cuddAPI]") {
+    SECTION("With existing ZDD variables (non-allnew path)") {
+        DdManager *dd = Cudd_Init(3, 3, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(dd != nullptr);
+        
+        // ZDD vars already exist, so this triggers the non-allnew path
+        int result = Cudd_zddVarsFromBddVars(dd, 1);
+        REQUIRE(result == 1);
+        
+        Cudd_Quit(dd);
+    }
+    
+    SECTION("With multiplicity > 1 and existing ZDD vars") {
+        DdManager *dd = Cudd_Init(2, 2, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(dd != nullptr);
+        
+        // Test multiplicity with existing ZDD variables
+        int result = Cudd_zddVarsFromBddVars(dd, 2);
+        REQUIRE(result == 1);
+        
+        Cudd_Quit(dd);
+    }
+    
+    SECTION("With BDD tree existing") {
+        DdManager *dd = Cudd_Init(4, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(dd != nullptr);
+        
+        // Create a group tree for BDD variables
+        MtrNode *tree = Cudd_MakeTreeNode(dd, 0, 4, MTR_DEFAULT);
+        REQUIRE(tree != nullptr);
+        
+        // Now create ZDD vars from BDD vars with multiplicity 2
+        int result = Cudd_zddVarsFromBddVars(dd, 2);
+        REQUIRE(result == 1);
+        
+        Cudd_Quit(dd);
+    }
+    
+    SECTION("Large multiplicity") {
+        DdManager *dd = Cudd_Init(2, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(dd != nullptr);
+        
+        int result = Cudd_zddVarsFromBddVars(dd, 3);
+        REQUIRE(result == 1);
+        
+        Cudd_Quit(dd);
+    }
+}
+
+// ============================================================================
+// Tree Functions Extended Tests
+// ============================================================================
+
+TEST_CASE("Tree functions extended coverage", "[cuddAPI]") {
+    SECTION("Set tree with actual tree node") {
+        DdManager *dd = Cudd_Init(4, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(dd != nullptr);
+        
+        // Create a tree node
+        MtrNode *tree = Cudd_MakeTreeNode(dd, 0, 4, MTR_DEFAULT);
+        REQUIRE(tree != nullptr);
+        
+        // Free the tree explicitly
+        Cudd_FreeTree(dd);
+        REQUIRE(Cudd_ReadTree(dd) == nullptr);
+        
+        Cudd_Quit(dd);
+    }
+    
+    SECTION("Set ZDD tree with actual tree node") {
+        DdManager *dd = Cudd_Init(0, 4, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(dd != nullptr);
+        
+        // Create a ZDD tree node
+        MtrNode *tree = Cudd_MakeZddTreeNode(dd, 0, 4, MTR_DEFAULT);
+        REQUIRE(tree != nullptr);
+        
+        // Free the ZDD tree explicitly  
+        Cudd_FreeZddTree(dd);
+        REQUIRE(Cudd_ReadZddTree(dd) == nullptr);
+        
+        Cudd_Quit(dd);
+    }
+    
+    SECTION("Replace existing tree") {
+        DdManager *dd = Cudd_Init(4, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(dd != nullptr);
+        
+        // Create first tree
+        MtrNode *tree1 = Cudd_MakeTreeNode(dd, 0, 2, MTR_DEFAULT);
+        REQUIRE(tree1 != nullptr);
+        
+        // Create second tree (this should replace the first)
+        MtrNode *tree2 = Cudd_MakeTreeNode(dd, 2, 2, MTR_DEFAULT);
+        REQUIRE(tree2 != nullptr);
+        
+        Cudd_Quit(dd);
+    }
+}
+
+// ============================================================================
+// Additional ReadZddOne Tests
+// ============================================================================
+
+TEST_CASE("ReadZddOne extended tests", "[cuddAPI]") {
+    DdManager *dd = Cudd_Init(0, 5, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    SECTION("Valid indices") {
+        for (int i = 0; i <= 5; i++) {
+            DdNode *zddOne = Cudd_ReadZddOne(dd, i);
+            REQUIRE(zddOne != nullptr);
+        }
+    }
+    
+    SECTION("Index equal to sizeZ") {
+        DdNode *zddOne = Cudd_ReadZddOne(dd, 5);
+        REQUIRE(zddOne != nullptr);
+    }
+    
+    Cudd_Quit(dd);
+}
+
+// ============================================================================
+// Reordering with Different Methods
+// ============================================================================
+
+TEST_CASE("Reordering status with various methods", "[cuddAPI]") {
+    DdManager *dd = Cudd_Init(5, 5, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    SECTION("Test CUDD_REORDER_NONE") {
+        Cudd_AutodynEnable(dd, CUDD_REORDER_NONE);
+        Cudd_ReorderingType method;
+        Cudd_ReorderingStatus(dd, &method);
+        // CUDD_REORDER_NONE disables reordering
+    }
+    
+    SECTION("Test various reorder methods") {
+        Cudd_ReorderingType methods[] = {
+            CUDD_REORDER_RANDOM,
+            CUDD_REORDER_RANDOM_PIVOT,
+            CUDD_REORDER_SIFT,
+            CUDD_REORDER_SIFT_CONVERGE,
+            CUDD_REORDER_SYMM_SIFT,
+            CUDD_REORDER_SYMM_SIFT_CONV,
+            CUDD_REORDER_WINDOW2,
+            CUDD_REORDER_WINDOW3,
+            CUDD_REORDER_WINDOW4,
+            CUDD_REORDER_WINDOW2_CONV,
+            CUDD_REORDER_WINDOW3_CONV,
+            CUDD_REORDER_WINDOW4_CONV,
+            CUDD_REORDER_GROUP_SIFT,
+            CUDD_REORDER_GROUP_SIFT_CONV,
+            CUDD_REORDER_ANNEALING,
+            CUDD_REORDER_GENETIC,
+            CUDD_REORDER_LINEAR,
+            CUDD_REORDER_LINEAR_CONVERGE,
+            CUDD_REORDER_LAZY_SIFT,
+            CUDD_REORDER_EXACT
+        };
+        
+        for (auto method : methods) {
+            Cudd_AutodynEnable(dd, method);
+            Cudd_ReorderingType readMethod;
+            int status = Cudd_ReorderingStatus(dd, &readMethod);
+            REQUIRE(status == 1);
+            REQUIRE(readMethod == method);
+            Cudd_AutodynDisable(dd);
+        }
+    }
+    
+    SECTION("ZDD reordering methods") {
+        Cudd_AutodynEnableZdd(dd, CUDD_REORDER_SIFT);
+        Cudd_ReorderingType method;
+        int status = Cudd_ReorderingStatusZdd(dd, &method);
+        REQUIRE(status == 1);
+        REQUIRE(method == CUDD_REORDER_SIFT);
+        Cudd_AutodynDisableZdd(dd);
+    }
+    
+    Cudd_Quit(dd);
+}
+
+// ============================================================================
+// Variable Attributes Extended Tests
+// ============================================================================
+
+TEST_CASE("Variable attributes comprehensive tests", "[cuddAPI]") {
+    DdManager *dd = Cudd_Init(10, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    SECTION("Set all variable types") {
+        // Set different types for different variables
+        REQUIRE(Cudd_bddSetPiVar(dd, 0) == 1);
+        REQUIRE(Cudd_bddSetPsVar(dd, 1) == 1);
+        REQUIRE(Cudd_bddSetNsVar(dd, 2) == 1);
+        
+        // Verify types
+        REQUIRE(Cudd_bddIsPiVar(dd, 0) == 1);
+        REQUIRE(Cudd_bddIsPsVar(dd, 1) == 1);
+        REQUIRE(Cudd_bddIsNsVar(dd, 2) == 1);
+        
+        // Cross-check: each var should not be of other types
+        REQUIRE(Cudd_bddIsPsVar(dd, 0) == 0);
+        REQUIRE(Cudd_bddIsNsVar(dd, 0) == 0);
+    }
+    
+    SECTION("Pair index operations") {
+        REQUIRE(Cudd_bddSetPairIndex(dd, 0, 5) == 1);
+        REQUIRE(Cudd_bddReadPairIndex(dd, 0) == 5);
+        
+        REQUIRE(Cudd_bddSetPairIndex(dd, 1, 6) == 1);
+        REQUIRE(Cudd_bddReadPairIndex(dd, 1) == 6);
+    }
+    
+    SECTION("Grouping operations") {
+        // Set variables to be grouped
+        REQUIRE(Cudd_bddSetVarToBeGrouped(dd, 3) == 1);
+        REQUIRE(Cudd_bddIsVarToBeGrouped(dd, 3) == 1);
+        
+        // Set hard group
+        REQUIRE(Cudd_bddSetVarHardGroup(dd, 4) == 1);
+        REQUIRE(Cudd_bddIsVarHardGroup(dd, 4) == 1);
+        
+        // Set var to be ungrouped
+        REQUIRE(Cudd_bddSetVarToBeUngrouped(dd, 5) == 1);
+        REQUIRE(Cudd_bddIsVarToBeUngrouped(dd, 5) == 1);
+        
+        // Reset var to be grouped
+        REQUIRE(Cudd_bddResetVarToBeGrouped(dd, 3) == 1);
+    }
+    
+    SECTION("Binding multiple variables") {
+        for (int i = 0; i < 5; i++) {
+            REQUIRE(Cudd_bddBindVar(dd, i) == 1);
+            REQUIRE(Cudd_bddVarIsBound(dd, i) == 1);
+        }
+        
+        for (int i = 0; i < 5; i++) {
+            REQUIRE(Cudd_bddUnbindVar(dd, i) == 1);
+            REQUIRE(Cudd_bddVarIsBound(dd, i) == 0);
+        }
+    }
+    
+    Cudd_Quit(dd);
+}
+
+// ============================================================================
+// Cache and Memory Extended Tests
+// ============================================================================
+
+TEST_CASE("Cache and memory operations extended", "[cuddAPI]") {
+    DdManager *dd = Cudd_Init(10, 5, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    // Perform some operations to use the cache
+    DdNode *vars[10];
+    for (int i = 0; i < 10; i++) {
+        vars[i] = Cudd_bddIthVar(dd, i);
+        Cudd_Ref(vars[i]);
+    }
+    
+    // Build some BDDs to exercise the cache
+    DdNode *result = Cudd_ReadOne(dd);
+    Cudd_Ref(result);
+    for (int i = 0; i < 5; i++) {
+        DdNode *temp = Cudd_bddAnd(dd, result, vars[i]);
+        Cudd_Ref(temp);
+        Cudd_RecursiveDeref(dd, result);
+        result = temp;
+    }
+    
+    // Now read cache statistics
+    double lookups = Cudd_ReadCacheLookUps(dd);
+    double hits = Cudd_ReadCacheHits(dd);
+    unsigned int slots = Cudd_ReadCacheSlots(dd);
+    double usedSlots = Cudd_ReadCacheUsedSlots(dd);
+    
+    REQUIRE(slots > 0);
+    REQUIRE(lookups >= 0);
+    REQUIRE(usedSlots >= 0);
+    
+    // Memory usage
+    size_t memUsed = Cudd_ReadMemoryInUse(dd);
+    REQUIRE(memUsed > 0);
+    
+    // Cleanup
+    Cudd_RecursiveDeref(dd, result);
+    for (int i = 0; i < 10; i++) {
+        Cudd_RecursiveDeref(dd, vars[i]);
+    }
+    
+    Cudd_Quit(dd);
+}
+
+// ============================================================================
+// Node Count Functions
+// ============================================================================
+
+TEST_CASE("Node count functions", "[cuddAPI]") {
+    DdManager *dd = Cudd_Init(5, 3, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    // Create some BDDs
+    DdNode *var0 = Cudd_bddIthVar(dd, 0);
+    DdNode *var1 = Cudd_bddIthVar(dd, 1);
+    Cudd_Ref(var0);
+    Cudd_Ref(var1);
+    
+    DdNode *andResult = Cudd_bddAnd(dd, var0, var1);
+    Cudd_Ref(andResult);
+    
+    // Check node counts
+    long nodeCount = Cudd_ReadNodeCount(dd);
+    REQUIRE(nodeCount >= 0);
+    
+    long peakCount = Cudd_ReadPeakNodeCount(dd);
+    REQUIRE(peakCount >= 0);
+    
+    int peakLive = Cudd_ReadPeakLiveNodeCount(dd);
+    REQUIRE(peakLive >= 0);
+    
+    // ZDD node count
+    long zddCount = Cudd_zddReadNodeCount(dd);
+    REQUIRE(zddCount >= 0);
+    
+    // Cleanup
+    Cudd_RecursiveDeref(dd, andResult);
+    Cudd_RecursiveDeref(dd, var0);
+    Cudd_RecursiveDeref(dd, var1);
+    
+    Cudd_Quit(dd);
+}
+
+// ============================================================================
+// Slot and Key Statistics
+// ============================================================================
+
+TEST_CASE("Slot and key statistics", "[cuddAPI]") {
+    DdManager *dd = Cudd_Init(5, 3, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    unsigned int slots = Cudd_ReadSlots(dd);
+    REQUIRE(slots > 0);
+    
+    double usedSlots = Cudd_ReadUsedSlots(dd);
+    REQUIRE(usedSlots >= 0.0);
+    REQUIRE(usedSlots <= 1.0);
+    
+    double expectedUsed = Cudd_ExpectedUsedSlots(dd);
+    REQUIRE(expectedUsed >= 0.0);
+    REQUIRE(expectedUsed <= 1.0);
+    
+    unsigned int keys = Cudd_ReadKeys(dd);
+    REQUIRE(keys > 0);
+    
+    unsigned int dead = Cudd_ReadDead(dd);
+    REQUIRE(dead >= 0);
+    
+    unsigned int minDead = Cudd_ReadMinDead(dd);
+    REQUIRE(minDead >= 0);
+    
+    Cudd_Quit(dd);
+}
+
+// ============================================================================
+// Reordering Statistics
+// ============================================================================
+
+TEST_CASE("Reordering statistics", "[cuddAPI]") {
+    DdManager *dd = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    unsigned int reorderings = Cudd_ReadReorderings(dd);
+    REQUIRE(reorderings >= 0);
+    
+    long reorderTime = Cudd_ReadReorderingTime(dd);
+    REQUIRE(reorderTime >= 0);
+    
+    unsigned int maxReorderings = Cudd_ReadMaxReorderings(dd);
+    
+    // Set and read max reorderings
+    Cudd_SetMaxReorderings(dd, 50);
+    REQUIRE(Cudd_ReadMaxReorderings(dd) == 50);
+    
+    // Read next reordering threshold
+    unsigned int nextReorder = Cudd_ReadNextReordering(dd);
+    REQUIRE(nextReorder > 0);
+    
+    // Set next reordering
+    Cudd_SetNextReordering(dd, 5000);
+    REQUIRE(Cudd_ReadNextReordering(dd) == 5000);
+    
+    Cudd_Quit(dd);
+}
+
+// ============================================================================
+// Garbage Collection Statistics
+// ============================================================================
+
+TEST_CASE("Garbage collection statistics", "[cuddAPI]") {
+    DdManager *dd = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    int gcCount = Cudd_ReadGarbageCollections(dd);
+    REQUIRE(gcCount >= 0);
+    
+    long gcTime = Cudd_ReadGarbageCollectionTime(dd);
+    REQUIRE(gcTime >= 0);
+    
+    // Nodes freed/dropped (may return -1 if DD_STATS not defined)
+    double nodesFreed = Cudd_ReadNodesFreed(dd);
+    double nodesDropped = Cudd_ReadNodesDropped(dd);
+    
+    // Recursive calls (may return -1 if DD_COUNT not defined)
+    double recursiveCalls = Cudd_ReadRecursiveCalls(dd);
+    
+    // Swap steps (may return -1 if DD_COUNT not defined)
+    double swapSteps = Cudd_ReadSwapSteps(dd);
+    
+    // Unique table stats (may return -1 if DD_UNIQUE_PROFILE not defined)
+    double uniqueLookUps = Cudd_ReadUniqueLookUps(dd);
+    double uniqueLinks = Cudd_ReadUniqueLinks(dd);
+    
     Cudd_Quit(dd);
 }
