@@ -1512,6 +1512,12 @@ TEST_CASE("cuddBridge - T == E branch coverage", "[cuddBridge]") {
     Cudd_Quit(manager);
 }
 
+// Constants for timeout and stress test configuration
+static const unsigned long TIMEOUT_TEST_LIMIT_MS = 1;      // Short timeout to attempt triggering timeout paths
+static const int TIMEOUT_TEST_ITERATIONS = 20;             // Number of iterations to build complex structures
+static const int LIMITED_UNIQUE_SLOTS = 64;                // Minimal slots for memory stress tests
+static const int LIMITED_CACHE_SLOTS = 64;                 // Minimal cache for memory stress tests
+
 // Global variable to track if timeout handler was called
 static int g_timeoutHandlerCalled = 0;
 static void testTimeoutHandler(DdManager * /* dd */, void * /* arg */) {
@@ -1521,6 +1527,7 @@ static void testTimeoutHandler(DdManager * /* dd */, void * /* arg */) {
 TEST_CASE("cuddBridge - Timeout handler coverage", "[cuddBridge]") {
     // Test that timeout handlers are properly called when operations timeout
     // This helps cover the timeout handling paths in cuddBridge.c
+    // Note: Operations complete too quickly to reliably trigger timeouts on modern hardware
     
     SECTION("Timeout handler for Cudd_addBddPattern") {
         DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
@@ -1529,14 +1536,13 @@ TEST_CASE("cuddBridge - Timeout handler coverage", "[cuddBridge]") {
         g_timeoutHandlerCalled = 0;
         Cudd_RegisterTimeoutHandler(manager, testTimeoutHandler, nullptr);
         
-        // Set a very short time limit (1ms)
-        Cudd_SetTimeLimit(manager, 1);
+        Cudd_SetTimeLimit(manager, TIMEOUT_TEST_LIMIT_MS);
         Cudd_ResetStartTime(manager);
         
         // Create a large ADD structure to potentially trigger timeout
         DdNode *add = Cudd_ReadOne(manager);
         Cudd_Ref(add);
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < TIMEOUT_TEST_ITERATIONS; i++) {
             DdNode *var = Cudd_addIthVar(manager, i);
             Cudd_Ref(var);
             DdNode *val = Cudd_addConst(manager, (double)i);
@@ -1572,14 +1578,13 @@ TEST_CASE("cuddBridge - Timeout handler coverage", "[cuddBridge]") {
         g_timeoutHandlerCalled = 0;
         Cudd_RegisterTimeoutHandler(dest, testTimeoutHandler, nullptr);
         
-        // Set a very short time limit on destination
-        Cudd_SetTimeLimit(dest, 1);
+        Cudd_SetTimeLimit(dest, TIMEOUT_TEST_LIMIT_MS);
         Cudd_ResetStartTime(dest);
         
         // Create a complex BDD structure
         DdNode *bdd = Cudd_ReadOne(source);
         Cudd_Ref(bdd);
-        for (int i = 0; i < 15; i++) {
+        for (int i = 0; i < TIMEOUT_TEST_ITERATIONS - 5; i++) {
             DdNode *var = Cudd_bddIthVar(source, i);
             Cudd_Ref(var);
             DdNode *temp = Cudd_bddAnd(source, bdd, var);
@@ -1612,13 +1617,13 @@ TEST_CASE("cuddBridge - Timeout handler coverage", "[cuddBridge]") {
         
         g_timeoutHandlerCalled = 0;
         Cudd_RegisterTimeoutHandler(manager, testTimeoutHandler, nullptr);
-        Cudd_SetTimeLimit(manager, 1);
+        Cudd_SetTimeLimit(manager, TIMEOUT_TEST_LIMIT_MS);
         Cudd_ResetStartTime(manager);
         
         // Create a complex ADD
         DdNode *add = Cudd_addConst(manager, 1.0);
         Cudd_Ref(add);
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < TIMEOUT_TEST_ITERATIONS; i++) {
             DdNode *var = Cudd_addIthVar(manager, i);
             Cudd_Ref(var);
             DdNode *val = Cudd_addConst(manager, (double)(i + 1));
@@ -1649,12 +1654,12 @@ TEST_CASE("cuddBridge - Timeout handler coverage", "[cuddBridge]") {
         
         g_timeoutHandlerCalled = 0;
         Cudd_RegisterTimeoutHandler(manager, testTimeoutHandler, nullptr);
-        Cudd_SetTimeLimit(manager, 1);
+        Cudd_SetTimeLimit(manager, TIMEOUT_TEST_LIMIT_MS);
         Cudd_ResetStartTime(manager);
         
         DdNode *add = Cudd_addConst(manager, 1.0);
         Cudd_Ref(add);
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < TIMEOUT_TEST_ITERATIONS; i++) {
             DdNode *var = Cudd_addIthVar(manager, i);
             Cudd_Ref(var);
             DdNode *val = Cudd_addConst(manager, (double)(i + 1));
@@ -1685,12 +1690,12 @@ TEST_CASE("cuddBridge - Timeout handler coverage", "[cuddBridge]") {
         
         g_timeoutHandlerCalled = 0;
         Cudd_RegisterTimeoutHandler(manager, testTimeoutHandler, nullptr);
-        Cudd_SetTimeLimit(manager, 1);
+        Cudd_SetTimeLimit(manager, TIMEOUT_TEST_LIMIT_MS);
         Cudd_ResetStartTime(manager);
         
         DdNode *add = Cudd_addConst(manager, 1.0);
         Cudd_Ref(add);
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < TIMEOUT_TEST_ITERATIONS; i++) {
             DdNode *var = Cudd_addIthVar(manager, i);
             Cudd_Ref(var);
             DdNode *val = Cudd_addConst(manager, (double)(i + 1));
@@ -1721,12 +1726,12 @@ TEST_CASE("cuddBridge - Timeout handler coverage", "[cuddBridge]") {
         
         g_timeoutHandlerCalled = 0;
         Cudd_RegisterTimeoutHandler(manager, testTimeoutHandler, nullptr);
-        Cudd_SetTimeLimit(manager, 1);
+        Cudd_SetTimeLimit(manager, TIMEOUT_TEST_LIMIT_MS);
         Cudd_ResetStartTime(manager);
         
         DdNode *add = Cudd_addConst(manager, 1.0);
         Cudd_Ref(add);
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < TIMEOUT_TEST_ITERATIONS; i++) {
             DdNode *var = Cudd_addIthVar(manager, i);
             Cudd_Ref(var);
             DdNode *val = Cudd_addConst(manager, (double)(i + 1));
@@ -1757,8 +1762,8 @@ TEST_CASE("cuddBridge - Limited memory scenarios", "[cuddBridge]") {
     
     SECTION("Transfer with minimal slots") {
         // Use very small slot counts to increase chance of allocation issues
-        DdManager *source = Cudd_Init(0, 0, 64, 64, 0);
-        DdManager *dest = Cudd_Init(0, 0, 64, 64, 0);
+        DdManager *source = Cudd_Init(0, 0, LIMITED_UNIQUE_SLOTS, LIMITED_CACHE_SLOTS, 0);
+        DdManager *dest = Cudd_Init(0, 0, LIMITED_UNIQUE_SLOTS, LIMITED_CACHE_SLOTS, 0);
         REQUIRE(source != nullptr);
         REQUIRE(dest != nullptr);
         
@@ -1791,7 +1796,7 @@ TEST_CASE("cuddBridge - Limited memory scenarios", "[cuddBridge]") {
     }
     
     SECTION("Pattern conversion with minimal slots") {
-        DdManager *manager = Cudd_Init(0, 0, 64, 64, 0);
+        DdManager *manager = Cudd_Init(0, 0, LIMITED_UNIQUE_SLOTS, LIMITED_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
         DdNode *add = Cudd_addConst(manager, 1.0);
