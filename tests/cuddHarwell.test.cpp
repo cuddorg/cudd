@@ -1296,67 +1296,79 @@ TEST_CASE("cuddHarwell - Odd and even row indices", "[cuddHarwell]") {
 }
 
 /**
- * @brief Test with timeout handler to exercise timeout code paths
- * 
- * Note: This test attempts to trigger timeout paths but may not succeed
- * as the operations are typically too fast to trigger timeout.
+ * @brief Common test matrix content for stress tests
  */
-static int timeoutHandlerCalled = 0;
-static void testTimeoutHandler(DdManager *dd, void *arg) {
-    (void)dd;
-    (void)arg;
-    timeoutHandlerCalled = 1;
+static const char* STRESS_TEST_MATRIX_4x4 = 
+    "TITLE PADDING TO FILL 72 CHARACTERS EXACTLY INCLUDING ALL SPACES NEEDED!TESTKEY1\n"
+    "10 5 4 1 0\n"
+    "RUA 4 4 4 0\n"
+    "(10I8) (10I8) (10E15.8)\n"
+    "1 2 3 4 5\n"
+    "1 2 3 4\n"
+    "1.0 2.0 3.0 4.0\n";
+
+/**
+ * @brief Helper to clean up Harwell test results
+ */
+static void cleanupHarwellResult(DdManager *dd, DdNode *E, DdNode **x, DdNode **xn, 
+                                  DdNode **y, DdNode **yn, int nx, int ny) {
+    if (x) {
+        for (int i = 0; i < nx; i++) {
+            Cudd_RecursiveDeref(dd, x[i]);
+            Cudd_RecursiveDeref(dd, xn[i]);
+        }
+        FREE(x);
+        FREE(xn);
+    }
+    if (y) {
+        for (int i = 0; i < ny; i++) {
+            Cudd_RecursiveDeref(dd, y[i]);
+            Cudd_RecursiveDeref(dd, yn[i]);
+        }
+        FREE(y);
+        FREE(yn);
+    }
+    if (E) Cudd_RecursiveDeref(dd, E);
 }
 
+/**
+ * @brief Test with timeout handler to exercise timeout code paths
+ * 
+ * Note: This test verifies timeout handler registration works correctly.
+ * The operations typically complete too fast to actually trigger timeout.
+ */
 TEST_CASE("cuddHarwell - Test with timeout handler registration", "[cuddHarwell]") {
     DdManager *dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
     REQUIRE(dd != nullptr);
     
-    // Register a timeout handler (this exercises dd->timeoutHandler being set)
-    Cudd_RegisterTimeoutHandler(dd, testTimeoutHandler, nullptr);
+    // Local callback tracker to avoid test interference
+    struct TimeoutContext {
+        int called;
+    } ctx = {0};
     
-    // Set a very short time limit (1 millisecond)
-    Cudd_SetTimeLimit(dd, 1);
+    auto timeoutHandler = [](DdManager *mgr, void *arg) {
+        (void)mgr;
+        static_cast<TimeoutContext*>(arg)->called = 1;
+    };
+    
+    // Register a timeout handler
+    Cudd_RegisterTimeoutHandler(dd, timeoutHandler, &ctx);
+    
+    // Set a reasonable time limit (100 milliseconds)
+    Cudd_SetTimeLimit(dd, 100);
     
     DdNode *E = nullptr;
     DdNode **x = nullptr, **y = nullptr, **xn = nullptr, **yn = nullptr;
     int nx = 0, ny = 0, m = 0, n = 0;
     
-    // Valid 4x4 matrix
-    const char* content = 
-        "TITLE PADDING TO FILL 72 CHARACTERS EXACTLY INCLUDING ALL SPACES NEEDED!TESTKEY1\n"
-        "10 5 4 1 0\n"
-        "RUA 4 4 4 0\n"
-        "(10I8) (10I8) (10E15.8)\n"
-        "1 2 3 4 5\n"
-        "1 2 3 4\n"
-        "1.0 2.0 3.0 4.0\n";
-    
-    FILE* fp = createTempFile(content);
+    FILE* fp = createTempFile(STRESS_TEST_MATRIX_4x4);
     REQUIRE(fp != nullptr);
     
     // This will likely succeed since the operation is fast
     int result = Cudd_addHarwell(fp, dd, &E, &x, &y, &xn, &yn, &nx, &ny, &m, &n, 0, 2, 1, 2, 0);
     
-    // Clean up regardless of result
     if (result == 1) {
-        if (x) {
-            for (int i = 0; i < nx; i++) {
-                Cudd_RecursiveDeref(dd, x[i]);
-                Cudd_RecursiveDeref(dd, xn[i]);
-            }
-            FREE(x);
-            FREE(xn);
-        }
-        if (y) {
-            for (int i = 0; i < ny; i++) {
-                Cudd_RecursiveDeref(dd, y[i]);
-                Cudd_RecursiveDeref(dd, yn[i]);
-            }
-            FREE(y);
-            FREE(yn);
-        }
-        if (E) Cudd_RecursiveDeref(dd, E);
+        cleanupHarwellResult(dd, E, x, xn, y, yn, nx, ny);
     }
     
     fclose(fp);
@@ -1372,40 +1384,13 @@ TEST_CASE("cuddHarwell - Test with very small cache and slot sizes", "[cuddHarwe
     DdNode **x = nullptr, **y = nullptr, **xn = nullptr, **yn = nullptr;
     int nx = 0, ny = 0, m = 0, n = 0;
     
-    // Valid 4x4 matrix
-    const char* content = 
-        "TITLE PADDING TO FILL 72 CHARACTERS EXACTLY INCLUDING ALL SPACES NEEDED!TESTKEY1\n"
-        "10 5 4 1 0\n"
-        "RUA 4 4 4 0\n"
-        "(10I8) (10I8) (10E15.8)\n"
-        "1 2 3 4 5\n"
-        "1 2 3 4\n"
-        "1.0 2.0 3.0 4.0\n";
-    
-    FILE* fp = createTempFile(content);
+    FILE* fp = createTempFile(STRESS_TEST_MATRIX_4x4);
     REQUIRE(fp != nullptr);
     
     int result = Cudd_addHarwell(fp, dd, &E, &x, &y, &xn, &yn, &nx, &ny, &m, &n, 0, 2, 1, 2, 0);
     
-    // Clean up regardless of result
     if (result == 1) {
-        if (x) {
-            for (int i = 0; i < nx; i++) {
-                Cudd_RecursiveDeref(dd, x[i]);
-                Cudd_RecursiveDeref(dd, xn[i]);
-            }
-            FREE(x);
-            FREE(xn);
-        }
-        if (y) {
-            for (int i = 0; i < ny; i++) {
-                Cudd_RecursiveDeref(dd, y[i]);
-                Cudd_RecursiveDeref(dd, yn[i]);
-            }
-            FREE(y);
-            FREE(yn);
-        }
-        if (E) Cudd_RecursiveDeref(dd, E);
+        cleanupHarwellResult(dd, E, x, xn, y, yn, nx, ny);
     }
     
     fclose(fp);
