@@ -1,8 +1,0 @@
-#! /bin/sh
-
-EXE=
-srcdir=.
-
-st/testst$EXE
-
-exit 0

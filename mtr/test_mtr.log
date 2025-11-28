@@ -1,5 +1,0 @@
-TAP version 13
-1..1
-# comparing ./mtr/test.tst to ./mtr/test.out
-ok 1
-PASS: mtr/test_mtr.test 1

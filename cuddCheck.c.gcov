@@ -1,0 +1,829 @@
+        -:    0:Source:cudd/cuddCheck.c
+        -:    0:Graph:cudd/libcudd_la-cuddCheck.gcno
+        -:    0:Data:cudd/libcudd_la-cuddCheck.gcda
+        -:    0:Runs:31
+        -:    1:/**
+        -:    2:  @file
+        -:    3:
+        -:    4:  @ingroup cudd
+        -:    5:
+        -:    6:  @brief Functions to check consistency of data structures.
+        -:    7:
+        -:    8:  @author Fabio Somenzi
+        -:    9:
+        -:   10:  @copyright@parblock
+        -:   11:  Copyright (c) 1995-2015, Regents of the University of Colorado
+        -:   12:
+        -:   13:  All rights reserved.
+        -:   14:
+        -:   15:  Redistribution and use in source and binary forms, with or without
+        -:   16:  modification, are permitted provided that the following conditions
+        -:   17:  are met:
+        -:   18:
+        -:   19:  Redistributions of source code must retain the above copyright
+        -:   20:  notice, this list of conditions and the following disclaimer.
+        -:   21:
+        -:   22:  Redistributions in binary form must reproduce the above copyright
+        -:   23:  notice, this list of conditions and the following disclaimer in the
+        -:   24:  documentation and/or other materials provided with the distribution.
+        -:   25:
+        -:   26:  Neither the name of the University of Colorado nor the names of its
+        -:   27:  contributors may be used to endorse or promote products derived from
+        -:   28:  this software without specific prior written permission.
+        -:   29:
+        -:   30:  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+        -:   31:  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+        -:   32:  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+        -:   33:  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+        -:   34:  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+        -:   35:  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+        -:   36:  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+        -:   37:  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+        -:   38:  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+        -:   39:  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+        -:   40:  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+        -:   41:  POSSIBILITY OF SUCH DAMAGE.
+        -:   42:  @endparblock
+        -:   43:
+        -:   44:*/
+        -:   45:
+        -:   46:#include "util.h"
+        -:   47:#include "mtrInt.h"
+        -:   48:#include "cuddInt.h"
+        -:   49:
+        -:   50:/*---------------------------------------------------------------------------*/
+        -:   51:/* Constant declarations                                                     */
+        -:   52:/*---------------------------------------------------------------------------*/
+        -:   53:
+        -:   54:
+        -:   55:/*---------------------------------------------------------------------------*/
+        -:   56:/* Stucture declarations                                                     */
+        -:   57:/*---------------------------------------------------------------------------*/
+        -:   58:
+        -:   59:
+        -:   60:/*---------------------------------------------------------------------------*/
+        -:   61:/* Type declarations                                                         */
+        -:   62:/*---------------------------------------------------------------------------*/
+        -:   63:
+        -:   64:
+        -:   65:/*---------------------------------------------------------------------------*/
+        -:   66:/* Variable declarations                                                     */
+        -:   67:/*---------------------------------------------------------------------------*/
+        -:   68:
+        -:   69:
+        -:   70:/*---------------------------------------------------------------------------*/
+        -:   71:/* Macro declarations                                                        */
+        -:   72:/*---------------------------------------------------------------------------*/
+        -:   73:
+        -:   74:/** \cond */
+        -:   75:
+        -:   76:/*---------------------------------------------------------------------------*/
+        -:   77:/* Static function prototypes                                                */
+        -:   78:/*---------------------------------------------------------------------------*/
+        -:   79:
+        -:   80:static void debugFindParent (DdManager *table, DdNode *node);
+        -:   81:#if 0
+        -:   82:static void debugCheckParent (DdManager *table, DdNode *node);
+        -:   83:#endif
+        -:   84:
+        -:   85:/** \endcond */
+        -:   86:
+        -:   87:
+        -:   88:/*---------------------------------------------------------------------------*/
+        -:   89:/* Definition of exported functions                                          */
+        -:   90:/*---------------------------------------------------------------------------*/
+        -:   91:
+        -:   92:
+        -:   93:/**
+        -:   94:  @brief Checks for inconsistencies in the %DD heap.
+        -:   95:
+        -:   96:  @details The following inconsistencies are checked:
+        -:   97:  <ul>
+        -:   98:  <li> node has illegal index
+        -:   99:  <li> live node has dead children
+        -:  100:  <li> node has illegal Then or Else pointers
+        -:  101:  <li> %BDD/%ADD node has identical children
+        -:  102:  <li> %ZDD node has zero then child
+        -:  103:  <li> wrong number of total nodes
+        -:  104:  <li> wrong number of dead nodes
+        -:  105:  <li> ref count error at node
+        -:  106:  </ul>
+        -:  107:  
+        -:  108:  @return 0 if no inconsistencies are found; DD_OUT_OF_MEM if there is
+        -:  109:  not enough memory; 1 otherwise.
+        -:  110:
+        -:  111:  @sideeffect None
+        -:  112:
+        -:  113:  @see Cudd_CheckKeys
+        -:  114:
+        -:  115:*/
+        -:  116:int
+        9:  117:Cudd_DebugCheck(
+        -:  118:  DdManager * table)
+        -:  119:{
+        -:  120:    unsigned int i;
+        -:  121:    int		j,count;
+        -:  122:    int		slots;
+        -:  123:    DdNodePtr	*nodelist;
+        -:  124:    DdNode	*f;
+        9:  125:    DdNode	*sentinel = &(table->sentinel);
+        -:  126:    st_table	*edgeTable;	/* stores internal ref count for each node */
+        -:  127:    st_generator	*gen;
+        9:  128:    int		flag = 0;
+        -:  129:    int		totalNode;
+        -:  130:    int		deadNode;
+        -:  131:    int		index;
+        -:  132:    int         shift;
+        -:  133:
+        9:  134:    edgeTable = st_init_table(st_ptrcmp,st_ptrhash);
+       9*:  135:    if (edgeTable == NULL) return(CUDD_OUT_OF_MEM);
+        -:  136:
+        -:  137:    /* Check the BDD/ADD subtables. */
+       78:  138:    for (i = 0; i < (unsigned) table->size; i++) {
+       69:  139:	index = table->invperm[i];
+       69:  140:	if (i != (unsigned) table->perm[index]) {
+    #####:  141:	    (void) fprintf(table->err,
+        -:  142:			   "Permutation corrupted: invperm[%u] = %d\t perm[%d] = %d\n",
+    #####:  143:			   i, index, index, table->perm[index]);
+        -:  144:	}
+       69:  145:	nodelist = table->subtables[i].nodelist;
+       69:  146:	slots = table->subtables[i].slots;
+       69:  147:	shift = table->subtables[i].shift;
+        -:  148:
+       69:  149:	totalNode = 0;
+       69:  150:	deadNode = 0;
+    17733:  151:	for (j = 0; j < slots; j++) {	/* for each subtable slot */
+    17664:  152:	    f = nodelist[j];
+    17915:  153:	    while (f != sentinel) {
+      251:  154:		totalNode++;
+      251:  155:		if (cuddT(f) != NULL && cuddE(f) != NULL && f->ref != 0) {
+      155:  156:		    if ((int) f->index != index) {
+    #####:  157:			(void) fprintf(table->err,
+        -:  158:				       "Error: node has illegal index\n");
+    #####:  159:			cuddPrintNode(f,table->err);
+    #####:  160:			flag = 1;
+        -:  161:		    }
+      310:  162:		    if ((unsigned) cuddI(table,cuddT(f)->index) <= i ||
+      155:  163:			(unsigned) cuddI(table,Cudd_Regular(cuddE(f))->index)
+        -:  164:			<= i) {
+    #####:  165:			(void) fprintf(table->err,
+        -:  166:				       "Error: node has illegal children\n");
+    #####:  167:			cuddPrintNode(f,table->err);
+    #####:  168:			flag = 1;
+        -:  169:		    }
+      155:  170:		    if (Cudd_Regular(cuddT(f)) != cuddT(f)) {
+    #####:  171:			(void) fprintf(table->err,
+        -:  172:				       "Error: node has illegal form\n");
+    #####:  173:			cuddPrintNode(f,table->err);
+    #####:  174:			flag = 1;
+        -:  175:		    }
+      155:  176:		    if (cuddT(f) == cuddE(f)) {
+    #####:  177:			(void) fprintf(table->err,
+        -:  178:				       "Error: node has identical children\n");
+    #####:  179:			cuddPrintNode(f,table->err);
+    #####:  180:			flag = 1;
+        -:  181:		    }
+      155:  182:		    if (cuddT(f)->ref == 0 || Cudd_Regular(cuddE(f))->ref == 0) {
+    #####:  183:			(void) fprintf(table->err,
+        -:  184:				       "Error: live node has dead children\n");
+    #####:  185:			cuddPrintNode(f,table->err);
+    #####:  186:			flag =1;
+        -:  187:		    }
+      155:  188:                    if (ddHash(cuddT(f),cuddE(f),shift) != (unsigned) j) {
+    #####:  189:                        (void) fprintf(table->err, "Error: misplaced node\n");
+    #####:  190:			cuddPrintNode(f,table->err);
+    #####:  191:			flag =1;
+        -:  192:                    }
+        -:  193:		    /* Increment the internal reference count for the
+        -:  194:		    ** then child of the current node.
+        -:  195:		    */
+      155:  196:		    if (st_lookup_int(edgeTable,cuddT(f),&count)) {
+       81:  197:			count++;
+        -:  198:		    } else {
+       74:  199:			count = 1;
+        -:  200:		    }
+      155:  201:		    if (st_insert(edgeTable,cuddT(f),
+      155:  202:		    (void *)(ptruint)count) == ST_OUT_OF_MEM) {
+    #####:  203:			st_free_table(edgeTable);
+    #####:  204:			return(CUDD_OUT_OF_MEM);
+        -:  205:		    }
+        -:  206:
+        -:  207:		    /* Increment the internal reference count for the
+        -:  208:		    ** else child of the current node.
+        -:  209:		    */
+      155:  210:		    if (st_lookup_int(edgeTable,Cudd_Regular(cuddE(f)),
+        -:  211:				      &count)) {
+      128:  212:			count++;
+        -:  213:		    } else {
+       27:  214:			count = 1;
+        -:  215:		    }
+      155:  216:		    if (st_insert(edgeTable,Cudd_Regular(cuddE(f)),
+      155:  217:		    (void *)(ptruint)count) == ST_OUT_OF_MEM) {
+    #####:  218:			st_free_table(edgeTable);
+    #####:  219:			return(CUDD_OUT_OF_MEM);
+        -:  220:		    }
+       96:  221:		} else if (cuddT(f) != NULL && cuddE(f) != NULL && f->ref == 0) {
+       96:  222:		    deadNode++;
+        -:  223:#if 0
+        -:  224:		    debugCheckParent(table,f);
+        -:  225:#endif
+        -:  226:		} else {
+    #####:  227:		    fprintf(table->err,
+        -:  228:			    "Error: node has illegal Then or Else pointers\n");
+    #####:  229:		    cuddPrintNode(f,table->err);
+    #####:  230:		    flag = 1;
+        -:  231:		}
+        -:  232:
+      251:  233:		f = f->next;
+        -:  234:	    }	/* for each element of the collision list */
+        -:  235:	}	/* for each subtable slot */
+        -:  236:
+       69:  237:	if ((unsigned) totalNode != table->subtables[i].keys) {
+    #####:  238:	    fprintf(table->err,"Error: wrong number of total nodes\n");
+    #####:  239:	    flag = 1;
+        -:  240:	}
+       69:  241:	if ((unsigned) deadNode != table->subtables[i].dead) {
+    #####:  242:	    fprintf(table->err,"Error: wrong number of dead nodes\n");
+    #####:  243:	    flag = 1;
+        -:  244:	}
+        -:  245:    }	/* for each BDD/ADD subtable */
+        -:  246:
+        -:  247:    /* Check the ZDD subtables. */
+       13:  248:    for (i = 0; i < (unsigned) table->sizeZ; i++) {
+        4:  249:	index = table->invpermZ[i];
+        4:  250:	if (i != (unsigned) table->permZ[index]) {
+    #####:  251:	    (void) fprintf(table->err,
+        -:  252:			   "Permutation corrupted: invpermZ[%u] = %d\t permZ[%d] = %d in ZDD\n",
+    #####:  253:			   i, index, index, table->permZ[index]);
+        -:  254:	}
+        4:  255:	nodelist = table->subtableZ[i].nodelist;
+        4:  256:	slots = table->subtableZ[i].slots;
+        -:  257:
+        4:  258:	totalNode = 0;
+        4:  259:	deadNode = 0;
+     1028:  260:	for (j = 0; j < slots; j++) {	/* for each subtable slot */
+     1024:  261:	    f = nodelist[j];
+     1047:  262:	    while (f != NULL) {
+       23:  263:		totalNode++;
+       23:  264:		if (cuddT(f) != NULL && cuddE(f) != NULL && f->ref != 0) {
+        7:  265:		    if ((int) f->index != index) {
+    #####:  266:			(void) fprintf(table->err,
+        -:  267:				       "Error: ZDD node has illegal index\n");
+    #####:  268:			cuddPrintNode(f,table->err);
+    #####:  269:			flag = 1;
+        -:  270:		    }
+        7:  271:		    if (Cudd_IsComplement(cuddT(f)) ||
+        7:  272:			Cudd_IsComplement(cuddE(f))) {
+    #####:  273:			(void) fprintf(table->err,
+        -:  274:				       "Error: ZDD node has complemented children\n");
+    #####:  275:			cuddPrintNode(f,table->err);
+    #####:  276:			flag = 1;
+        -:  277:		    }
+       14:  278:		    if ((unsigned) cuddIZ(table,cuddT(f)->index) <= i ||
+        7:  279:		    (unsigned) cuddIZ(table,cuddE(f)->index) <= i) {
+    #####:  280:			(void) fprintf(table->err,
+        -:  281:				       "Error: ZDD node has illegal children\n");
+    #####:  282:			cuddPrintNode(f,table->err);
+    #####:  283:			cuddPrintNode(cuddT(f),table->err);
+    #####:  284:			cuddPrintNode(cuddE(f),table->err);
+    #####:  285:			flag = 1;
+        -:  286:		    }
+        7:  287:		    if (cuddT(f) == DD_ZERO(table)) {
+    #####:  288:			(void) fprintf(table->err,
+        -:  289:				       "Error: ZDD node has zero then child\n");
+    #####:  290:			cuddPrintNode(f,table->err);
+    #####:  291:			flag = 1;
+        -:  292:		    }
+        7:  293:		    if (cuddT(f)->ref == 0 || cuddE(f)->ref == 0) {
+    #####:  294:			(void) fprintf(table->err,
+        -:  295:				       "Error: ZDD live node has dead children\n");
+    #####:  296:			cuddPrintNode(f,table->err);
+    #####:  297:			flag =1;
+        -:  298:		    }
+        -:  299:		    /* Increment the internal reference count for the
+        -:  300:		    ** then child of the current node.
+        -:  301:		    */
+        7:  302:		    if (st_lookup_int(edgeTable,cuddT(f),&count)) {
+        4:  303:			count++;
+        -:  304:		    } else {
+        3:  305:			count = 1;
+        -:  306:		    }
+        7:  307:		    if (st_insert(edgeTable,cuddT(f),
+        7:  308:		    (void *)(ptruint)count) == ST_OUT_OF_MEM) {
+    #####:  309:			st_free_table(edgeTable);
+    #####:  310:			return(CUDD_OUT_OF_MEM);
+        -:  311:		    }
+        -:  312:
+        -:  313:		    /* Increment the internal reference count for the
+        -:  314:		    ** else child of the current node.
+        -:  315:		    */
+        7:  316:		    if (st_lookup_int(edgeTable,cuddE(f),&count)) {
+        5:  317:			count++;
+        -:  318:		    } else {
+        2:  319:			count = 1;
+        -:  320:		    }
+        7:  321:		    if (st_insert(edgeTable,cuddE(f),
+        7:  322:		    (void *)(ptruint)count) == ST_OUT_OF_MEM) {
+    #####:  323:			st_free_table(edgeTable);
+    #####:  324:			table->errorCode = CUDD_MEMORY_OUT;
+    #####:  325:			return(CUDD_OUT_OF_MEM);
+        -:  326:		    }
+       16:  327:		} else if (cuddT(f) != NULL && cuddE(f) != NULL && f->ref == 0) {
+       16:  328:		    deadNode++;
+        -:  329:#if 0
+        -:  330:		    debugCheckParent(table,f);
+        -:  331:#endif
+        -:  332:		} else {
+    #####:  333:		    fprintf(table->err,
+        -:  334:			    "Error: ZDD node has illegal Then or Else pointers\n");
+    #####:  335:		    cuddPrintNode(f,table->err);
+    #####:  336:		    flag = 1;
+        -:  337:		}
+        -:  338:
+       23:  339:		f = f->next;
+        -:  340:	    }	/* for each element of the collision list */
+        -:  341:	}	/* for each subtable slot */
+        -:  342:
+        4:  343:	if ((unsigned) totalNode != table->subtableZ[i].keys) {
+    #####:  344:	    fprintf(table->err,
+        -:  345:		    "Error: wrong number of total nodes in ZDD\n");
+    #####:  346:	    flag = 1;
+        -:  347:	}
+        4:  348:	if ((unsigned) deadNode != table->subtableZ[i].dead) {
+    #####:  349:	    fprintf(table->err,
+        -:  350:		    "Error: wrong number of dead nodes in ZDD\n");
+    #####:  351:	    flag = 1;
+        -:  352:	}
+        -:  353:    }	/* for each ZDD subtable */
+        -:  354:
+        -:  355:    /* Check the constant table. */
+        9:  356:    nodelist = table->constants.nodelist;
+        9:  357:    slots = table->constants.slots;
+        -:  358:
+        9:  359:    totalNode = 0;
+        9:  360:    deadNode = 0;
+     2313:  361:    for (j = 0; j < slots; j++) {
+     2304:  362:	f = nodelist[j];
+     2350:  363:	while (f != NULL) {
+       46:  364:	    totalNode++;
+       46:  365:	    if (f->ref != 0) {
+       46:  366:		if (f->index != CUDD_CONST_INDEX) {
+    #####:  367:		    fprintf(table->err,"Error: node has illegal index\n");
+    #####:  368:		    fprintf(table->err,
+        -:  369:			    "       node 0x%" PRIxPTR ", id = %u, ref = %u, value = %g\n",
+    #####:  370:			    (ptruint)f,f->index,f->ref,cuddV(f));
+    #####:  371:		    flag = 1;
+        -:  372:		}
+        -:  373:	    } else {
+    #####:  374:		deadNode++;
+        -:  375:	    }
+       46:  376:	    f = f->next;
+        -:  377:	}
+        -:  378:    }
+        9:  379:    if ((unsigned) totalNode != table->constants.keys) {
+    #####:  380:	(void) fprintf(table->err,
+        -:  381:		       "Error: wrong number of total nodes in constants\n");
+    #####:  382:	flag = 1;
+        -:  383:    }
+        9:  384:    if ((unsigned) deadNode != table->constants.dead) {
+    #####:  385:	(void) fprintf(table->err,
+        -:  386:		       "Error: wrong number of dead nodes in constants\n");
+    #####:  387:	flag = 1;
+        -:  388:    }
+        9:  389:    gen = st_init_gen(edgeTable);
+      115:  390:    while (st_gen_int(gen, (void **) &f, &count)) {
+     106*:  391:	if (count > (int)(f->ref) && f->ref != DD_MAXREF) {
+    #####:  392:	    fprintf(table->err,"ref count error at node 0x%" PRIxPTR ", count = %d, id = %u, ref = %u, then = 0x%" PRIxPTR ", else = 0x%" PRIxPTR "\n",
+    #####:  393:                (ptruint)f,count,f->index,f->ref,(ptruint)cuddT(f),(ptruint)cuddE(f));
+    #####:  394:	    debugFindParent(table,f);
+    #####:  395:	    flag = 1;
+        -:  396:	}
+        -:  397:    }
+        9:  398:    st_free_gen(gen);
+        9:  399:    st_free_table(edgeTable);
+        -:  400:
+        9:  401:    return (flag);
+        -:  402:
+        -:  403:} /* end of Cudd_DebugCheck */
+        -:  404:
+        -:  405:
+        -:  406:/**
+        -:  407:  @brief Checks for several conditions that should not occur.
+        -:  408:
+        -:  409:  @details Checks for the following conditions:
+        -:  410:  <ul>
+        -:  411:  <li>Wrong sizes of subtables.
+        -:  412:  <li>Wrong number of keys found in unique subtable.
+        -:  413:  <li>Wrong number of dead found in unique subtable.
+        -:  414:  <li>Wrong number of keys found in the constant table
+        -:  415:  <li>Wrong number of dead found in the constant table
+        -:  416:  <li>Wrong number of total slots found
+        -:  417:  <li>Wrong number of maximum keys found
+        -:  418:  <li>Wrong number of total dead found
+        -:  419:  </ul>
+        -:  420:  Reports the average length of non-empty lists.
+        -:  421:
+        -:  422:  @return the number of subtables for which the number of keys is
+        -:  423:  wrong.
+        -:  424:
+        -:  425:  @sideeffect None
+        -:  426:
+        -:  427:  @see Cudd_DebugCheck
+        -:  428:
+        -:  429:*/
+        -:  430:int
+        7:  431:Cudd_CheckKeys(
+        -:  432:  DdManager * table)
+        -:  433:{
+        -:  434:    int size;
+        -:  435:    int i,j;
+        -:  436:    DdNodePtr *nodelist;
+        -:  437:    DdNode *node;
+        7:  438:    DdNode *sentinel = &(table->sentinel);
+        -:  439:    DdSubtable *subtable;
+        -:  440:    int keys;
+        -:  441:    int dead;
+        7:  442:    int count = 0;
+        7:  443:    int totalKeys = 0;
+        7:  444:    int totalSlots = 0;
+        7:  445:    int totalDead = 0;
+        7:  446:    int nonEmpty = 0;
+        -:  447:    unsigned int slots;
+        -:  448:    int logSlots;
+        -:  449:    int shift;
+        -:  450:
+        7:  451:    size = table->size;
+        -:  452:
+       60:  453:    for (i = 0; i < size; i++) {
+       53:  454:	subtable = &(table->subtables[i]);
+       53:  455:	nodelist = subtable->nodelist;
+       53:  456:	keys = subtable->keys;
+       53:  457:	dead = subtable->dead;
+       53:  458:	totalKeys += keys;
+       53:  459:	slots = subtable->slots;
+       53:  460:	shift = subtable->shift;
+       53:  461:	logSlots = sizeof(int) * 8 - shift;
+       53:  462:	if (((slots >> logSlots) << logSlots) != slots) {
+    #####:  463:	    (void) fprintf(table->err,
+        -:  464:			   "Unique table %d is not the right power of 2\n", i);
+    #####:  465:	    (void) fprintf(table->err,
+        -:  466:			   "    slots = %u shift = %d\n", slots, shift);
+        -:  467:	}
+       53:  468:	totalSlots += slots;
+       53:  469:	totalDead += dead;
+    13621:  470:	for (j = 0; (unsigned) j < slots; j++) {
+    13568:  471:	    node = nodelist[j];
+    13568:  472:	    if (node != sentinel) {
+      228:  473:		nonEmpty++;
+        -:  474:	    }
+    13798:  475:	    while (node != sentinel) {
+      230:  476:		keys--;
+      230:  477:		if (node->ref == 0) {
+       97:  478:		    dead--;
+        -:  479:		}
+      230:  480:		node = node->next;
+        -:  481:	    }
+        -:  482:	}
+       53:  483:	if (keys != 0) {
+    #####:  484:	    (void) fprintf(table->err, "Wrong number of keys found \
+        -:  485:in unique table %d (difference=%d)\n", i, keys);
+    #####:  486:	    count++;
+        -:  487:	}
+       53:  488:	if (dead != 0) {
+    #####:  489:	    (void) fprintf(table->err, "Wrong number of dead found \
+        -:  490:in unique table no. %d (difference=%d)\n", i, dead);
+        -:  491:	}
+        -:  492:    }	/* for each BDD/ADD subtable */
+        -:  493:
+        -:  494:    /* Check the ZDD subtables. */
+        7:  495:    size = table->sizeZ;
+        -:  496:
+       11:  497:    for (i = 0; i < size; i++) {
+        4:  498:	subtable = &(table->subtableZ[i]);
+        4:  499:	nodelist = subtable->nodelist;
+        4:  500:	keys = subtable->keys;
+        4:  501:	dead = subtable->dead;
+        4:  502:	totalKeys += keys;
+        4:  503:	totalSlots += subtable->slots;
+        4:  504:	totalDead += dead;
+     1028:  505:	for (j = 0; (unsigned) j < subtable->slots; j++) {
+     1024:  506:	    node = nodelist[j];
+     1024:  507:	    if (node != NULL) {
+       23:  508:		nonEmpty++;
+        -:  509:	    }
+     1047:  510:	    while (node != NULL) {
+       23:  511:		keys--;
+       23:  512:		if (node->ref == 0) {
+       16:  513:		    dead--;
+        -:  514:		}
+       23:  515:		node = node->next;
+        -:  516:	    }
+        -:  517:	}
+        4:  518:	if (keys != 0) {
+    #####:  519:	    (void) fprintf(table->err, "Wrong number of keys found \
+        -:  520:in ZDD unique table no. %d (difference=%d)\n", i, keys);
+    #####:  521:	    count++;
+        -:  522:	}
+        4:  523:	if (dead != 0) {
+    #####:  524:	    (void) fprintf(table->err, "Wrong number of dead found \
+        -:  525:in ZDD unique table no. %d (difference=%d)\n", i, dead);
+        -:  526:	}
+        -:  527:    }	/* for each ZDD subtable */
+        -:  528:
+        -:  529:    /* Check the constant table. */
+        7:  530:    subtable = &(table->constants);
+        7:  531:    nodelist = subtable->nodelist;
+        7:  532:    keys = subtable->keys;
+        7:  533:    dead = subtable->dead;
+        7:  534:    totalKeys += keys;
+        7:  535:    totalSlots += subtable->slots;
+        7:  536:    totalDead += dead;
+     1799:  537:    for (j = 0; (unsigned) j < subtable->slots; j++) {
+     1792:  538:	node = nodelist[j];
+     1792:  539:	if (node != NULL) {
+       39:  540:	    nonEmpty++;
+        -:  541:	}
+     1831:  542:	while (node != NULL) {
+       39:  543:	    keys--;
+       39:  544:	    if (node->ref == 0) {
+    #####:  545:		dead--;
+        -:  546:	    }
+       39:  547:	    node = node->next;
+        -:  548:	}
+        -:  549:    }
+        7:  550:    if (keys != 0) {
+    #####:  551:	(void) fprintf(table->err, "Wrong number of keys found \
+        -:  552:in the constant table (difference=%d)\n", keys);
+    #####:  553:	count++;
+        -:  554:    }
+        7:  555:    if (dead != 0) {
+    #####:  556:	(void) fprintf(table->err, "Wrong number of dead found \
+        -:  557:in the constant table (difference=%d)\n", dead);
+        -:  558:    }
+        7:  559:    if ((unsigned) totalKeys != table->keys + table->keysZ) {
+    #####:  560:	(void) fprintf(table->err, "Wrong number of total keys found \
+    #####:  561:(difference=%d)\n", (int) (totalKeys-table->keys));
+        -:  562:    }
+        7:  563:    if ((unsigned) totalSlots != table->slots) {
+    #####:  564:	(void) fprintf(table->err, "Wrong number of total slots found \
+    #####:  565:(difference=%d)\n", (int) (totalSlots-table->slots));
+        -:  566:    }
+        7:  567:    if (table->minDead != (unsigned) (table->gcFrac * table->slots)) {
+    #####:  568:	(void) fprintf(table->err, "Wrong number of minimum dead found \
+        -:  569:(%u vs. %u)\n", table->minDead,
+    #####:  570:	(unsigned) (table->gcFrac * (double) table->slots));
+        -:  571:    }
+        7:  572:    if ((unsigned) totalDead != table->dead + table->deadZ) {
+    #####:  573:	(void) fprintf(table->err, "Wrong number of total dead found \
+    #####:  574:(difference=%d)\n", (int) (totalDead-table->dead));
+        -:  575:    }
+        7:  576:    (void) fprintf(table->out,"Average length of non-empty lists = %g\n",
+        7:  577:                   (double) table->keys / (double) nonEmpty);
+        -:  578:
+        7:  579:    return(count);
+        -:  580:
+        -:  581:} /* end of Cudd_CheckKeys */
+        -:  582:
+        -:  583:
+        -:  584:/*---------------------------------------------------------------------------*/
+        -:  585:/* Definition of internal functions                                          */
+        -:  586:/*---------------------------------------------------------------------------*/
+        -:  587:
+        -:  588:
+        -:  589:/**
+        -:  590:  @brief Prints information about the heap.
+        -:  591:
+        -:  592:  @details Prints to the manager's stdout the number of live nodes for each
+        -:  593:  level of the %DD heap that contains at least one live node.  It also
+        -:  594:  prints a summary containing:
+        -:  595:  <ul>
+        -:  596:  <li> total number of tables;
+        -:  597:  <li> number of tables with live nodes;
+        -:  598:  <li> table with the largest number of live nodes;
+        -:  599:  <li> number of nodes in that table.
+        -:  600:  </ul>
+        -:  601:  If more than one table contains the maximum number of live nodes,
+        -:  602:  only the one of lowest index is reported.
+        -:  603:
+        -:  604:  @return 1 in case of success and 0 otherwise.
+        -:  605:
+        -:  606:  @sideeffect None
+        -:  607:
+        -:  608:*/
+        -:  609:int
+        2:  610:cuddHeapProfile(
+        -:  611:  DdManager * dd)
+        -:  612:{
+        2:  613:    int ntables = dd->size;
+        2:  614:    DdSubtable *subtables = dd->subtables;
+        -:  615:    int i,		/* loop index */
+        -:  616:	nodes,		/* live nodes in i-th layer */
+        -:  617:	retval,		/* return value of fprintf */
+        2:  618:	largest = -1,	/* index of the table with most live nodes */
+        2:  619:	maxnodes = -1,	/* maximum number of live nodes in a table */
+        2:  620:	nonempty = 0;	/* number of tables with live nodes */
+        -:  621:
+        -:  622:    /* Print header. */
+        2:  623:    retval = fprintf(dd->out,"*** DD heap profile for 0x%" PRIxPTR " ***\n",
+        -:  624:		     (ptruint) dd);
+       2*:  625:    if (retval == EOF) return 0;
+        -:  626:
+        -:  627:    /* Print number of live nodes for each nonempty table. */
+       26:  628:    for (i=0; i<ntables; i++) {
+       24:  629:	nodes = subtables[i].keys - subtables[i].dead;
+       24:  630:	if (nodes) {
+       24:  631:	    nonempty++;
+       24:  632:	    retval = fprintf(dd->out,"%5d: %5d nodes\n", i, nodes);
+      24*:  633:	    if (retval == EOF) return 0;
+       24:  634:	    if (nodes > maxnodes) {
+        9:  635:		maxnodes = nodes;
+        9:  636:		largest = i;
+        -:  637:	    }
+        -:  638:	}
+        -:  639:    }
+        -:  640:
+        2:  641:    nodes = dd->constants.keys - dd->constants.dead;
+        2:  642:    if (nodes) {
+        2:  643:	nonempty++;
+        2:  644:	retval = fprintf(dd->out,"const: %5d nodes\n", nodes);
+       2*:  645:	if (retval == EOF) return 0;
+        2:  646:	if (nodes > maxnodes) {
+        2:  647:	    maxnodes = nodes;
+        2:  648:	    largest = CUDD_CONST_INDEX;
+        -:  649:	}
+        -:  650:    }
+        -:  651:
+        -:  652:    /* Print summary. */
+        2:  653:    retval = fprintf(dd->out,"Summary: %d tables, %d non-empty, largest: %d ",
+        -:  654:	  ntables+1, nonempty, largest);
+       2*:  655:    if (retval == EOF) return 0;
+        2:  656:    retval = fprintf(dd->out,"(with %d nodes)\n", maxnodes);
+       2*:  657:    if (retval == EOF) return 0;
+        -:  658:
+        2:  659:    return(1);
+        -:  660:
+        -:  661:} /* end of cuddHeapProfile */
+        -:  662:
+        -:  663:
+        -:  664:/**
+        -:  665:  @brief Prints out information on a node.
+        -:  666:
+        -:  667:  @sideeffect None
+        -:  668:
+        -:  669:*/
+        -:  670:void
+        3:  671:cuddPrintNode(
+        -:  672:  DdNode * f,
+        -:  673:  FILE *fp)
+        -:  674:{
+        3:  675:    f = Cudd_Regular(f);
+        3:  676:    (void) fprintf(fp,"       node 0x%" PRIxPTR ", id = %u, ref = %u, then = 0x%" PRIxPTR ", else = 0x%" PRIxPTR "\n",
+        3:  677:        (ptruint)f,f->index,f->ref,(ptruint)cuddT(f),(ptruint)cuddE(f));
+        -:  678:
+        3:  679:} /* end of cuddPrintNode */
+        -:  680:
+        -:  681:
+        -:  682:/**
+        -:  683:  @brief Prints the variable groups as a parenthesized list.
+        -:  684:
+        -:  685:  @details   For each group the level range that it represents is printed.
+        -:  686:  After each group, the group's flags are printed, preceded by a `|'.  For
+        -:  687:  each flag (except MTR_TERMINAL) a character is printed.
+        -:  688:  <ul>
+        -:  689:  <li>F: MTR_FIXED
+        -:  690:  <li>N: MTR_NEWNODE
+        -:  691:  <li>S: MTR_SOFT
+        -:  692:  </ul>
+        -:  693:  The second argument, silent, if different from 0, causes
+        -:  694:  Cudd_PrintVarGroups to only check the syntax of the group tree.
+        -:  695:
+        -:  696:  @sideeffect None
+        -:  697:
+        -:  698:*/
+        -:  699:void
+        6:  700:cuddPrintVarGroups(
+        -:  701:  DdManager * dd /**< manager */,
+        -:  702:  MtrNode * root /**< root of the group tree */,
+        -:  703:  int zdd /**< 0: %BDD; 1: %ZDD */,
+        -:  704:  int silent /**< flag to check tree syntax only */)
+        -:  705:{
+        -:  706:    MtrNode *node;
+        -:  707:    int level;
+        -:  708:
+       6*:  709:    assert(root != NULL);
+       6*:  710:    assert(root->younger == NULL || root->younger->elder == root);
+       6*:  711:    assert(root->elder == NULL || root->elder->younger == root);
+        6:  712:    if (zdd) {
+        3:  713:	level = dd->permZ[root->index];
+        -:  714:    } else {
+        3:  715:	level = dd->perm[root->index];
+        -:  716:    }
+        6:  717:    if (!silent) (void) printf("(%d",level);
+        6:  718:    if (MTR_TEST(root,MTR_TERMINAL) || root->child == NULL) {
+        4:  719:	if (!silent) (void) printf(",");
+        -:  720:    } else {
+        2:  721:	node = root->child;
+        6:  722:	while (node != NULL) {
+       4*:  723:	    assert(node->low >= root->low && (int) (node->low + node->size) <= (int) (root->low + root->size));
+       4*:  724:	    assert(node->parent == root);
+        4:  725:	    cuddPrintVarGroups(dd,node,zdd,silent);
+        4:  726:	    node = node->younger;
+        -:  727:	}
+        -:  728:    }
+        6:  729:    if (!silent) {
+        6:  730:	(void) printf("%d", (int) (level + root->size - 1));
+        6:  731:	if (root->flags != MTR_DEFAULT) {
+        2:  732:	    (void) printf("|");
+        2:  733:	    if (MTR_TEST(root,MTR_FIXED)) (void) printf("F");
+       2*:  734:	    if (MTR_TEST(root,MTR_NEWNODE)) (void) printf("N");
+       2*:  735:	    if (MTR_TEST(root,MTR_SOFT)) (void) printf("S");
+        -:  736:	}
+        6:  737:	(void) printf(")");
+        6:  738:	if (root->parent == NULL) (void) printf("\n");
+        -:  739:    }
+       6*:  740:    assert((root->flags &~(MTR_TERMINAL | MTR_SOFT | MTR_FIXED | MTR_NEWNODE)) == 0);
+        6:  741:    return;
+        -:  742:
+        -:  743:} /* end of cuddPrintVarGroups */
+        -:  744:
+        -:  745:
+        -:  746:/*---------------------------------------------------------------------------*/
+        -:  747:/* Definition of static functions                                            */
+        -:  748:/*---------------------------------------------------------------------------*/
+        -:  749:
+        -:  750:
+        -:  751:/**
+        -:  752:  @brief Searches the subtables above node for its parents.
+        -:  753:
+        -:  754:  @sideeffect None
+        -:  755:
+        -:  756:*/
+        -:  757:static void
+    #####:  758:debugFindParent(
+        -:  759:  DdManager * table,
+        -:  760:  DdNode * node)
+        -:  761:{
+        -:  762:    int         i,j;
+        -:  763:    int		slots;
+        -:  764:    DdNodePtr	*nodelist;
+        -:  765:    DdNode	*f;
+        -:  766:
+    #####:  767:    for (i = 0; i < cuddI(table,node->index); i++) {
+    #####:  768:	nodelist = table->subtables[i].nodelist;
+    #####:  769:	slots = table->subtables[i].slots;
+        -:  770:
+    #####:  771:	for (j=0;j<slots;j++) {
+    #####:  772:	    f = nodelist[j];
+    #####:  773:	    while (f != NULL) {
+    #####:  774:		if (cuddT(f) == node || Cudd_Regular(cuddE(f)) == node) {
+    #####:  775:		    (void) fprintf(table->out,"parent is at 0x%" PRIxPTR ", id = %u, ref = %u, then = 0x%" PRIxPTR ", else = 0x%" PRIxPTR "\n",
+    #####:  776:			(ptruint)f,f->index,f->ref,(ptruint)cuddT(f),(ptruint)cuddE(f));
+        -:  777:		}
+    #####:  778:		f = f->next;
+        -:  779:	    }
+        -:  780:	}
+        -:  781:    }
+        -:  782:
+    #####:  783:} /* end of debugFindParent */
+        -:  784:
+        -:  785:
+        -:  786:#if 0
+        -:  787:/**
+        -:  788:  @brief Reports an error if a (dead) node has a non-dead parent.
+        -:  789:
+        -:  790:  @details Searches all the subtables above node. Very expensive.
+        -:  791:  The same check is now implemented more efficiently in ddDebugCheck.
+        -:  792:
+        -:  793:  @sideeffect None
+        -:  794:
+        -:  795:  @see debugFindParent
+        -:  796:
+        -:  797:*/
+        -:  798:static void
+        -:  799:debugCheckParent(
+        -:  800:  DdManager * table,
+        -:  801:  DdNode * node)
+        -:  802:{
+        -:  803:    int         i,j;
+        -:  804:    int		slots;
+        -:  805:    DdNode	**nodelist,*f;
+        -:  806:
+        -:  807:    for (i = 0; i < cuddI(table,node->index); i++) {
+        -:  808:	nodelist = table->subtables[i].nodelist;
+        -:  809:	slots = table->subtables[i].slots;
+        -:  810:
+        -:  811:	for (j=0;j<slots;j++) {
+        -:  812:	    f = nodelist[j];
+        -:  813:	    while (f != NULL) {
+        -:  814:		if ((Cudd_Regular(cuddE(f)) == node || cuddT(f) == node) && f->ref != 0) {
+        -:  815:		    (void) fprintf(table->err,
+        -:  816:				   "error with zero ref count\n");
+        -:  817:		    (void) fprintf(table->err,"parent is 0x%x, id = %u, ref = %u, then = 0x%x, else = 0x%x\n",f,f->index,f->ref,cuddT(f),cuddE(f));
+        -:  818:		    (void) fprintf(table->err,"child  is 0x%x, id = %u, ref = %u, then = 0x%x, else = 0x%x\n",node,node->index,node->ref,cuddT(node),cuddE(node));
+        -:  819:		}
+        -:  820:		f = f->next;
+        -:  821:	    }
+        -:  822:	}
+        -:  823:    }
+        -:  824:}
+        -:  825:#endif

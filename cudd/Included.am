@@ -24,17 +24,20 @@ endif OBJ
 cudd_libcudd_la_LDFLAGS = -release @PACKAGE_VERSION@ -version-info 0:0:0 \
   -no-undefined
 
-check_PROGRAMS += cudd/testcudd cudd/testextra
+check_PROGRAMS += cudd/testcudd cudd/testextra cudd/testcheck
 cudd_testcudd_SOURCES = cudd/testcudd.c
 cudd_testcudd_CPPFLAGS = $(cudd_libcudd_la_CPPFLAGS)
 cudd_testcudd_LDADD = cudd/libcudd.la
 cudd_testextra_SOURCES = cudd/testextra.c
 cudd_testextra_CPPFLAGS = $(cudd_libcudd_la_CPPFLAGS)
 cudd_testextra_LDADD = cudd/libcudd.la
+cudd_testcheck_SOURCES = cudd/testcheck.c
+cudd_testcheck_CPPFLAGS = $(cudd_libcudd_la_CPPFLAGS)
+cudd_testcheck_LDADD = cudd/libcudd.la
 
 check_SCRIPTS += cudd/test_cudd.test
 EXTRA_DIST += cudd/test_cudd.test.in
-dist_check_DATA += cudd/r7x8.1.mat cudd/r7x8.1.out cudd/extra.out
+dist_check_DATA += cudd/r7x8.1.mat cudd/r7x8.1.out cudd/extra.out cudd/check.out
 if !CROSS_COMPILING
 TESTS += cudd/test_cudd.test
 endif !CROSS_COMPILING
@@ -43,4 +46,4 @@ cudd/test_cudd.test: cudd/test_cudd.test.in Makefile
 	$(do_subst) $< > $@
 	chmod +x $@
 
-CLEANFILES += cudd/r7x8.1.tst cudd/extra.tst
+CLEANFILES += cudd/r7x8.1.tst cudd/extra.tst cudd/check.tst

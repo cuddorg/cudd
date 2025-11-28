@@ -8,7 +8,7 @@ verbosity=2
 sed_command='-r:-e:2,3d:-e:/Cache used slots/d:-e:/Average distance/d:-e:/modifiable/,$d:-e:s/[0-9][0-9]*\.?[0-9]* sec//:-e:/so far/d'
 
 echo TAP version 13
-echo 1..2
+echo 1..3
 exitstatus=0
 # Create empty file.
 : > ./cudd/differences
@@ -60,5 +60,28 @@ if test x$exitstatus = x0; then
 else
     echo '# Check file "./cudd/differences"'
 fi
+
+cudd/testcheck$EXE $verbosity > ./cudd/check.tst 2>&1
+failed=`expr $? != 0`
+if test x$failed = x0 ; then
+    echo "# comparing ./cudd/check.tst to ${srcdir}/cudd/check.out"
+    mkfifo ./cudd/tst_fifo ./cudd/out_fifo
+    # Additional filter for addresses (0x...) which change between runs
+    sed_check_command='-r:-e:s/0x[0-9a-f][0-9a-f]*/0xADDR/g'
+    OIFS=$IFS
+    IFS=:
+    `sed ${sed_command} ${sed_check_command} ./cudd/check.tst > ./cudd/tst_fifo &\
+     sed ${sed_command} ${sed_check_command} ${srcdir}/cudd/check.out > ./cudd/out_fifo &\
+     diff -b ./cudd/tst_fifo ./cudd/out_fifo >> ./cudd/differences`
+    failed=`expr $? != 0`
+    rm ./cudd/tst_fifo ./cudd/out_fifo
+    IFS=$OIFS
+fi
+if test x$failed = x0 ; then
+    echo ok 3 cudd check
+else
+    echo not ok 3 cudd check
+fi
+exitstatus=`expr $exitstatus + $failed`
 
 exit 0
