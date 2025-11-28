@@ -1,13 +1,16 @@
 #include <catch2/catch_test_macros.hpp>
 #include "cudd/cudd.h"
-#include "cuddInt.h"  // For CUDD_CONST_INDEX
-
 #include "util.h"
 #include <cstdio>
+#include <cstdint>
 
 /**
  * @brief Comprehensive test file for cuddAPI.c targeting 90% coverage
  */
+
+// Define constant index for testing (matches CUDD_MAXINDEX)
+// This represents a constant/terminal node index
+static const int TEST_CONST_INDEX = ((unsigned int) ~0 >> 1);
 
 // Test hook function for hook tests
 static int testHookFunction(DdManager *dd, const char *str, void *data) {
@@ -225,12 +228,14 @@ TEST_CASE("Time management functions", "[cuddAPI]") {
     SECTION("ResetStartTime") {
         Cudd_ResetStartTime(dd);
         unsigned long st = Cudd_ReadStartTime(dd);
-        REQUIRE(st >= 0);
+        // Just verify we can read the value (unsigned is always >= 0)
+        (void)st;
     }
     
     SECTION("ReadElapsedTime") {
         unsigned long elapsed = Cudd_ReadElapsedTime(dd);
-        REQUIRE(elapsed >= 0);
+        // Just verify we can read the value (unsigned is always >= 0)
+        (void)elapsed;
     }
     
     SECTION("Time limit functions") {
@@ -511,8 +516,8 @@ TEST_CASE("Permutation functions", "[cuddAPI]") {
         int perm = Cudd_ReadPerm(dd, 0);
         REQUIRE(perm >= 0);
         
-        perm = Cudd_ReadPerm(dd, CUDD_CONST_INDEX);
-        REQUIRE(perm == CUDD_CONST_INDEX);
+        perm = Cudd_ReadPerm(dd, TEST_CONST_INDEX);
+        REQUIRE(perm == TEST_CONST_INDEX);
         
         perm = Cudd_ReadPerm(dd, -1);
         REQUIRE(perm == -1);
@@ -525,8 +530,8 @@ TEST_CASE("Permutation functions", "[cuddAPI]") {
         int perm = Cudd_ReadPermZdd(dd, 0);
         REQUIRE(perm >= 0);
         
-        perm = Cudd_ReadPermZdd(dd, CUDD_CONST_INDEX);
-        REQUIRE(perm == CUDD_CONST_INDEX);
+        perm = Cudd_ReadPermZdd(dd, TEST_CONST_INDEX);
+        REQUIRE(perm == TEST_CONST_INDEX);
         
         perm = Cudd_ReadPermZdd(dd, -1);
         REQUIRE(perm == -1);
@@ -539,8 +544,8 @@ TEST_CASE("Permutation functions", "[cuddAPI]") {
         int inv = Cudd_ReadInvPerm(dd, 0);
         REQUIRE(inv >= 0);
         
-        inv = Cudd_ReadInvPerm(dd, CUDD_CONST_INDEX);
-        REQUIRE(inv == CUDD_CONST_INDEX);
+        inv = Cudd_ReadInvPerm(dd, TEST_CONST_INDEX);
+        REQUIRE(inv == TEST_CONST_INDEX);
         
         inv = Cudd_ReadInvPerm(dd, -1);
         REQUIRE(inv == -1);
@@ -553,8 +558,8 @@ TEST_CASE("Permutation functions", "[cuddAPI]") {
         int inv = Cudd_ReadInvPermZdd(dd, 0);
         REQUIRE(inv >= 0);
         
-        inv = Cudd_ReadInvPermZdd(dd, CUDD_CONST_INDEX);
-        REQUIRE(inv == CUDD_CONST_INDEX);
+        inv = Cudd_ReadInvPermZdd(dd, TEST_CONST_INDEX);
+        REQUIRE(inv == TEST_CONST_INDEX);
         
         inv = Cudd_ReadInvPermZdd(dd, -1);
         REQUIRE(inv == -1);
@@ -1033,7 +1038,7 @@ TEST_CASE("PrintInfo function", "[cuddAPI]") {
     DdManager *dd = Cudd_Init(5, 3, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
     REQUIRE(dd != nullptr);
     
-    FILE *fp = fopen("/dev/null", "w");
+    FILE *fp = tmpfile();
     REQUIRE(fp != nullptr);
     
     int result = Cudd_PrintInfo(dd, fp);
@@ -1051,7 +1056,7 @@ TEST_CASE("Standard reorder hook functions", "[cuddAPI]") {
     DdManager *dd = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
     REQUIRE(dd != nullptr);
     
-    FILE *fp = fopen("/dev/null", "w");
+    FILE *fp = tmpfile();
     REQUIRE(fp != nullptr);
     Cudd_SetStdout(dd, fp);
     
@@ -1108,7 +1113,7 @@ TEST_CASE("PrintGroupedOrder function", "[cuddAPI]") {
     DdManager *dd = Cudd_Init(5, 3, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
     REQUIRE(dd != nullptr);
     
-    FILE *fp = fopen("/dev/null", "w");
+    FILE *fp = tmpfile();
     REQUIRE(fp != nullptr);
     Cudd_SetStdout(dd, fp);
     
