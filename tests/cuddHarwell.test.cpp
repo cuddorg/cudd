@@ -1088,3 +1088,209 @@ TEST_CASE("cuddHarwell - rowind read error (not EOF, wrong format)", "[cuddHarwe
     fclose(fp);
     Cudd_Quit(dd);
 }
+
+TEST_CASE("cuddHarwell - large matrix with limited memory (stress test)", "[cuddHarwell][!mayfail]") {
+    // This test attempts to trigger memory-related error paths
+    // by processing a larger matrix with constrained memory
+    DdManager *dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS / 4, CUDD_CACHE_SLOTS / 4, 0);
+    REQUIRE(dd != nullptr);
+    
+    // Set a very restrictive memory limit
+    Cudd_SetMaxMemory(dd, 64 * 1024);  // 64KB limit
+    
+    DdNode *E = nullptr;
+    DdNode **x = nullptr, **y = nullptr, **xn = nullptr, **yn = nullptr;
+    int nx = 0, ny = 0, m = 0, n = 0;
+    
+    // A 16x16 dense matrix would require many nodes
+    const char* content = 
+        "TITLE PADDING TO FILL 72 CHARACTERS EXACTLY INCLUDING ALL SPACES NEEDED!TESTKEY1\n"
+        "10 17 16 1 0\n"
+        "RUA 16 16 16 0\n"
+        "(10I8) (10I8) (10E15.8)\n"
+        "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17\n"
+        "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16\n"
+        "1.0 2.0 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0 11.0 12.0 13.0 14.0 15.0 16.0\n";
+    
+    FILE* fp = createTempFile(content);
+    REQUIRE(fp != nullptr);
+    
+    // This might succeed or fail depending on memory constraints
+    int result = Cudd_addHarwell(fp, dd, &E, &x, &y, &xn, &yn, &nx, &ny, &m, &n, 0, 2, 1, 2, 0);
+    
+    // Clean up whatever was allocated
+    if (result == 1 && E != nullptr) {
+        if (x) {
+            for (int i = 0; i < nx; i++) {
+                Cudd_RecursiveDeref(dd, x[i]);
+                Cudd_RecursiveDeref(dd, xn[i]);
+            }
+            FREE(x);
+            FREE(xn);
+        }
+        if (y) {
+            for (int i = 0; i < ny; i++) {
+                Cudd_RecursiveDeref(dd, y[i]);
+                Cudd_RecursiveDeref(dd, yn[i]);
+            }
+            FREE(y);
+            FREE(yn);
+        }
+        Cudd_RecursiveDeref(dd, E);
+    }
+    
+    fclose(fp);
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddHarwell - Multiple RHS values non-zero", "[cuddHarwell]") {
+    DdManager *dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    DdNode *E = nullptr;
+    DdNode **x = nullptr, **y = nullptr, **xn = nullptr, **yn = nullptr;
+    int nx = 0, ny = 0, m = 0, n = 0;
+    
+    // Matrix with multiple right-hand sides all non-zero to fully exercise RHS loop
+    const char* content = 
+        "TITLE PADDING TO FILL 72 CHARACTERS EXACTLY INCLUDING ALL SPACES NEEDED!TESTKEY1\n"
+        "10 5 4 1 1\n"
+        "RUA 4 4 4 0\n"
+        "(10I8) (10I8) (10E15.8) (10E15.8)\n"
+        "F   2 0\n"   // 2 RHS vectors
+        "1 2 3 4 5\n"
+        "1 2 3 4\n"
+        "1.0 2.0 3.0 4.0\n"
+        "1.0 2.0 3.0 4.0\n"   // RHS 1: all non-zero
+        "5.0 6.0 7.0 8.0\n";  // RHS 2: all non-zero
+    
+    FILE* fp = createTempFile(content);
+    REQUIRE(fp != nullptr);
+    
+    int result = Cudd_addHarwell(fp, dd, &E, &x, &y, &xn, &yn, &nx, &ny, &m, &n, 0, 2, 1, 2, 0);
+    REQUIRE(result == 1);
+    REQUIRE(E != nullptr);
+    
+    // Clean up
+    if (x) {
+        for (int i = 0; i < nx; i++) {
+            Cudd_RecursiveDeref(dd, x[i]);
+            Cudd_RecursiveDeref(dd, xn[i]);
+        }
+        FREE(x);
+        FREE(xn);
+    }
+    if (y) {
+        for (int i = 0; i < ny; i++) {
+            Cudd_RecursiveDeref(dd, y[i]);
+            Cudd_RecursiveDeref(dd, yn[i]);
+        }
+        FREE(y);
+        FREE(yn);
+    }
+    if (E) Cudd_RecursiveDeref(dd, E);
+    
+    fclose(fp);
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddHarwell - Matrix with all zeros in main data", "[cuddHarwell]") {
+    DdManager *dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    DdNode *E = nullptr;
+    DdNode **x = nullptr, **y = nullptr, **xn = nullptr, **yn = nullptr;
+    int nx = 0, ny = 0, m = 0, n = 0;
+    
+    // Minimal matrix with a single entry
+    const char* content = 
+        "TITLE PADDING TO FILL 72 CHARACTERS EXACTLY INCLUDING ALL SPACES NEEDED!TESTKEY1\n"
+        "10 3 1 1 0\n"
+        "RUA 2 2 1 0\n"
+        "(10I8) (10I8) (10E15.8)\n"
+        "1 1 2\n"    // colptr: first col has 1 entry, second col has 0 entries
+        "1\n"        // rowind: entry at row 0
+        "0.0\n";     // value is zero
+    
+    FILE* fp = createTempFile(content);
+    REQUIRE(fp != nullptr);
+    
+    int result = Cudd_addHarwell(fp, dd, &E, &x, &y, &xn, &yn, &nx, &ny, &m, &n, 0, 2, 1, 2, 0);
+    REQUIRE(result == 1);
+    
+    // Clean up
+    if (x) {
+        for (int i = 0; i < nx; i++) {
+            Cudd_RecursiveDeref(dd, x[i]);
+            Cudd_RecursiveDeref(dd, xn[i]);
+        }
+        FREE(x);
+        FREE(xn);
+    }
+    if (y) {
+        for (int i = 0; i < ny; i++) {
+            Cudd_RecursiveDeref(dd, y[i]);
+            Cudd_RecursiveDeref(dd, yn[i]);
+        }
+        FREE(y);
+        FREE(yn);
+    }
+    if (E) Cudd_RecursiveDeref(dd, E);
+    
+    fclose(fp);
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddHarwell - Odd and even row indices", "[cuddHarwell]") {
+    DdManager *dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    DdNode *E = nullptr;
+    DdNode **x = nullptr, **y = nullptr, **xn = nullptr, **yn = nullptr;
+    int nx = 0, ny = 0, m = 0, n = 0;
+    
+    // 4x4 matrix with entries in specific positions to exercise u&1 paths
+    // Entries at positions (0,0), (1,1), (2,2), (3,3) - diagonal
+    // Row 0: binary 00 (even/even)
+    // Row 1: binary 01 (odd/even)  
+    // Row 2: binary 10 (even/odd)
+    // Row 3: binary 11 (odd/odd)
+    const char* content = 
+        "TITLE PADDING TO FILL 72 CHARACTERS EXACTLY INCLUDING ALL SPACES NEEDED!TESTKEY1\n"
+        "10 5 4 1 0\n"
+        "RUA 4 4 4 0\n"
+        "(10I8) (10I8) (10E15.8)\n"
+        "1 2 3 4 5\n"   // colptr
+        "1 2 3 4\n"     // rowind: 0,1,2,3 (1-based: 1,2,3,4)
+        "1.0 2.0 3.0 4.0\n";
+    
+    FILE* fp = createTempFile(content);
+    REQUIRE(fp != nullptr);
+    
+    int result = Cudd_addHarwell(fp, dd, &E, &x, &y, &xn, &yn, &nx, &ny, &m, &n, 0, 2, 1, 2, 0);
+    REQUIRE(result == 1);
+    REQUIRE(nx == 2);  // 4 rows needs 2 bits
+    REQUIRE(ny == 2);  // 4 cols needs 2 bits
+    
+    // Clean up
+    if (x) {
+        for (int i = 0; i < nx; i++) {
+            Cudd_RecursiveDeref(dd, x[i]);
+            Cudd_RecursiveDeref(dd, xn[i]);
+        }
+        FREE(x);
+        FREE(xn);
+    }
+    if (y) {
+        for (int i = 0; i < ny; i++) {
+            Cudd_RecursiveDeref(dd, y[i]);
+            Cudd_RecursiveDeref(dd, yn[i]);
+        }
+        FREE(y);
+        FREE(yn);
+    }
+    if (E) Cudd_RecursiveDeref(dd, E);
+    
+    fclose(fp);
+    Cudd_Quit(dd);
+}
