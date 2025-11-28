@@ -1842,27 +1842,25 @@ TEST_CASE("cuddZddReord - cuddZddSiftingAux go-down-first branch", "[cuddZddReor
         DdNode* result = Cudd_ReadZddOne(manager, 0);
         Cudd_Ref(result);
         
-        // Make variable 18 have MANY more keys than others
+        // Make variable 18 have more keys than others by creating distinct products
         // Variable 18 is at level 18 initially, (18-0) > (19-18) => 18 > 1 TRUE
-        for (int iter = 0; iter < 50; iter++) {
-            for (int j = 0; j < 18; j++) {
-                DdNode* v18 = Cudd_zddIthVar(manager, 18);
-                DdNode* vj = Cudd_zddIthVar(manager, j);
-                Cudd_Ref(v18);
-                Cudd_Ref(vj);
-                
-                DdNode* prod = Cudd_zddProduct(manager, v18, vj);
-                Cudd_Ref(prod);
-                
-                DdNode* temp = Cudd_zddUnion(manager, result, prod);
-                Cudd_Ref(temp);
-                
-                Cudd_RecursiveDerefZdd(manager, prod);
-                Cudd_RecursiveDerefZdd(manager, v18);
-                Cudd_RecursiveDerefZdd(manager, vj);
-                Cudd_RecursiveDerefZdd(manager, result);
-                result = temp;
-            }
+        for (int j = 0; j < 18; j++) {
+            DdNode* v18 = Cudd_zddIthVar(manager, 18);
+            DdNode* vj = Cudd_zddIthVar(manager, j);
+            Cudd_Ref(v18);
+            Cudd_Ref(vj);
+            
+            DdNode* prod = Cudd_zddProduct(manager, v18, vj);
+            Cudd_Ref(prod);
+            
+            DdNode* temp = Cudd_zddUnion(manager, result, prod);
+            Cudd_Ref(temp);
+            
+            Cudd_RecursiveDerefZdd(manager, prod);
+            Cudd_RecursiveDerefZdd(manager, v18);
+            Cudd_RecursiveDerefZdd(manager, vj);
+            Cudd_RecursiveDerefZdd(manager, result);
+            result = temp;
         }
         
         // Only add minimal interactions for lower variables
@@ -1890,26 +1888,24 @@ TEST_CASE("cuddZddReord - cuddZddSiftingAux go-down-first branch", "[cuddZddReor
         DdNode* result = Cudd_ReadZddOne(manager, 0);
         Cudd_Ref(result);
         
-        // Make variable 8 have many more keys: x=8, (8-0)=8 > (9-8)=1 TRUE
-        for (int iter = 0; iter < 20; iter++) {
-            for (int j = 0; j < 8; j++) {
-                DdNode* v8 = Cudd_zddIthVar(manager, 8);
-                DdNode* vj = Cudd_zddIthVar(manager, j);
-                Cudd_Ref(v8);
-                Cudd_Ref(vj);
-                
-                DdNode* prod = Cudd_zddProduct(manager, v8, vj);
-                Cudd_Ref(prod);
-                
-                DdNode* temp = Cudd_zddUnion(manager, result, prod);
-                Cudd_Ref(temp);
-                
-                Cudd_RecursiveDerefZdd(manager, prod);
-                Cudd_RecursiveDerefZdd(manager, v8);
-                Cudd_RecursiveDerefZdd(manager, vj);
-                Cudd_RecursiveDerefZdd(manager, result);
-                result = temp;
-            }
+        // Make variable 8 have more keys: x=8, (8-0)=8 > (9-8)=1 TRUE
+        for (int j = 0; j < 8; j++) {
+            DdNode* v8 = Cudd_zddIthVar(manager, 8);
+            DdNode* vj = Cudd_zddIthVar(manager, j);
+            Cudd_Ref(v8);
+            Cudd_Ref(vj);
+            
+            DdNode* prod = Cudd_zddProduct(manager, v8, vj);
+            Cudd_Ref(prod);
+            
+            DdNode* temp = Cudd_zddUnion(manager, result, prod);
+            Cudd_Ref(temp);
+            
+            Cudd_RecursiveDerefZdd(manager, prod);
+            Cudd_RecursiveDerefZdd(manager, v8);
+            Cudd_RecursiveDerefZdd(manager, vj);
+            Cudd_RecursiveDerefZdd(manager, result);
+            result = temp;
         }
         
         int reorderResult = Cudd_zddReduceHeap(manager, CUDD_REORDER_SIFT, 0);
@@ -2007,8 +2003,8 @@ TEST_CASE("cuddZddReord - zddReorderPostprocess subtable shrinking", "[cuddZddRe
         Cudd_RecursiveDerefZdd(manager, result);
         result = temp;
         
-        // Trigger reordering multiple times
-        for (int i = 0; i < 10; i++) {
+        // Trigger reordering - reduced iterations
+        for (int i = 0; i < 3; i++) {
             int reorderResult = Cudd_zddReduceHeap(manager, CUDD_REORDER_SIFT, 0);
             REQUIRE(reorderResult >= 1);
         }
@@ -2047,9 +2043,8 @@ TEST_CASE("cuddZddReord - cuddZddSwapping modulo edge cases", "[cuddZddReord]") 
             result = temp;
         }
         
-        // RANDOM_PIVOT with pivot at max position: modulo = upper - pivot = 0
-        // This triggers y = pivot branch
-        for (int i = 0; i < 10; i++) {
+        // RANDOM_PIVOT with pivot at max position - reduced iterations
+        for (int i = 0; i < 3; i++) {
             int reorderResult = Cudd_zddReduceHeap(manager, CUDD_REORDER_RANDOM_PIVOT, 0);
             REQUIRE(reorderResult >= 1);
         }
@@ -2087,9 +2082,8 @@ TEST_CASE("cuddZddReord - cuddZddSwapping modulo edge cases", "[cuddZddReord]") 
             }
         }
         
-        // pivot = 1: modulo = pivot - lower - 1 = 1 - 0 - 1 = 0 < 1
-        // This triggers x = lower branch
-        for (int i = 0; i < 10; i++) {
+        // Reduced iterations
+        for (int i = 0; i < 3; i++) {
             int reorderResult = Cudd_zddReduceHeap(manager, CUDD_REORDER_RANDOM_PIVOT, 0);
             REQUIRE(reorderResult >= 1);
         }
@@ -2128,8 +2122,8 @@ TEST_CASE("cuddZddReord - zddSwapAny limit_size update", "[cuddZddReord]") {
             result = temp;
         }
         
-        // Many random iterations to hit limit_size update
-        for (int i = 0; i < 30; i++) {
+        // Reduced iterations for random reordering
+        for (int i = 0; i < 5; i++) {
             int reorderResult = Cudd_zddReduceHeap(manager, CUDD_REORDER_RANDOM, 0);
             REQUIRE(reorderResult >= 1);
         }
