@@ -1245,3 +1245,266 @@ TEST_CASE("Cudd_bddRead - Complete arc reading", "[cuddRead]") {
     
     Cudd_Quit(manager);
 }
+
+TEST_CASE("Cudd_addRead - Memory constraint scenarios", "[cuddRead]") {
+    // Create a manager with limited memory to potentially trigger error paths
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Read with very small memory limit") {
+        // Set a small memory limit (may not trigger failure but covers setup)
+        Cudd_SetMaxMemory(manager, 1024 * 100); // 100KB limit
+        
+        const char* content = "2 2\n0 0 1.0\n1 1 2.0\n";
+        FILE *fp = create_temp_file_with_content(content);
+        REQUIRE(fp != nullptr);
+        
+        DdNode *E = nullptr;
+        DdNode **x = nullptr, **y = nullptr, **xn = nullptr, **yn = nullptr;
+        int nx = 0, ny = 0, m = 0, n = 0;
+        
+        int result = Cudd_addRead(fp, manager, &E, &x, &y, &xn, &yn, &nx, &ny, &m, &n, 0, 2, 1, 2);
+        // Result may be 1 (success) or 0 (memory failure) - both are valid outcomes
+        if (result == 1) {
+            REQUIRE(E != nullptr);
+            Cudd_RecursiveDeref(manager, E);
+            for (int i = 0; i < nx; i++) {
+                Cudd_RecursiveDeref(manager, x[i]);
+                Cudd_RecursiveDeref(manager, xn[i]);
+            }
+            for (int i = 0; i < ny; i++) {
+                Cudd_RecursiveDeref(manager, y[i]);
+                Cudd_RecursiveDeref(manager, yn[i]);
+            }
+        }
+        FREE(x);
+        FREE(y);
+        FREE(xn);
+        FREE(yn);
+        fclose(fp);
+    }
+    
+    SECTION("Read large matrix with small memory limit") {
+        // Attempt to read a larger matrix with tight memory - may trigger some error paths
+        Cudd_SetMaxMemory(manager, 1024 * 50); // 50KB limit
+        
+        const char* content = "16 16\n0 0 1.0\n15 15 2.0\n8 8 3.0\n7 7 4.0\n";
+        FILE *fp = create_temp_file_with_content(content);
+        REQUIRE(fp != nullptr);
+        
+        DdNode *E = nullptr;
+        DdNode **x = nullptr, **y = nullptr, **xn = nullptr, **yn = nullptr;
+        int nx = 0, ny = 0, m = 0, n = 0;
+        
+        int result = Cudd_addRead(fp, manager, &E, &x, &y, &xn, &yn, &nx, &ny, &m, &n, 0, 2, 1, 2);
+        if (result == 1 && E != nullptr) {
+            Cudd_RecursiveDeref(manager, E);
+            for (int i = 0; i < nx; i++) {
+                Cudd_RecursiveDeref(manager, x[i]);
+                Cudd_RecursiveDeref(manager, xn[i]);
+            }
+            for (int i = 0; i < ny; i++) {
+                Cudd_RecursiveDeref(manager, y[i]);
+                Cudd_RecursiveDeref(manager, yn[i]);
+            }
+        }
+        FREE(x);
+        FREE(y);
+        FREE(xn);
+        FREE(yn);
+        fclose(fp);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_bddRead - Memory constraint scenarios", "[cuddRead]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Read with very small memory limit") {
+        Cudd_SetMaxMemory(manager, 1024 * 100); // 100KB limit
+        
+        const char* content = "2 2\n0 0\n1 1\n";
+        FILE *fp = create_temp_file_with_content(content);
+        REQUIRE(fp != nullptr);
+        
+        DdNode *E = nullptr;
+        DdNode **x = nullptr, **y = nullptr;
+        int nx = 0, ny = 0, m = 0, n = 0;
+        
+        int result = Cudd_bddRead(fp, manager, &E, &x, &y, &nx, &ny, &m, &n, 0, 2, 1, 2);
+        if (result == 1 && E != nullptr) {
+            Cudd_RecursiveDeref(manager, E);
+            for (int i = 0; i < nx; i++) {
+                Cudd_RecursiveDeref(manager, x[i]);
+            }
+            for (int i = 0; i < ny; i++) {
+                Cudd_RecursiveDeref(manager, y[i]);
+            }
+        }
+        FREE(x);
+        FREE(y);
+        fclose(fp);
+    }
+    
+    SECTION("Read large graph with small memory limit") {
+        Cudd_SetMaxMemory(manager, 1024 * 50); // 50KB limit
+        
+        const char* content = "16 16\n0 0\n15 15\n8 8\n7 7\n";
+        FILE *fp = create_temp_file_with_content(content);
+        REQUIRE(fp != nullptr);
+        
+        DdNode *E = nullptr;
+        DdNode **x = nullptr, **y = nullptr;
+        int nx = 0, ny = 0, m = 0, n = 0;
+        
+        int result = Cudd_bddRead(fp, manager, &E, &x, &y, &nx, &ny, &m, &n, 0, 2, 1, 2);
+        if (result == 1 && E != nullptr) {
+            Cudd_RecursiveDeref(manager, E);
+            for (int i = 0; i < nx; i++) {
+                Cudd_RecursiveDeref(manager, x[i]);
+            }
+            for (int i = 0; i < ny; i++) {
+                Cudd_RecursiveDeref(manager, y[i]);
+            }
+        }
+        FREE(x);
+        FREE(y);
+        fclose(fp);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addRead - Edge case indices", "[cuddRead]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Read with power of 2 dimensions") {
+        // 2^3 = 8, requires exactly 3 bits
+        const char* content = "8 8\n0 0 1.0\n7 0 2.0\n0 7 3.0\n7 7 4.0\n";
+        FILE *fp = create_temp_file_with_content(content);
+        REQUIRE(fp != nullptr);
+        
+        DdNode *E = nullptr;
+        DdNode **x = nullptr, **y = nullptr, **xn = nullptr, **yn = nullptr;
+        int nx = 0, ny = 0, m = 0, n = 0;
+        
+        int result = Cudd_addRead(fp, manager, &E, &x, &y, &xn, &yn, &nx, &ny, &m, &n, 0, 2, 1, 2);
+        REQUIRE(result == 1);
+        REQUIRE(nx == 3);
+        REQUIRE(ny == 3);
+        
+        Cudd_RecursiveDeref(manager, E);
+        for (int i = 0; i < nx; i++) {
+            Cudd_RecursiveDeref(manager, x[i]);
+            Cudd_RecursiveDeref(manager, xn[i]);
+        }
+        for (int i = 0; i < ny; i++) {
+            Cudd_RecursiveDeref(manager, y[i]);
+            Cudd_RecursiveDeref(manager, yn[i]);
+        }
+        FREE(x);
+        FREE(y);
+        FREE(xn);
+        FREE(yn);
+        fclose(fp);
+    }
+    
+    SECTION("Read with odd dimensions") {
+        // 3x5 matrix - 3 needs 2 bits, 5 needs 3 bits
+        const char* content = "3 5\n0 0 1.0\n2 4 2.0\n1 2 3.0\n";
+        FILE *fp = create_temp_file_with_content(content);
+        REQUIRE(fp != nullptr);
+        
+        DdNode *E = nullptr;
+        DdNode **x = nullptr, **y = nullptr, **xn = nullptr, **yn = nullptr;
+        int nx = 0, ny = 0, m = 0, n = 0;
+        
+        int result = Cudd_addRead(fp, manager, &E, &x, &y, &xn, &yn, &nx, &ny, &m, &n, 0, 2, 1, 2);
+        REQUIRE(result == 1);
+        REQUIRE(m == 3);
+        REQUIRE(n == 5);
+        REQUIRE(nx == 2);  // ceil(log2(3)) = 2
+        REQUIRE(ny == 3);  // ceil(log2(5)) = 3
+        
+        Cudd_RecursiveDeref(manager, E);
+        for (int i = 0; i < nx; i++) {
+            Cudd_RecursiveDeref(manager, x[i]);
+            Cudd_RecursiveDeref(manager, xn[i]);
+        }
+        for (int i = 0; i < ny; i++) {
+            Cudd_RecursiveDeref(manager, y[i]);
+            Cudd_RecursiveDeref(manager, yn[i]);
+        }
+        FREE(x);
+        FREE(y);
+        FREE(xn);
+        FREE(yn);
+        fclose(fp);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_bddRead - Edge case indices", "[cuddRead]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Read with power of 2 dimensions") {
+        const char* content = "8 8\n0 0\n7 0\n0 7\n7 7\n";
+        FILE *fp = create_temp_file_with_content(content);
+        REQUIRE(fp != nullptr);
+        
+        DdNode *E = nullptr;
+        DdNode **x = nullptr, **y = nullptr;
+        int nx = 0, ny = 0, m = 0, n = 0;
+        
+        int result = Cudd_bddRead(fp, manager, &E, &x, &y, &nx, &ny, &m, &n, 0, 2, 1, 2);
+        REQUIRE(result == 1);
+        REQUIRE(nx == 3);
+        REQUIRE(ny == 3);
+        
+        Cudd_RecursiveDeref(manager, E);
+        for (int i = 0; i < nx; i++) {
+            Cudd_RecursiveDeref(manager, x[i]);
+        }
+        for (int i = 0; i < ny; i++) {
+            Cudd_RecursiveDeref(manager, y[i]);
+        }
+        FREE(x);
+        FREE(y);
+        fclose(fp);
+    }
+    
+    SECTION("Read with odd dimensions") {
+        const char* content = "3 5\n0 0\n2 4\n1 2\n";
+        FILE *fp = create_temp_file_with_content(content);
+        REQUIRE(fp != nullptr);
+        
+        DdNode *E = nullptr;
+        DdNode **x = nullptr, **y = nullptr;
+        int nx = 0, ny = 0, m = 0, n = 0;
+        
+        int result = Cudd_bddRead(fp, manager, &E, &x, &y, &nx, &ny, &m, &n, 0, 2, 1, 2);
+        REQUIRE(result == 1);
+        REQUIRE(m == 3);
+        REQUIRE(n == 5);
+        REQUIRE(nx == 2);
+        REQUIRE(ny == 3);
+        
+        Cudd_RecursiveDeref(manager, E);
+        for (int i = 0; i < nx; i++) {
+            Cudd_RecursiveDeref(manager, x[i]);
+        }
+        for (int i = 0; i < ny; i++) {
+            Cudd_RecursiveDeref(manager, y[i]);
+        }
+        FREE(x);
+        FREE(y);
+        fclose(fp);
+    }
+    
+    Cudd_Quit(manager);
+}
