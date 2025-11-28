@@ -66,8 +66,8 @@ failed=`expr $? != 0`
 if test x$failed = x0 ; then
     echo "# comparing ./cudd/check.tst to ${srcdir}/cudd/check.out"
     mkfifo ./cudd/tst_fifo ./cudd/out_fifo
-    # Additional filter for addresses (0x...) which change between runs
-    sed_check_command='-r:-e:s/0x[0-9a-f][0-9a-f]*/0xADDR/g'
+    # Additional filters: addresses (0x...) and Average length lines which change between runs
+    sed_check_command='-r:-e:s/0x[0-9a-f][0-9a-f]*/0xADDR/g:-e:/Average length/d'
     OIFS=$IFS
     IFS=:
     `sed ${sed_command} ${sed_check_command} ./cudd/check.tst > ./cudd/tst_fifo &\

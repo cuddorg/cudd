@@ -245,8 +245,15 @@ testCheckKeys(int verbosity)
 
   /* Suppress output from Cudd_CheckKeys if not verbose */
   if (!verbosity) {
+    FILE *devnull = fopen("/dev/null", "w");
+    if (devnull == NULL) {
+      Cudd_RecursiveDeref(dd, f);
+      Cudd_RecursiveDeref(dd, add);
+      Cudd_Quit(dd);
+      return -1;
+    }
     savefp = Cudd_ReadStdout(dd);
-    Cudd_SetStdout(dd, fopen("/dev/null", "w"));
+    Cudd_SetStdout(dd, devnull);
   }
 
   /* Run Cudd_CheckKeys */
@@ -348,8 +355,14 @@ testHeapProfile(int verbosity)
     printf("cuddHeapProfile passed\n");
   } else {
     /* Even without verbose, run it to ensure coverage */
+    FILE *devnull = fopen("/dev/null", "w");
+    if (devnull == NULL) {
+      Cudd_RecursiveDeref(dd, f);
+      Cudd_Quit(dd);
+      return -1;
+    }
     FILE *savefp = Cudd_ReadStdout(dd);
-    Cudd_SetStdout(dd, fopen("/dev/null", "w"));
+    Cudd_SetStdout(dd, devnull);
     ret = cuddHeapProfile(dd);
     fclose(Cudd_ReadStdout(dd));
     Cudd_SetStdout(dd, savefp);
@@ -610,8 +623,14 @@ testCheckWithZDD(int verbosity)
 
   /* Test Cudd_CheckKeys with ZDD */
   if (!verbosity) {
+    FILE *devnull = fopen("/dev/null", "w");
+    if (devnull == NULL) {
+      Cudd_RecursiveDerefZdd(dd, f);
+      Cudd_Quit(dd);
+      return -1;
+    }
     savefp = Cudd_ReadStdout(dd);
-    Cudd_SetStdout(dd, fopen("/dev/null", "w"));
+    Cudd_SetStdout(dd, devnull);
   }
 
   ret = Cudd_CheckKeys(dd);
@@ -699,8 +718,19 @@ testCheckWithConstants(int verbosity)
   }
 
   if (!verbosity) {
+    FILE *devnull = fopen("/dev/null", "w");
+    if (devnull == NULL) {
+      Cudd_RecursiveDeref(dd, c1);
+      Cudd_RecursiveDeref(dd, c2);
+      Cudd_RecursiveDeref(dd, c3);
+      Cudd_RecursiveDeref(dd, var0);
+      Cudd_RecursiveDeref(dd, var1);
+      Cudd_RecursiveDeref(dd, add);
+      Cudd_Quit(dd);
+      return -1;
+    }
     savefp = Cudd_ReadStdout(dd);
-    Cudd_SetStdout(dd, fopen("/dev/null", "w"));
+    Cudd_SetStdout(dd, devnull);
   }
 
   ret = Cudd_CheckKeys(dd);
@@ -814,8 +844,15 @@ testCheckWithReordering(int verbosity)
   }
 
   if (!verbosity) {
+    FILE *devnull = fopen("/dev/null", "w");
+    if (devnull == NULL) {
+      Cudd_RecursiveDeref(dd, f);
+      Cudd_RecursiveDeref(dd, g);
+      Cudd_Quit(dd);
+      return -1;
+    }
     savefp = Cudd_ReadStdout(dd);
-    Cudd_SetStdout(dd, fopen("/dev/null", "w"));
+    Cudd_SetStdout(dd, devnull);
   }
 
   ret = Cudd_CheckKeys(dd);
@@ -914,8 +951,15 @@ testCheckWithDeadNodes(int verbosity)
   }
 
   if (!verbosity) {
+    FILE *devnull = fopen("/dev/null", "w");
+    if (devnull == NULL) {
+      Cudd_RecursiveDeref(dd, f);
+      Cudd_RecursiveDeref(dd, h);
+      Cudd_Quit(dd);
+      return -1;
+    }
     savefp = Cudd_ReadStdout(dd);
-    Cudd_SetStdout(dd, fopen("/dev/null", "w"));
+    Cudd_SetStdout(dd, devnull);
   }
 
   ret = Cudd_CheckKeys(dd);
@@ -1009,8 +1053,15 @@ testCheckWithLargeStructure(int verbosity)
       return -1;
     }
   } else {
+    FILE *devnull = fopen("/dev/null", "w");
+    if (devnull == NULL) {
+      Cudd_RecursiveDeref(dd, f);
+      Cudd_RecursiveDeref(dd, add);
+      Cudd_Quit(dd);
+      return -1;
+    }
     savefp = Cudd_ReadStdout(dd);
-    Cudd_SetStdout(dd, fopen("/dev/null", "w"));
+    Cudd_SetStdout(dd, devnull);
     ret = cuddHeapProfile(dd);
     fclose(Cudd_ReadStdout(dd));
     Cudd_SetStdout(dd, savefp);
@@ -1035,8 +1086,15 @@ testCheckWithLargeStructure(int verbosity)
   }
 
   if (!verbosity) {
+    FILE *devnull2 = fopen("/dev/null", "w");
+    if (devnull2 == NULL) {
+      Cudd_RecursiveDeref(dd, f);
+      Cudd_RecursiveDeref(dd, add);
+      Cudd_Quit(dd);
+      return -1;
+    }
     savefp = Cudd_ReadStdout(dd);
-    Cudd_SetStdout(dd, fopen("/dev/null", "w"));
+    Cudd_SetStdout(dd, devnull2);
   }
 
   ret = Cudd_CheckKeys(dd);
