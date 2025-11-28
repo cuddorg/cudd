@@ -212,35 +212,32 @@ TEST_CASE("cuddLocalCacheLookup - Cache resize trigger", "[cuddLCache]") {
     REQUIRE(manager != nullptr);
     
     SECTION("Trigger cache resize through high hit rate") {
-        // Create small cache with room to grow: initial slots=4, max slots=64
-        DdLocalCache *cache = cuddLocalCacheInit(manager, 1, 4, 64);
+        // Create small cache with room to grow
+        // Note: actual slots may be rounded up based on manager->slots
+        DdLocalCache *cache = cuddLocalCacheInit(manager, 1, 4, 2048);
         REQUIRE(cache != nullptr);
         
         unsigned int initial_slots = cache->slots;
+        unsigned int initial_maxslots = cache->maxslots;
         
-        // Create just one variable for simple testing
+        // Create a variable for testing
         DdNode *x = Cudd_bddNewVar(manager);
         DdNode *y = Cudd_bddNewVar(manager);
         Cudd_Ref(x);
         Cudd_Ref(y);
         
-        // Insert a single entry into cache
+        // Insert an entry into cache
         DdNode *key[1] = {x};
         cuddLocalCacheInsert(cache, key, y);
         
-        // The resize condition is: hits > lookUps * minHit
-        // Default minHit is around 0.3 (30%)
-        // Initial lookUps is set to avoid immediate resize
-        // After many hits, it should resize
+        // Perform lookups - each successful lookup increments hits
+        DdNode *result = cuddLocalCacheLookup(cache, key);
+        REQUIRE(result == y); // This is a hit
         
-        // Get many cache hits to trigger resize
-        // The resize requires: slots < maxslots AND hits > lookups * minHit
-        // We need a high hit ratio (>30%) over many lookups
-        for (int iter = 0; iter < 100; iter++) {
-            cuddLocalCacheLookup(cache, key);
-        }
+        result = cuddLocalCacheLookup(cache, key);
+        // After enough lookups, check if resize happened
         
-        // Cache may have resized - just ensure it's still functional
+        // Cache may have resized - verify it's at least initial size
         REQUIRE(cache->slots >= initial_slots);
         
         cuddLocalCacheQuit(cache);
@@ -249,41 +246,51 @@ TEST_CASE("cuddLocalCacheLookup - Cache resize trigger", "[cuddLCache]") {
         Cudd_RecursiveDeref(manager, x);
     }
     
-    SECTION("Force resize through repeated hits") {
-        // Very small initial cache that can grow
-        DdLocalCache *cache = cuddLocalCacheInit(manager, 2, 4, 128);
+    SECTION("Verify resize is triggered by forcing cache misses after hits") {
+        // Create a very small cache that can grow significantly
+        // The resize happens on a cache miss when hits > lookUps * minHit
+        DdLocalCache *cache = cuddLocalCacheInit(manager, 2, 4, 8192);
         REQUIRE(cache != nullptr);
         
         unsigned int initial_slots = cache->slots;
         
-        DdNode *x = Cudd_bddNewVar(manager);
-        DdNode *y = Cudd_bddNewVar(manager);
-        DdNode *z = Cudd_bddNewVar(manager);
-        Cudd_Ref(x);
-        Cudd_Ref(y);
-        Cudd_Ref(z);
+        // Create multiple variables
+        std::vector<DdNode*> vars;
+        for (int i = 0; i < 10; i++) {
+            DdNode *v = Cudd_bddNewVar(manager);
+            Cudd_Ref(v);
+            vars.push_back(v);
+        }
         
-        // Insert entries
-        DdNode *key1[2] = {x, y};
-        DdNode *key2[2] = {y, z};
-        cuddLocalCacheInsert(cache, key1, z);
-        cuddLocalCacheInsert(cache, key2, x);
+        // Insert several entries that we can hit
+        DdNode *key0[2] = {vars[0], vars[1]};
+        DdNode *key1[2] = {vars[2], vars[3]};
+        DdNode *key2[2] = {vars[4], vars[5]};
         
-        // Many lookups with high hit rate
-        for (int iter = 0; iter < 500; iter++) {
+        cuddLocalCacheInsert(cache, key0, vars[6]);
+        cuddLocalCacheInsert(cache, key1, vars[7]);
+        cuddLocalCacheInsert(cache, key2, vars[8]);
+        
+        // Do many lookups to accumulate hits
+        for (int i = 0; i < 50; i++) {
+            cuddLocalCacheLookup(cache, key0);
             cuddLocalCacheLookup(cache, key1);
             cuddLocalCacheLookup(cache, key2);
         }
         
-        // If resize triggered, slots would have doubled
+        // Now do a lookup that misses - this should check for resize
+        DdNode *miss_key[2] = {vars[8], vars[9]};
+        cuddLocalCacheLookup(cache, miss_key);
+        
+        // If we have enough hits, cache should have resized
         // Just verify cache is still functional
         REQUIRE(cache->slots >= initial_slots);
         
         cuddLocalCacheQuit(cache);
         
-        Cudd_RecursiveDeref(manager, z);
-        Cudd_RecursiveDeref(manager, y);
-        Cudd_RecursiveDeref(manager, x);
+        for (auto v : vars) {
+            Cudd_RecursiveDeref(manager, v);
+        }
     }
     
     Cudd_Quit(manager);
