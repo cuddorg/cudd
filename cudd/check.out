@@ -4,7 +4,7 @@ Cudd_DebugCheck passed on valid BDD heap
 Average length of non-empty lists = 1
 Cudd_CheckKeys passed: 0 subtables with wrong key count
 === Testing cuddHeapProfile ===
-*** DD heap profile for 0x55c76913c2b0 ***
+*** DD heap profile for 0x55a851ef92b0 ***
     0:     2 nodes
     1:     2 nodes
     2:     2 nodes
@@ -18,9 +18,9 @@ Summary: 9 tables, 9 non-empty, largest: 2147483647 (with 4 nodes)
 cuddHeapProfile passed
 === Testing cuddPrintNode ===
 Printing nodes:
-       node 0x55c76913d5e0, id = 0, ref = 1, then = 0x55c76913d5c0, else = 0x55c76913d4a1
-       node 0x55c76913d5c0, id = 1, ref = 1, then = 0x55c76913d5a0, else = 0x55c76913d4a1
-       node 0x55c76913d4a0, id = 2147483647, ref = 12, then = 0x3ff0000000000000, else = 0x55c76913c2b0
+       node 0x55a851efa5e0, id = 0, ref = 1, then = 0x55a851efa5c0, else = 0x55a851efa4a1
+       node 0x55a851efa5c0, id = 1, ref = 1, then = 0x55a851efa5a0, else = 0x55a851efa4a1
+       node 0x55a851efa4a0, id = 2147483647, ref = 12, then = 0x3ff0000000000000, else = 0x55a851ef92b0
 cuddPrintNode tests passed
 === Testing cuddPrintVarGroups ===
 Printing BDD variable groups:
@@ -45,7 +45,7 @@ Tests with reordering passed
 Average length of non-empty lists = 1
 Tests with dead nodes passed
 === Testing checks with large structure ===
-*** DD heap profile for 0x55c76913c2b0 ***
+*** DD heap profile for 0x55a851ef92b0 ***
     0:     3 nodes
     1:     4 nodes
     2:     5 nodes
