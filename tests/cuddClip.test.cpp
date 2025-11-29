@@ -2525,3 +2525,224 @@ TEST_CASE("Cudd_bddClippingAndAbstract - Timeout handler", "[cuddClip]") {
     
     Cudd_Quit(manager);
 }
+
+TEST_CASE("Cudd_bddClippingAnd - More comprehensive recursion tests", "[cuddClip]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Deep recursion with many variables") {
+        // Create many variables to exercise deeper recursion
+        const int numVars = 8;
+        DdNode *vars[numVars];
+        for (int i = 0; i < numVars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create complex BDDs
+        DdNode *f = vars[0];
+        Cudd_Ref(f);
+        for (int i = 1; i < numVars / 2; i++) {
+            DdNode *temp = Cudd_bddAnd(manager, f, vars[i]);
+            Cudd_Ref(temp);
+            Cudd_RecursiveDeref(manager, f);
+            f = temp;
+        }
+        
+        DdNode *g = vars[numVars / 2];
+        Cudd_Ref(g);
+        for (int i = numVars / 2 + 1; i < numVars; i++) {
+            DdNode *temp = Cudd_bddOr(manager, g, vars[i]);
+            Cudd_Ref(temp);
+            Cudd_RecursiveDeref(manager, g);
+            g = temp;
+        }
+        
+        // Test with various depths
+        for (int depth = 1; depth <= 10; depth++) {
+            DdNode *result = Cudd_bddClippingAnd(manager, f, g, depth, 0);
+            Cudd_Ref(result);
+            REQUIRE(result != nullptr);
+            Cudd_RecursiveDeref(manager, result);
+        }
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, g);
+        for (int i = 0; i < numVars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_bddClippingAndAbstract - Complex abstraction scenarios", "[cuddClip]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    DdNode *one = Cudd_ReadOne(manager);
+    
+    SECTION("Multi-variable cube abstraction") {
+        DdNode *a = Cudd_bddNewVar(manager);
+        DdNode *b = Cudd_bddNewVar(manager);
+        DdNode *c = Cudd_bddNewVar(manager);
+        DdNode *d = Cudd_bddNewVar(manager);
+        Cudd_Ref(a);
+        Cudd_Ref(b);
+        Cudd_Ref(c);
+        Cudd_Ref(d);
+        
+        // f = a AND b AND c
+        DdNode *ab = Cudd_bddAnd(manager, a, b);
+        Cudd_Ref(ab);
+        DdNode *f = Cudd_bddAnd(manager, ab, c);
+        Cudd_Ref(f);
+        Cudd_RecursiveDeref(manager, ab);
+        
+        // g = b AND c AND d
+        DdNode *bc = Cudd_bddAnd(manager, b, c);
+        Cudd_Ref(bc);
+        DdNode *g = Cudd_bddAnd(manager, bc, d);
+        Cudd_Ref(g);
+        Cudd_RecursiveDeref(manager, bc);
+        
+        // cube = a AND b (abstract a and b)
+        DdNode *cube = Cudd_bddAnd(manager, a, b);
+        Cudd_Ref(cube);
+        
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, f, g, cube, 10, 0);
+        Cudd_Ref(result);
+        REQUIRE(result != nullptr);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, cube);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, g);
+        Cudd_RecursiveDeref(manager, a);
+        Cudd_RecursiveDeref(manager, b);
+        Cudd_RecursiveDeref(manager, c);
+        Cudd_RecursiveDeref(manager, d);
+    }
+    
+    SECTION("OR functions with abstraction - more t==one paths") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        DdNode *w = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        Cudd_Ref(w);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // f = x OR y OR z
+        DdNode *xy = Cudd_bddOr(manager, x, y);
+        Cudd_Ref(xy);
+        DdNode *f = Cudd_bddOr(manager, xy, z);
+        Cudd_Ref(f);
+        Cudd_Ref(f);
+        Cudd_RecursiveDeref(manager, xy);
+        
+        // g = x OR y OR w
+        DdNode *xy2 = Cudd_bddOr(manager, x, y);
+        Cudd_Ref(xy2);
+        DdNode *g = Cudd_bddOr(manager, xy2, w);
+        Cudd_Ref(g);
+        Cudd_Ref(g);
+        Cudd_RecursiveDeref(manager, xy2);
+        
+        // cube = x (abstract x)
+        // When x=1: f|x=1 = 1, g|x=1 = 1, so t=1
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, f, g, x, 10, 0);
+        Cudd_Ref(result);
+        REQUIRE(result == one);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, g);
+        Cudd_RecursiveDeref(manager, g);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
+        Cudd_RecursiveDeref(manager, w);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_bddClippingAnd - Timeout with actual limit", "[cuddClip]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    // Try to trigger timeout by setting a very short time limit
+    // Note: This may not actually trigger timeout as clipping operations are fast
+    
+    SECTION("Set very short time limit") {
+        // Create some variables
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // Set timeout handler
+        static int handlerCalled = 0;
+        handlerCalled = 0;
+        Cudd_RegisterTimeoutHandler(manager, [](DdManager*, void*) { handlerCalled = 1; }, nullptr);
+        
+        // Set a time limit (1 millisecond - very short)
+        unsigned long oldLimit = Cudd_SetTimeLimit(manager, 1);
+        
+        // Try operation - it may or may not timeout
+        DdNode *result = Cudd_bddClippingAnd(manager, x, y, 10, 0);
+        if (result != nullptr) {
+            Cudd_Ref(result);
+            Cudd_RecursiveDeref(manager, result);
+        }
+        
+        // Restore time limit
+        Cudd_SetTimeLimit(manager, oldLimit);
+        
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_bddClippingAndAbstract - Timeout with actual limit", "[cuddClip]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Set very short time limit for abstract") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        static int handlerCalled = 0;
+        handlerCalled = 0;
+        Cudd_RegisterTimeoutHandler(manager, [](DdManager*, void*) { handlerCalled = 1; }, nullptr);
+        
+        unsigned long oldLimit = Cudd_SetTimeLimit(manager, 1);
+        
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, x, y, z, 10, 0);
+        if (result != nullptr) {
+            Cudd_Ref(result);
+            Cudd_RecursiveDeref(manager, result);
+        }
+        
+        Cudd_SetTimeLimit(manager, oldLimit);
+        
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
+    }
+    
+    Cudd_Quit(manager);
+}
