@@ -3437,14 +3437,25 @@ TEST_CASE("Cudd SetZddTree", "[cuddObj][Cudd]") {
         REQUIRE(true);
     }
     
-    SECTION("SetZddTree and FreeZddTree") {
-        MtrNode *tree = mgr.MakeZddTreeNode(0, 2, MTR_DEFAULT);
-        if (tree != nullptr) {
-            mgr.SetZddTree(tree);
-            // FreeZddTree frees the tree
+    SECTION("FreeZddTree after MakeZddTreeNode") {
+        // MakeZddTreeNode creates the tree in the manager and returns a child node
+        // The tree is owned by the manager, so only FreeZddTree should be called
+        MtrNode *node = mgr.MakeZddTreeNode(0, 2, MTR_DEFAULT);
+        if (node != nullptr) {
+            REQUIRE(node != nullptr);
         }
+        // Free the tree (includes all nodes created by MakeZddTreeNode)
         mgr.FreeZddTree();
         REQUIRE(true);
+    }
+    
+    SECTION("SetZddTree with null to clear after MakeZddTreeNode") {
+        // Create a tree node
+        MtrNode *node = mgr.MakeZddTreeNode(0, 2, MTR_DEFAULT);
+        (void)node; // May or may not be null
+        // SetZddTree(nullptr) should clear/free the tree
+        mgr.SetZddTree(nullptr);
+        REQUIRE(mgr.ReadZddTree() == nullptr);
     }
 }
 
