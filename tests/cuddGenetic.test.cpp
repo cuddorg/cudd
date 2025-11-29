@@ -1,10 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 
-// Include CUDD headers - mtr.h must come before cudd.h for tree functions
-#include "mtr.h"
-#include "cudd/cudd.h"
-#include "cuddInt.h"
-#include "util.h"
+// Include CUDD headers
+#include "mtr.h"        // For MtrNode (variable grouping tree)
+#include "cudd/cudd.h"  // Main CUDD API
+#include "cuddInt.h"    // Internal definitions
+#include "util.h"       // Utility functions
 
 /**
  * @brief Test file for cuddGenetic.c
@@ -25,7 +25,8 @@
 // ============================================================================
 
 /**
- * @brief Helper function to create a BDD with interacting variables
+ * @brief Helper function to create a BDD with interacting adjacent variables
+ * Creates f = (x0 AND x1) OR (x1 AND x2) which has variable interactions.
  */
 static DdNode* createComplexBdd(DdManager* manager, int numVars) {
     if (numVars < 3) return nullptr;
@@ -52,7 +53,8 @@ static DdNode* createComplexBdd(DdManager* manager, int numVars) {
 }
 
 /**
- * @brief Helper function to create a larger BDD for reordering
+ * @brief Helper function to create a chained BDD clause
+ * Creates f = (x0 OR x1) AND (x1 OR x2) AND ... for all adjacent pairs.
  */
 static DdNode* createLargerBdd(DdManager* manager, int numVars) {
     if (numVars < 5) return nullptr;
@@ -1006,13 +1008,14 @@ TEST_CASE("cuddGenetic - Reverse order handling", "[cuddGenetic]") {
 }
 
 // ============================================================================
-// Tests for population limit (120)
+// Tests for population limit
+// The genetic algorithm caps population size at 120 (CUDD_GENETIC_POP_MAX)
 // ============================================================================
 
 TEST_CASE("cuddGenetic - Population limit", "[cuddGenetic]") {
-    SECTION("Large variable count to trigger 120 population limit") {
-        // With 50 variables, default population would be 150,
-        // but it gets capped at 120
+    SECTION("Large variable count to trigger population cap") {
+        // With 50 variables, default population would be 3*50=150,
+        // but it gets capped at the maximum of 120
         DdManager* manager = Cudd_Init(50, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
 
@@ -1043,13 +1046,14 @@ TEST_CASE("cuddGenetic - Population limit", "[cuddGenetic]") {
 }
 
 // ============================================================================
-// Tests for crossover limit (60)
+// Tests for crossover limit
+// The genetic algorithm caps crossovers at 60 (CUDD_GENETIC_XOVER_MAX)
 // ============================================================================
 
 TEST_CASE("cuddGenetic - Crossover limit", "[cuddGenetic]") {
-    SECTION("Large variable count to trigger 60 crossover limit") {
-        // With 25 variables, default crossovers would be 75,
-        // but it gets capped at 60
+    SECTION("Large variable count to trigger crossover cap") {
+        // With 25 variables, default crossovers would be 3*25=75,
+        // but it gets capped at the maximum of 60
         DdManager* manager = Cudd_Init(25, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
 
