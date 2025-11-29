@@ -38,18 +38,26 @@ static void cleanupHarwellArrays(DdManager *dd, DdNode *E, DdNode **x, DdNode **
     if (x && nx > 0) {
         for (int i = 0; i < nx; i++) {
             if (x[i]) Cudd_RecursiveDeref(dd, x[i]);
-            if (xn && xn[i]) Cudd_RecursiveDeref(dd, xn[i]);
         }
         FREE(x);
-        if (xn) FREE(xn);
+    }
+    if (xn && nx > 0) {
+        for (int i = 0; i < nx; i++) {
+            if (xn[i]) Cudd_RecursiveDeref(dd, xn[i]);
+        }
+        FREE(xn);
     }
     if (y && ny > 0) {
         for (int i = 0; i < ny; i++) {
             if (y[i]) Cudd_RecursiveDeref(dd, y[i]);
-            if (yn && yn[i]) Cudd_RecursiveDeref(dd, yn[i]);
         }
         FREE(y);
-        if (yn) FREE(yn);
+    }
+    if (yn && ny > 0) {
+        for (int i = 0; i < ny; i++) {
+            if (yn[i]) Cudd_RecursiveDeref(dd, yn[i]);
+        }
+        FREE(yn);
     }
     if (E) Cudd_RecursiveDeref(dd, E);
 }
