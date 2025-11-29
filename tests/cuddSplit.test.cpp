@@ -1755,3 +1755,163 @@ TEST_CASE("Cudd_SplitSet - Deeply nested BDD for recursion paths", "[cuddSplit]"
     Cudd_RecursiveDeref(manager, inner1);
     Cudd_Quit(manager);
 }
+
+// ============================================================================
+// Additional tests targeting specific edge cases for better coverage
+// ============================================================================
+
+TEST_CASE("Cudd_SplitSet - mintermsFromUniverse recursion base cases", "[cuddSplit]") {
+    // This test specifically targets hitting base cases in mintermsFromUniverse
+    // when recursion reduces numVars to small values
+    
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    DdNode *one = Cudd_ReadOne(manager);
+    
+    // Use a small number of variables to ensure base cases are reached
+    DdNode *vars[2];
+    vars[0] = Cudd_bddIthVar(manager, 0);
+    vars[1] = Cudd_bddIthVar(manager, 1);
+    
+    // With 2 vars, max=4. Test all possible values
+    // This should exercise mintermsFromUniverse with:
+    // - n=1: goes recursive, eventually hits n=0 base case on one branch
+    // - n=2: hits n==max2 case
+    // - n=3: goes recursive, eventually hits n=max base case on one branch
+    
+    for (int m = 1; m <= 3; m++) {
+        DdNode *result = Cudd_SplitSet(manager, one, vars, 2, (double)m);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        double mintermCount = Cudd_CountMinterm(manager, result, 2);
+        REQUIRE(mintermCount == (double)m);
+        
+        Cudd_RecursiveDeref(manager, result);
+    }
+    
+    // Test with 1 variable (max=2)
+    DdNode *singleVar[1] = {vars[0]};
+    
+    // m=1 should return the variable itself
+    DdNode *result = Cudd_SplitSet(manager, one, singleVar, 1, 1.0);
+    REQUIRE(result != nullptr);
+    Cudd_Ref(result);
+    double mintermCount = Cudd_CountMinterm(manager, result, 1);
+    REQUIRE(mintermCount == 1.0);
+    Cudd_RecursiveDeref(manager, result);
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_SplitSet - selectMintermsFromUniverse with unseen vars", "[cuddSplit]") {
+    // Test when there are unseen variables that need to be extracted from
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    // Create many variables but only use a few in the BDD
+    const int numVars = 5;
+    DdNode *vars[numVars];
+    for (int i = 0; i < numVars; i++) {
+        vars[i] = Cudd_bddIthVar(manager, i);
+    }
+    
+    // Create S = x0 (only uses first variable)
+    // This means x1, x2, x3, x4 are "unseen" and will be used by selectMintermsFromUniverse
+    DdNode *S = vars[0];
+    Cudd_Ref(S);
+    
+    // S has 16 minterms in 5-variable space (x0=1, any values for x1-x4)
+    // Test various extraction sizes
+    double testValues[] = {1.0, 4.0, 8.0, 12.0, 15.0};
+    for (int i = 0; i < 5; i++) {
+        DdNode *result = Cudd_SplitSet(manager, S, vars, numVars, testValues[i]);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        REQUIRE(Cudd_bddLeq(manager, result, S) == 1);
+        
+        double mintermCount = Cudd_CountMinterm(manager, result, numVars);
+        REQUIRE(mintermCount == testValues[i]);
+        
+        Cudd_RecursiveDeref(manager, result);
+    }
+    
+    Cudd_RecursiveDeref(manager, S);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_SplitSet - Very small BDD edge cases", "[cuddSplit]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    DdNode *one = Cudd_ReadOne(manager);
+    DdNode *zero = Cudd_Not(one);
+    
+    // Test with a single variable
+    DdNode *x = Cudd_bddIthVar(manager, 0);
+    DdNode *xVars[1] = {x};
+    
+    // x has 1 minterm, !x has 1 minterm, one has 2 minterms
+    
+    // Test extracting from x (1 minterm)
+    DdNode *result = Cudd_SplitSet(manager, x, xVars, 1, 1.0);
+    REQUIRE(result == x);
+    
+    // Test extracting from !x (1 minterm)
+    DdNode *notx = Cudd_Not(x);
+    Cudd_Ref(notx);
+    result = Cudd_SplitSet(manager, notx, xVars, 1, 1.0);
+    REQUIRE(result == notx);
+    Cudd_RecursiveDeref(manager, notx);
+    
+    // Test extracting 1 from one (2 minterms)
+    result = Cudd_SplitSet(manager, one, xVars, 1, 1.0);
+    REQUIRE(result != nullptr);
+    Cudd_Ref(result);
+    double mintermCount = Cudd_CountMinterm(manager, result, 1);
+    REQUIRE(mintermCount == 1.0);
+    Cudd_RecursiveDeref(manager, result);
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_SplitSet - Alternating structure BDD", "[cuddSplit]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    DdNode *vars[4];
+    for (int i = 0; i < 4; i++) {
+        vars[i] = Cudd_bddIthVar(manager, i);
+    }
+    
+    // Create S = (x0 XOR x1) AND (x2 XOR x3)
+    // This creates a BDD with interesting structure where each level has
+    // both constant and non-constant children
+    DdNode *xor01 = Cudd_bddXor(manager, vars[0], vars[1]);
+    Cudd_Ref(xor01);
+    DdNode *xor23 = Cudd_bddXor(manager, vars[2], vars[3]);
+    Cudd_Ref(xor23);
+    DdNode *S = Cudd_bddAnd(manager, xor01, xor23);
+    Cudd_Ref(S);
+    
+    // S has 4 minterms
+    for (int m = 1; m <= 4; m++) {
+        DdNode *result = Cudd_SplitSet(manager, S, vars, 4, (double)m);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        REQUIRE(Cudd_bddLeq(manager, result, S) == 1);
+        
+        double mintermCount = Cudd_CountMinterm(manager, result, 4);
+        REQUIRE(mintermCount == (double)m);
+        
+        Cudd_RecursiveDeref(manager, result);
+    }
+    
+    Cudd_RecursiveDeref(manager, S);
+    Cudd_RecursiveDeref(manager, xor23);
+    Cudd_RecursiveDeref(manager, xor01);
+    Cudd_Quit(manager);
+}
