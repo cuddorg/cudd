@@ -1,9 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
-#include <cmath>
 
 // Include CUDD headers
 #include "cudd/cudd.h"
-#include "util.h"
 
 /**
  * @brief Comprehensive test file for cuddSplit.c
@@ -344,11 +342,8 @@ TEST_CASE("Cudd_SplitSet - numE < n (extract from THEN)", "[cuddSplit]") {
     DdNode *x = Cudd_bddIthVar(manager, 0);
     DdNode *y = Cudd_bddIthVar(manager, 1);
     
-    // Create S = x AND y (x has y as THEN, 0 as ELSE for y)
-    // Wait, let me think more carefully...
-    
     // Create S = !x OR y
-    // This has T(x)=1, E(x)=y for variable x
+    // At variable x: T(x)=1, E(x)=y
     // numT = 2, numE = 1 in 2-variable space
     DdNode *S = Cudd_bddOr(manager, Cudd_Not(x), y);
     Cudd_Ref(S);
@@ -1285,10 +1280,8 @@ TEST_CASE("Cudd_SplitSet - selectMintermsFromUniverse with few vars seen", "[cud
     DdNode *S = Cudd_bddAnd(manager, vars[0], vars[1]);
     Cudd_Ref(S);
     
-    // This will have x0 and x1 as "seen", leaving x2-x5 as "unseen"
-    // S has 1 minterm in 6-variable space (actually 16 minterms with wildcards)
-    // Wait - let me recalculate: with 6 vars, x0=1, x1=1 gives 2^4=16 minterms
-    // So Cudd_CountMinterm(S, 6) should be 16
+    // x0 AND x1 leaves x2-x5 as "unseen" variables
+    // S has 16 minterms in 6-variable space (2^4 for the 4 unseen variables)
     
     DdNode *result = Cudd_SplitSet(manager, S, vars, numVars, 8.0);
     REQUIRE(result != nullptr);
@@ -1606,12 +1599,7 @@ TEST_CASE("Cudd_SplitSet - Exercise various mintermsFromUniverse paths", "[cuddS
             vars[i] = Cudd_bddIthVar(manager, i);
         }
         
-        double max = pow(2.0, numVars);
-        
-        // Test edge cases for mintermsFromUniverse
-        // n = 0 (should return zero - but this is caught earlier)
-        // n = max/2 (return single variable)
-        // n = max (return one - caught earlier)
+        double max = static_cast<double>(1 << numVars);
         
         // Test various intermediate values
         for (double m = 1.0; m < max; m = m * 2) {
