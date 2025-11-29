@@ -26,6 +26,34 @@ static FILE* createTempFile(const char* content) {
     return fp;
 }
 
+/**
+ * @brief Helper to clean up Harwell arrays when function returns error
+ * 
+ * When Cudd_addHarwell returns 0 (failure), it may have allocated x, xn, y, yn
+ * arrays with DD nodes that were reference-counted. The caller is responsible
+ * for cleaning up these resources.
+ */
+static void cleanupHarwellArrays(DdManager *dd, DdNode *E, DdNode **x, DdNode **xn, 
+                                  DdNode **y, DdNode **yn, int nx, int ny) {
+    if (x && nx > 0) {
+        for (int i = 0; i < nx; i++) {
+            if (x[i]) Cudd_RecursiveDeref(dd, x[i]);
+            if (xn && xn[i]) Cudd_RecursiveDeref(dd, xn[i]);
+        }
+        FREE(x);
+        if (xn) FREE(xn);
+    }
+    if (y && ny > 0) {
+        for (int i = 0; i < ny; i++) {
+            if (y[i]) Cudd_RecursiveDeref(dd, y[i]);
+            if (yn && yn[i]) Cudd_RecursiveDeref(dd, yn[i]);
+        }
+        FREE(y);
+        if (yn) FREE(yn);
+    }
+    if (E) Cudd_RecursiveDeref(dd, E);
+}
+
 TEST_CASE("cuddHarwell - Negative nx parameter returns 0", "[cuddHarwell]") {
     DdManager *dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
     REQUIRE(dd != nullptr);
@@ -576,6 +604,9 @@ TEST_CASE("cuddHarwell - colptr EOF returns 0", "[cuddHarwell]") {
     int result = Cudd_addHarwell(fp, dd, &E, &x, &y, &xn, &yn, &nx, &ny, &m, &n, 0, 2, 1, 2, 0);
     REQUIRE(result == 0);
     
+    // Clean up arrays that may have been allocated before the error
+    cleanupHarwellArrays(dd, E, x, xn, y, yn, nx, ny);
+    
     fclose(fp);
     Cudd_Quit(dd);
 }
@@ -604,6 +635,9 @@ TEST_CASE("cuddHarwell - colptr[0] != 1 returns 0", "[cuddHarwell]") {
     int result = Cudd_addHarwell(fp, dd, &E, &x, &y, &xn, &yn, &nx, &ny, &m, &n, 0, 2, 1, 2, 0);
     REQUIRE(result == 0);
     
+    // Clean up arrays that may have been allocated before the error
+    cleanupHarwellArrays(dd, E, x, xn, y, yn, nx, ny);
+    
     fclose(fp);
     Cudd_Quit(dd);
 }
@@ -629,6 +663,9 @@ TEST_CASE("cuddHarwell - rowind EOF returns 0", "[cuddHarwell]") {
     
     int result = Cudd_addHarwell(fp, dd, &E, &x, &y, &xn, &yn, &nx, &ny, &m, &n, 0, 2, 1, 2, 0);
     REQUIRE(result == 0);
+    
+    // Clean up arrays that may have been allocated before the error
+    cleanupHarwellArrays(dd, E, x, xn, y, yn, nx, ny);
     
     fclose(fp);
     Cudd_Quit(dd);
@@ -656,6 +693,9 @@ TEST_CASE("cuddHarwell - values EOF returns 0", "[cuddHarwell]") {
     
     int result = Cudd_addHarwell(fp, dd, &E, &x, &y, &xn, &yn, &nx, &ny, &m, &n, 0, 2, 1, 2, 0);
     REQUIRE(result == 0);
+    
+    // Clean up arrays that may have been allocated before the error
+    cleanupHarwellArrays(dd, E, x, xn, y, yn, nx, ny);
     
     fclose(fp);
     Cudd_Quit(dd);
@@ -979,6 +1019,9 @@ TEST_CASE("cuddHarwell - RHS values EOF returns 0", "[cuddHarwell]") {
     int result = Cudd_addHarwell(fp, dd, &E, &x, &y, &xn, &yn, &nx, &ny, &m, &n, 0, 2, 1, 2, 0);
     REQUIRE(result == 0);
     
+    // Clean up arrays that may have been allocated before the error
+    cleanupHarwellArrays(dd, E, x, xn, y, yn, nx, ny);
+    
     fclose(fp);
     Cudd_Quit(dd);
 }
@@ -1058,6 +1101,9 @@ TEST_CASE("cuddHarwell - colptr read error (not EOF, wrong format)", "[cuddHarwe
     int result = Cudd_addHarwell(fp, dd, &E, &x, &y, &xn, &yn, &nx, &ny, &m, &n, 0, 2, 1, 2, 0);
     REQUIRE(result == 0);
     
+    // Clean up arrays that may have been allocated before the error
+    cleanupHarwellArrays(dd, E, x, xn, y, yn, nx, ny);
+    
     fclose(fp);
     Cudd_Quit(dd);
 }
@@ -1084,6 +1130,9 @@ TEST_CASE("cuddHarwell - rowind read error (not EOF, wrong format)", "[cuddHarwe
     
     int result = Cudd_addHarwell(fp, dd, &E, &x, &y, &xn, &yn, &nx, &ny, &m, &n, 0, 2, 1, 2, 0);
     REQUIRE(result == 0);
+    
+    // Clean up arrays that may have been allocated before the error
+    cleanupHarwellArrays(dd, E, x, xn, y, yn, nx, ny);
     
     fclose(fp);
     Cudd_Quit(dd);
@@ -1308,30 +1357,6 @@ static const char* STRESS_TEST_MATRIX_4x4 =
     "1.0 2.0 3.0 4.0\n";
 
 /**
- * @brief Helper to clean up Harwell test results
- */
-static void cleanupHarwellResult(DdManager *dd, DdNode *E, DdNode **x, DdNode **xn, 
-                                  DdNode **y, DdNode **yn, int nx, int ny) {
-    if (x) {
-        for (int i = 0; i < nx; i++) {
-            Cudd_RecursiveDeref(dd, x[i]);
-            Cudd_RecursiveDeref(dd, xn[i]);
-        }
-        FREE(x);
-        FREE(xn);
-    }
-    if (y) {
-        for (int i = 0; i < ny; i++) {
-            Cudd_RecursiveDeref(dd, y[i]);
-            Cudd_RecursiveDeref(dd, yn[i]);
-        }
-        FREE(y);
-        FREE(yn);
-    }
-    if (E) Cudd_RecursiveDeref(dd, E);
-}
-
-/**
  * @brief Test with timeout handler to exercise timeout code paths
  * 
  * Note: This test verifies timeout handler registration works correctly.
@@ -1368,7 +1393,7 @@ TEST_CASE("cuddHarwell - Test with timeout handler registration", "[cuddHarwell]
     int result = Cudd_addHarwell(fp, dd, &E, &x, &y, &xn, &yn, &nx, &ny, &m, &n, 0, 2, 1, 2, 0);
     
     if (result == 1) {
-        cleanupHarwellResult(dd, E, x, xn, y, yn, nx, ny);
+        cleanupHarwellArrays(dd, E, x, xn, y, yn, nx, ny);
     }
     
     fclose(fp);
@@ -1390,7 +1415,7 @@ TEST_CASE("cuddHarwell - Test with very small cache and slot sizes", "[cuddHarwe
     int result = Cudd_addHarwell(fp, dd, &E, &x, &y, &xn, &yn, &nx, &ny, &m, &n, 0, 2, 1, 2, 0);
     
     if (result == 1) {
-        cleanupHarwellResult(dd, E, x, xn, y, yn, nx, ny);
+        cleanupHarwellArrays(dd, E, x, xn, y, yn, nx, ny);
     }
     
     fclose(fp);
