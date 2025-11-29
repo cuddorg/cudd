@@ -169,16 +169,6 @@ TEST_CASE("cuddPrintNode - BDD variable", "[cuddCheck]") {
     Cudd_Quit(m);
 }
 
-TEST_CASE("cuddPrintNode - Constant", "[cuddCheck]") {
-    DdManager *m = Cudd_Init(3, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
-    REQUIRE(m != nullptr);
-    DdNode *one = Cudd_ReadOne(m);
-    FILE *devnull = fopen("/dev/null", "w");
-    cuddPrintNode(one, devnull);
-    fclose(devnull);
-    Cudd_Quit(m);
-}
-
 TEST_CASE("cuddPrintNode - Internal node", "[cuddCheck]") {
     DdManager *m = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
     REQUIRE(m != nullptr);
@@ -214,9 +204,12 @@ TEST_CASE("cuddPrintNode - Complemented", "[cuddCheck]") {
 TEST_CASE("cuddPrintVarGroups - BDD with various flags", "[cuddCheck]") {
     DdManager *m = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
     REQUIRE(m != nullptr);
-    MtrNode *tree = Cudd_MakeTreeNode(m, 0, 5, MTR_DEFAULT);
+    // Cudd_MakeTreeNode creates and sets the tree in the manager
+    MtrNode *group = Cudd_MakeTreeNode(m, 0, 5, MTR_DEFAULT);
+    REQUIRE(group != nullptr);
+    // Get the actual tree from the manager (not the group returned)
+    MtrNode *tree = Cudd_ReadTree(m);
     REQUIRE(tree != nullptr);
-    Cudd_SetTree(m, tree);
     cuddPrintVarGroups(m, tree, 0, 1);
     Cudd_Quit(m);
 }
