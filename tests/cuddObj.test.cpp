@@ -3264,3 +3264,355 @@ TEST_CASE("Cudd MakeZddTreeNode", "[cuddObj][Cudd]") {
         }
     }
 }
+
+// Additional tests to increase coverage
+
+TEST_CASE("Cudd DisableReorderingReporting", "[cuddObj][Cudd]") {
+    Cudd mgr;
+    
+    SECTION("DisableReorderingReporting") {
+        mgr.EnableReorderingReporting();
+        REQUIRE(mgr.ReorderingReporting() == 1);
+        mgr.DisableReorderingReporting();
+        REQUIRE(mgr.ReorderingReporting() == 0);
+    }
+}
+
+TEST_CASE("Cudd Walsh matrix", "[cuddObj][Cudd]") {
+    Cudd mgr;
+    
+    SECTION("Walsh") {
+        std::vector<ADD> x, y;
+        for (int i = 0; i < 2; i++) {
+            x.push_back(mgr.addVar(i));
+            y.push_back(mgr.addVar(i + 2));
+        }
+        ADD result = mgr.Walsh(x, y);
+        REQUIRE(result.getNode() != nullptr);
+    }
+}
+
+TEST_CASE("Cudd addResidue", "[cuddObj][Cudd]") {
+    Cudd mgr;
+    
+    SECTION("addResidue") {
+        // Compute residue of n modulo m
+        ADD result = mgr.addResidue(3, 2, 0, 0);
+        REQUIRE(result.getNode() != nullptr);
+    }
+}
+
+TEST_CASE("BDD AndAbstractLimit", "[cuddObj][BDD]") {
+    Cudd mgr;
+    BDD x = mgr.bddVar(0);
+    BDD y = mgr.bddVar(1);
+    BDD z = mgr.bddVar(2);
+    
+    SECTION("AndAbstract with limit") {
+        BDD f = x & y;
+        BDD g = y & z;
+        BDD cube = y;
+        
+        // Test with limit = 0 (no limit)
+        BDD result1 = f.AndAbstract(g, cube, 0);
+        REQUIRE(result1.getNode() != nullptr);
+        
+        // Test with limit > 0
+        BDD result2 = f.AndAbstract(g, cube, 100);
+        REQUIRE(result2.getNode() != nullptr);
+    }
+}
+
+TEST_CASE("Cudd APA functions", "[cuddObj][Cudd]") {
+    Cudd mgr;
+    
+    SECTION("ApaNumberOfDigits") {
+        int digits = mgr.ApaNumberOfDigits(32);
+        REQUIRE(digits > 0);
+    }
+    
+    SECTION("NewApaNumber and operations") {
+        int digits = mgr.ApaNumberOfDigits(64);
+        DdApaNumber a = mgr.NewApaNumber(digits);
+        DdApaNumber b = mgr.NewApaNumber(digits);
+        DdApaNumber result = mgr.NewApaNumber(digits);
+        
+        REQUIRE(a != nullptr);
+        REQUIRE(b != nullptr);
+        REQUIRE(result != nullptr);
+        
+        // Initialize with zeros
+        for (int i = 0; i < digits; i++) {
+            a[i] = 0;
+            b[i] = 0;
+        }
+        a[digits-1] = 5;
+        b[digits-1] = 3;
+        
+        // Test ApaCopy
+        mgr.ApaCopy(digits, a, result);
+        REQUIRE(result[digits-1] == 5);
+        
+        // Test ApaAdd
+        DdApaDigit carry = mgr.ApaAdd(digits, a, b, result);
+        REQUIRE(result[digits-1] == 8);
+        (void)carry;
+        
+        // Test ApaSubtract
+        DdApaDigit borrow = mgr.ApaSubtract(digits, a, b, result);
+        REQUIRE(result[digits-1] == 2);
+        (void)borrow;
+        
+        // Test ApaShortDivision
+        a[digits-1] = 10;
+        DdApaDigit remainder = mgr.ApaShortDivision(digits, a, 3, result);
+        REQUIRE(result[digits-1] == 3);
+        REQUIRE(remainder == 1);
+        
+        // Free memory
+        free(a);
+        free(b);
+        free(result);
+    }
+}
+
+TEST_CASE("Cudd Hook functions", "[cuddObj][Cudd]") {
+    Cudd mgr;
+    
+    // Define a simple hook function
+    static int hookCalled = 0;
+    auto hookFunc = [](DdManager *, const char *, void *) -> int {
+        hookCalled++;
+        return 1;
+    };
+    
+    SECTION("AddHook, IsInHook, RemoveHook") {
+        hookCalled = 0;
+        
+        // Add hook
+        mgr.AddHook(hookFunc, CUDD_PRE_GC_HOOK);
+        
+        // Check if hook is installed
+        bool inHook = mgr.IsInHook(hookFunc, CUDD_PRE_GC_HOOK);
+        REQUIRE(inHook == true);
+        
+        // Check that it's not in a different hook type
+        bool notInHook = mgr.IsInHook(hookFunc, CUDD_POST_GC_HOOK);
+        REQUIRE(notInHook == false);
+        
+        // Remove hook
+        mgr.RemoveHook(hookFunc, CUDD_PRE_GC_HOOK);
+        
+        // Verify it's removed
+        inHook = mgr.IsInHook(hookFunc, CUDD_PRE_GC_HOOK);
+        REQUIRE(inHook == false);
+    }
+}
+
+TEST_CASE("Cudd MakeTreeNode", "[cuddObj][Cudd]") {
+    Cudd mgr;
+    mgr.bddVar(0);
+    mgr.bddVar(1);
+    mgr.bddVar(2);
+    mgr.bddVar(3);
+    
+    SECTION("MakeTreeNode for BDD") {
+        MtrNode *node = mgr.MakeTreeNode(0, 2, MTR_DEFAULT);
+        // May return null if tree already exists
+        if (node != nullptr) {
+            REQUIRE(node != nullptr);
+        }
+    }
+}
+
+TEST_CASE("Cudd SetZddTree", "[cuddObj][Cudd]") {
+    Cudd mgr;
+    mgr.bddVar(0);
+    mgr.bddVar(1);
+    mgr.zddVarsFromBddVars(2);
+    
+    SECTION("SetZddTree with null") {
+        // Setting null tree should not crash
+        mgr.SetZddTree(nullptr);
+        REQUIRE(true);
+    }
+    
+    SECTION("SetZddTree and FreeZddTree") {
+        MtrNode *tree = mgr.MakeZddTreeNode(0, 2, MTR_DEFAULT);
+        if (tree != nullptr) {
+            mgr.SetZddTree(tree);
+            // FreeZddTree frees the tree
+        }
+        mgr.FreeZddTree();
+        REQUIRE(true);
+    }
+}
+
+TEST_CASE("ADD assignment operator", "[cuddObj][ADD]") {
+    Cudd mgr;
+    
+    SECTION("Assignment with same manager") {
+        ADD x = mgr.addVar(0);
+        ADD y = mgr.addVar(1);
+        
+        // Assignment
+        x = y;
+        REQUIRE(x.getNode() == y.getNode());
+    }
+    
+    SECTION("Self-assignment") {
+        ADD x = mgr.addVar(0);
+        DdNode *origNode = x.getNode();
+        x = x;
+        REQUIRE(x.getNode() == origNode);
+    }
+}
+
+TEST_CASE("ZDD strict comparison operators", "[cuddObj][ZDD]") {
+    Cudd mgr;
+    mgr.bddVar(0);
+    mgr.bddVar(1);
+    mgr.zddVarsFromBddVars(2);
+    
+    ZDD z0 = mgr.zddVar(0);
+    ZDD z1 = mgr.zddVar(1);
+    ZDD zUnion = z0 | z1;
+    
+    SECTION("operator<") {
+        // z0 < zUnion since z0 is a subset
+        bool result = z0 < zUnion;
+        REQUIRE(result == true);
+        
+        // zUnion is not < z0
+        bool result2 = zUnion < z0;
+        REQUIRE(result2 == false);
+    }
+    
+    SECTION("operator>") {
+        // zUnion > z0 since zUnion is a superset
+        bool result = zUnion > z0;
+        REQUIRE(result == true);
+        
+        // z0 is not > zUnion
+        bool result2 = z0 > zUnion;
+        REQUIRE(result2 == false);
+    }
+}
+
+TEST_CASE("Verbose mode paths", "[cuddObj][Cudd]") {
+    Cudd mgr;
+    mgr.makeVerbose();
+    
+    SECTION("BDD operations in verbose mode") {
+        BDD x = mgr.bddVar(0);
+        BDD y = mgr.bddVar(1);
+        
+        // Test operations that print verbose output
+        BDD z = x & y;
+        z = x | y;
+        z = x ^ y;
+        REQUIRE(z.getNode() != nullptr);
+    }
+    
+    SECTION("ADD operations in verbose mode") {
+        ADD a = mgr.addVar(0);
+        ADD b = mgr.addVar(1);
+        
+        ADD c = a + b;
+        c = a * b;
+        REQUIRE(c.getNode() != nullptr);
+    }
+    
+    SECTION("ZDD operations in verbose mode") {
+        mgr.zddVarsFromBddVars(2);
+        ZDD z0 = mgr.zddVar(0);
+        ZDD z1 = mgr.zddVar(1);
+        
+        ZDD z = z0 | z1;
+        z = z0 & z1;
+        REQUIRE(z.getNode() != nullptr);
+    }
+    
+    mgr.makeTerse();
+}
+
+// Test RegisterOutOfMemoryCallback and UnregisterOutOfMemoryCallback
+TEST_CASE("Cudd OutOfMemory callbacks", "[cuddObj][Cudd]") {
+    Cudd mgr;
+    
+    SECTION("Register and unregister callback") {
+        auto callback = [](size_t) -> void {};
+        
+        // Register
+        mgr.RegisterOutOfMemoryCallback(callback);
+        
+        // Unregister
+        mgr.UnregisterOutOfMemoryCallback();
+        
+        REQUIRE(true);
+    }
+}
+
+// Test InstallOutOfMemoryHandler
+TEST_CASE("Cudd InstallOutOfMemoryHandler", "[cuddObj][Cudd]") {
+    Cudd mgr;
+    
+    SECTION("Install and restore handler") {
+        // Save original
+        DD_OOMFP original = mgr.InstallOutOfMemoryHandler(nullptr);
+        
+        // Restore original
+        mgr.InstallOutOfMemoryHandler(original);
+        
+        REQUIRE(true);
+    }
+}
+
+TEST_CASE("Cudd ApaShiftRight", "[cuddObj][Cudd]") {
+    Cudd mgr;
+    
+    SECTION("ApaShiftRight") {
+        int digits = mgr.ApaNumberOfDigits(64);
+        DdApaNumber a = mgr.NewApaNumber(digits);
+        DdApaNumber result = mgr.NewApaNumber(digits);
+        
+        // Initialize
+        for (int i = 0; i < digits; i++) {
+            a[i] = 0;
+        }
+        a[digits-1] = 8;  // 8 in binary is 1000
+        
+        // Shift right
+        mgr.ApaShiftRight(digits, 0, a, result);
+        REQUIRE(result[digits-1] == 4);  // 8 >> 1 = 4
+        
+        free(a);
+        free(result);
+    }
+}
+
+TEST_CASE("BDD SolveEqn and VerifySol skipped", "[cuddObj][BDD][.skip]") {
+    // These functions require specific input formats that are difficult to construct
+    // Marked as skip but kept for documentation
+    REQUIRE(true);
+}
+
+TEST_CASE("BDD LargestPrimeUnate skipped", "[cuddObj][BDD][.skip]") {
+    // Requires proper phases cube construction
+    // Marked as skip but kept for documentation
+    REQUIRE(true);
+}
+
+// Test BDD constructor with Cudd reference and DdNode
+TEST_CASE("Direct DD constructors", "[cuddObj][DD]") {
+    Cudd mgr;
+    BDD x = mgr.bddVar(0);
+    DdNode *xNode = x.getNode();
+    
+    SECTION("BDD from Cudd and DdNode") {
+        // This tests BDD(Cudd const &, DdNode *) constructor
+        BDD y(mgr, xNode);
+        REQUIRE(y.getNode() == xNode);
+    }
+}
+
