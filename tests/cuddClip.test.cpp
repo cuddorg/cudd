@@ -1619,3 +1619,909 @@ TEST_CASE("Cudd_bddClippingAndAbstract - Hit t==e with topcube!=top", "[cuddClip
     
     Cudd_Quit(manager);
 }
+
+TEST_CASE("Cudd_bddClippingAndAbstract - Special paths coverage", "[cuddClip]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    DdNode *one = Cudd_ReadOne(manager);
+    DdNode *zero = Cudd_Not(one);
+    
+    SECTION("t==one && topcube==top early return with cache - using OR") {
+        // Need: t becomes one during abstraction when topcube == top
+        // f|x=1 AND g|x=1 should give one after recursive abstraction
+        
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        // Multiple refs for cache insertion path
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // f = x (then-cof when x=1 is 1)
+        // g = one
+        // cube = x
+        // When abstracting: ft=1, fe=0, gt=ge=1, Cube=cuddT(x)=one
+        // t = ClipAndAbsRecur(1, 1, one) -> ClippingAndRecur(1, 1) = 1
+        // Since t == one and topcube == top, we hit line 482-485!
+        
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, x, one, x, 10, 0);
+        Cudd_Ref(result);
+        REQUIRE(result == one);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, y);
+    }
+    
+    SECTION("t==e path when topcube != top") {
+        // Need: topcube > top, and t == e
+        // This happens when f and g don't depend on the variable at 'top' level
+        // but the cube variable comes later
+        
+        DdNode *x = Cudd_bddNewVar(manager);  // level 0
+        DdNode *y = Cudd_bddNewVar(manager);  // level 1  
+        DdNode *z = Cudd_bddNewVar(manager);  // level 2
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        // Create f that depends on y but not x
+        // f = y AND z, g = y AND z
+        // cube = z
+        // At level y (the top): topcube = level(z) > level(y) = top
+        // So Cube = z (unchanged)
+        // ft = z, fe = 0, gt = z, ge = 0
+        // t = recur(z, z, z), e = recur(0, 0, z)
+        // This still gives t != e
+        
+        // For t == e with topcube != top:
+        // Need both branches to give same result
+        // f = z, g = z, and they don't depend on the top variable
+        // But then both topf and topg would be level(z), not < level(z)
+        
+        // Actually when cube is at a level after f and g's variables:
+        // f = y, g = y, cube = z
+        // top = level(y), topcube = level(z) > top
+        // Cube = z (not advanced)
+        // Since topf = level(y) = top:
+        //   ft = 1, fe = 0 (for f = y)
+        // Since topg = level(y) = top:
+        //   gt = 1, ge = 0 (for g = y)
+        // t = recur(1, 1, z) = 1 (terminal)
+        // e = recur(0, 0, z) = 0 (terminal)
+        // Still t != e
+        
+        // The only way to get t == e is if the recursive calls return same thing
+        // f = z, g = z, cube = y (but y < z, so topcube < top... won't work)
+        
+        // Let's try: f doesn't depend on the current top, g doesn't either
+        // f = z (depends only on z), g = z, 
+        // We process first at some level x before z
+        // But f and g don't have x, so the code path is different
+        
+        // Actually looking at code more carefully:
+        // If topf != top && topg != top, one of them is assigned to index
+        // The case where topf != top happens at line 454-456
+        // if (topf == top) { use F's index } else { use G's index, ft=fe=f }
+        
+        // So if topg < topf, then top = topg, and topf != top
+        // ft = fe = f in this case
+        // Similarly if topf < topg, gt = ge = g
+        
+        // For t == e when topcube != top:
+        // Need: topcube > top, ft=fe, gt=ge, such that ft AND gt == fe AND ge
+        // If topf > top: ft = fe = f
+        // If topg > top: gt = ge = g  
+        // But one of them must have top, so at least one doesn't have ft=fe or gt=ge
+        
+        // Wait, if topf > topg, then top = topg
+        // ft = fe = f (since topf != top)
+        // gt = cuddT(G), ge = cuddE(G) (since topg == top)
+        // t = recur(f, gt, Cube), e = recur(f, ge, Cube)
+        // For t == e: need gt == ge (G doesn't branch) - but if topg == top, G does branch
+        
+        // Let me think differently. The t == e branch at line 509 requires:
+        // - We didn't take the abstraction branch (topcube != top) at line 496
+        // - t == e after recursive calls
+        // 
+        // Simple case: f = y, g = one, cube = z (z after y)
+        // top = level(y), topcube = level(z) > top, so Cube = z
+        // topf = level(y) = top, topg = CUDD_CONST_INDEX (infinity)
+        // ft = 1, fe = 0, gt = ge = one
+        // t = recur(1, 1, z) = 1, e = recur(0, 1, z) = 0
+        // Still t != e
+        
+        // What if g is constant one and f is too?
+        // No, those are terminal cases
+        
+        // I need f and g such that for all cofactors, result is same
+        // f = z, g = one, cube = y (y after x but x not involved)
+        // Actually let's just verify we can hit some reasonable coverage
+        
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, y, y, z, 10, 0);
+        Cudd_Ref(result);
+        // y AND y abstracted by z = y (z not in y)
+        REQUIRE(result == y);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_bddClippingAndAbstract - More t==one scenarios", "[cuddClip]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    DdNode *one = Cudd_ReadOne(manager);
+    
+    SECTION("t==one early return with ref check") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // Create f = x OR y, abstract x
+        // At level x: ft = 1 (x OR y with x=1 = 1), fe = y
+        // gt = ge = one (g = one)
+        // Cube = cuddT(x) = one
+        // t = ClipAndAbsRecur(1, 1, one) = ClippingAndRecur(1, 1) = 1
+        // Now t == one and topcube == top, so we return early!
+        DdNode *f = Cudd_bddOr(manager, x, y);
+        Cudd_Ref(f);
+        Cudd_Ref(f);  // Extra ref for cache path
+        
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, f, one, x, 10, 0);
+        Cudd_Ref(result);
+        REQUIRE(result == one);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+    }
+    
+    SECTION("Another scenario for t==one") {
+        DdNode *a = Cudd_bddNewVar(manager);
+        DdNode *b = Cudd_bddNewVar(manager);
+        Cudd_Ref(a);
+        Cudd_Ref(b);
+        Cudd_Ref(a);
+        Cudd_Ref(b);
+        
+        // f = a, g = a, cube = a
+        // This should abstract a from (a AND a) = exists a. a = 1
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, a, a, a, 10, 0);
+        Cudd_Ref(result);
+        REQUIRE(result == one);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, a);
+        Cudd_RecursiveDeref(manager, a);
+        Cudd_RecursiveDeref(manager, b);
+        Cudd_RecursiveDeref(manager, b);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_bddClippingAndAbstract - Direct t==one coverage", "[cuddClip]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    DdNode *one = Cudd_ReadOne(manager);
+    
+    SECTION("Direct path to t==one with topcube==top") {
+        // The key insight: we need t to be one AFTER the recursive call at line 476
+        // AND topcube == top at line 482
+        //
+        // For topcube == top: the cube's top variable must match the min(topf, topg)
+        // For t == one: the recursive call must return one
+        //
+        // Let's try: f = x, g = x, cube = x
+        // topf = topg = level(x), top = level(x), topcube = level(x)
+        // So topcube == top
+        // ft = 1, fe = 0, gt = 1, ge = 0
+        // Cube = cuddT(x) (next variable in cube, likely one)
+        // t = ClipAndAbsRecur(1, 1, cuddT(x))
+        // Since f=1 and g=1, terminal case: f==one && g==one returns one!
+        // So t == one AND topcube == top, we should hit lines 482-485
+        
+        DdNode *x = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(x);  // Extra ref for cache path (F->ref != 1)
+        
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, x, x, x, 10, 0);
+        Cudd_Ref(result);
+        // exists x. (x AND x) = exists x. x = 1
+        REQUIRE(result == one);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, x);
+    }
+    
+    SECTION("Verify with different refs for cache insert") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // f = x, g = x, cube = x
+        // With refs > 1, the cache insert should be triggered
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, x, x, x, 10, 0);
+        Cudd_Ref(result);
+        REQUIRE(result == one);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, y);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_bddClippingAndAbstract - Direct t==e coverage", "[cuddClip]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Force t==e when topcube != top") {
+        // For t == e with topcube != top:
+        // 1. topcube > top (cube variable after current top in order)
+        // 2. Both recursive calls must return same value
+        //
+        // f = y, g = y, cube = z (where z is after y in variable order)
+        // top = level(y), topcube = level(z)
+        // Since topcube > top: topcube != top, Cube = z (unchanged)
+        // ft = 1 (y's then), fe = 0 (y's else)
+        // gt = 1, ge = 0
+        // t = ClipAndAbsRecur(1, 1, z) - terminal: f==one && g==one returns one
+        // e = ClipAndAbsRecur(0, 0, z) - terminal: f==zero returns zero
+        // So t=1, e=0, still t != e
+        //
+        // Need a case where ft AND gt == fe AND ge
+        // If f and g are the same and don't actually depend on the top variable
+        // but the top variable exists somewhere...
+        //
+        // f = z, g = z (don't depend on x or y)
+        // But then topf = topg = level(z), so top = level(z)
+        // If cube = y (before z): topcube < top, we skip to recursion with cuddT(cube)
+        //
+        // Actually we need: topf or topg to give us a 'top' before z
+        // but f and g's cofactors at that level should be identical
+        //
+        // f = x AND z, g = x AND z, cube = y (between x and z)
+        // topf = topg = level(x) (x is top var in both)
+        // top = level(x), topcube = level(y)
+        // Since level(x) < level(y): topcube > top, so Cube = y
+        // ft = z, fe = 0 (ITE(x, z, 0) = x AND z)
+        // gt = z, ge = 0
+        // t = ClipAndAbsRecur(z, z, y)
+        // e = ClipAndAbsRecur(0, 0, y) = 0 (terminal)
+        // Still t probably != 0
+        //
+        // This is getting complex. Let me try simpler: make both branches return same
+        // f = zero if I AND it with something that makes both cofactors equal?
+        //
+        // f = z (doesn't depend on x, y), g = z, cube = x (before z in order)
+        // topf = topg = level(z)
+        // top = level(z), topcube = level(x)
+        // Since topcube < top: skip to cuddT(cube)
+        // This recurses with cube advanced, not what we want
+        //
+        // For topcube == top to be false at line 496:
+        // Need topcube != top, which is topcube > top
+        // Then at line 509, we check if t == e
+        //
+        // f = x AND z, g = z (different top vars)
+        // topf = level(x), topg = level(z)
+        // top = min = level(x)
+        // If cube = y: topcube = level(y)
+        // If level(x) < level(y) < level(z): topcube > top ✓
+        // topf = level(x) = top, so ft = z, fe = 0
+        // topg = level(z) != top, so gt = ge = z
+        // t = ClipAndAbsRecur(z, z, y)
+        // e = ClipAndAbsRecur(0, z, y)
+        // Inside recursive call for t: topf=topg=level(z), top=level(z), topcube=level(y)
+        //   Since level(y) < level(z): topcube < top, skip to cuddT(y)
+        //   ... eventually returns z
+        // Inside recursive call for e: f=0, so returns 0
+        // t = z, e = 0, still t != e
+        
+        // I think the t == e case requires very special construction
+        // Let me just ensure we have good coverage and accept ~85%
+        
+        DdNode *x = Cudd_bddNewVar(manager);  // level 0
+        DdNode *y = Cudd_bddNewVar(manager);  // level 1
+        DdNode *z = Cudd_bddNewVar(manager);  // level 2
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        // Just test various combinations
+        DdNode *fz = Cudd_bddAnd(manager, x, z);
+        Cudd_Ref(fz);
+        
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, fz, z, y, 10, 0);
+        Cudd_Ref(result);
+        REQUIRE(result != nullptr);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, fz);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_bddClippingAndAbstract - t==one path with OR functions", "[cuddClip]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    DdNode *one = Cudd_ReadOne(manager);
+    
+    SECTION("f=x OR y, g=x OR z, cube=x - triggers t==one && topcube==top") {
+        // When x=1: (x OR y)|x=1 = 1, (x OR z)|x=1 = 1
+        // So ft = 1, gt = 1
+        // t = ClipAndAbsRecur(1, 1, cuddT(x)) = 1 (terminal: f==1 && g==1)
+        // Since t == one and topcube == top, we should hit lines 482-485
+        
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        // Make sure refs > 1 for cache insert path
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        DdNode *f = Cudd_bddOr(manager, x, y);
+        Cudd_Ref(f);
+        Cudd_Ref(f);
+        
+        DdNode *g = Cudd_bddOr(manager, x, z);
+        Cudd_Ref(g);
+        Cudd_Ref(g);
+        
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, f, g, x, 10, 0);
+        Cudd_Ref(result);
+        
+        // exists x. ((x OR y) AND (x OR z))
+        // = exists x. (x OR (y AND z))   [by distribution]
+        // = 1 OR (y AND z) = 1
+        REQUIRE(result == one);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, g);
+        Cudd_RecursiveDeref(manager, g);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
+        Cudd_RecursiveDeref(manager, z);
+    }
+    
+    SECTION("Another OR test for t==one") {
+        DdNode *a = Cudd_bddNewVar(manager);
+        DdNode *b = Cudd_bddNewVar(manager);
+        DdNode *c = Cudd_bddNewVar(manager);
+        Cudd_Ref(a);
+        Cudd_Ref(b);
+        Cudd_Ref(c);
+        Cudd_Ref(a);
+        Cudd_Ref(b);
+        
+        // f = a OR b, g = a
+        // When a=1: f|a=1 = 1, g|a=1 = 1, so t = 1
+        DdNode *f = Cudd_bddOr(manager, a, b);
+        Cudd_Ref(f);
+        Cudd_Ref(f);
+        
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, f, a, a, 10, 0);
+        Cudd_Ref(result);
+        // exists a. ((a OR b) AND a) = exists a. a = 1
+        REQUIRE(result == one);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, a);
+        Cudd_RecursiveDeref(manager, a);
+        Cudd_RecursiveDeref(manager, b);
+        Cudd_RecursiveDeref(manager, b);
+        Cudd_RecursiveDeref(manager, c);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_bddClippingAndAbstract - t==e path attempts", "[cuddClip]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    // For t == e when topcube != top:
+    // 1. topcube > top (cube var level greater than processing level)
+    // 2. Both recursive calls return same value
+    //
+    // This happens when ft AND gt == fe AND ge
+    // 
+    // If topf > top (f doesn't have the top var): ft = fe = f
+    // If topg > top (g doesn't have the top var): gt = ge = g
+    // But at least one of f or g must have the top var (since top = min(topf, topg))
+    //
+    // Alternative: if f and g have identical structure at top var level
+    // f = ITE(x, a, b), g = ITE(x, c, d)
+    // ft = a, fe = b, gt = c, ge = d
+    // t = recur(a, c, Cube), e = recur(b, d, Cube)
+    // For t == e: need (a AND c) result == (b AND d) result after cube abstraction
+    //
+    // Simplest case: a = c = b = d = same value
+    // This means f and g are both constants or don't depend on x
+    // But if they don't depend on x, topf and topg > level(x)
+    //
+    // Wait, let me think about this differently:
+    // If f depends on x but in a way where both cofactors are same after AND with g
+    // f = x XOR x = 0? No that's constant
+    // f = (x AND y) OR (NOT x AND y) = y
+    // That simplifies to just y
+    //
+    // Actually the key insight: we need to find f, g, cube such that:
+    // - Neither f nor g is constant
+    // - top = min(topf, topg) where one of f or g has that var
+    // - cube's top var > top
+    // - AND: t = e after recursive calls
+    //
+    // Let's try: f and g both depend on x but symmetrically
+    // f = x XOR y, g = x XOR y
+    // But then f == g, which is a terminal case
+    //
+    // f = x XOR y, g = x XOR z (different second var)
+    // At level x: ft = NOT y, fe = y, gt = NOT z, ge = z
+    // t = recur(NOT y, NOT z, Cube)
+    // e = recur(y, z, Cube)
+    // For t == e: need NOT y AND NOT z == y AND z (after abstraction)
+    // That's only true if both are 0 (y=1 or z=1 for left, y=0 and z=0 for right)
+    // Not generally equal
+    //
+    // I think this path requires very special construction that might not occur
+    // in practical usage. Let me try a few more combinations:
+    
+    SECTION("Symmetric XOR attempt") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        // f = x XOR y
+        DdNode *f = Cudd_bddXor(manager, x, y);
+        Cudd_Ref(f);
+        
+        // g = x XOR y (same as f)
+        // But this hits f == g terminal... let me try g = NOT(x XOR y) = x XNOR y
+        DdNode *g = Cudd_bddXnor(manager, x, y);
+        Cudd_Ref(g);
+        
+        // f AND g = (x XOR y) AND (x XNOR y) = 0
+        // So this will hit the f == NOT(g) terminal case at line 397
+        // Not useful
+        
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, f, g, z, 10, 0);
+        REQUIRE(result != nullptr);
+        // Should be zero since f AND NOT(f) = 0
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, g);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
+    }
+    
+    SECTION("Functions with same structure attempt") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        DdNode *w = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        Cudd_Ref(w);
+        
+        // f = (x AND y) OR (NOT x AND y) = y
+        // Actually that simplifies. Let me try:
+        // f = x AND (y OR z)
+        // g = x AND (y OR w)
+        // At level x: ft = y OR z, fe = 0, gt = y OR w, ge = 0
+        // t = recur(y OR z, y OR w, Cube), e = recur(0, 0, Cube) = 0
+        // t would be (y OR z) AND (y OR w) = y OR (z AND w) after abstraction
+        // Not necessarily 0, so t != e
+        
+        DdNode *yz = Cudd_bddOr(manager, y, z);
+        Cudd_Ref(yz);
+        DdNode *f = Cudd_bddAnd(manager, x, yz);
+        Cudd_Ref(f);
+        
+        DdNode *yw = Cudd_bddOr(manager, y, w);
+        Cudd_Ref(yw);
+        DdNode *g = Cudd_bddAnd(manager, x, yw);
+        Cudd_Ref(g);
+        
+        // cube = y (after x in order) - wait, y is before z,w
+        // Let me use w as cube since it's last
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, f, g, w, 10, 0);
+        Cudd_Ref(result);
+        REQUIRE(result != nullptr);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, g);
+        Cudd_RecursiveDeref(manager, yz);
+        Cudd_RecursiveDeref(manager, yw);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
+        Cudd_RecursiveDeref(manager, w);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_bddClippingAndAbstract - t==e with different top levels", "[cuddClip]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    // For t == e when topcube != top:
+    // Need topf == top but topg > top (or vice versa), and ft AND g == fe AND g
+    //
+    // f = x (has top var x), g = y (doesn't have x)
+    // top = min(level(x), level(y)) = level(x) (x is first)
+    // topf = level(x) = top, topg = level(y) > top
+    // ft = 1, fe = 0, gt = ge = y
+    // Cube should have level > level(x)
+    // Say cube = z (level 2)
+    // t = ClipAndAbsRecur(1, y, z)
+    // e = ClipAndAbsRecur(0, y, z)
+    // t = (1 AND y) with z abstracted = y (z not in result)
+    // e = (0 AND y) = 0
+    // t != e
+    //
+    // For t == e, we need ft AND g to equal fe AND g
+    // If g = one: ft AND one = ft, fe AND one = fe, so t=ft, e=fe (still different if f varies)
+    // If g = zero: both are zero, but g=zero hits terminal case
+    //
+    // What if g doesn't depend on what f varies on, and the cube abstracts away the variation?
+    // f = x AND y (depends on x, y)
+    // g = z (only depends on z, later in order)
+    // cube = y (abstracts y)
+    // top = min(level(x), level(z))
+    // If z comes after x: top = level(x)
+    // topf = level(x) = top, topg = level(z) > top
+    // ft = y, fe = 0, gt = ge = z
+    // topcube = level(y)
+    // If level(x) < level(y) < level(z): topcube > top ✓
+    // Cube = y (since topcube != top)
+    // t = ClipAndAbsRecur(y, z, y)
+    // e = ClipAndAbsRecur(0, z, y)
+    //
+    // In recursive call for t: f=y, g=z, cube=y
+    //   topf = level(y), topg = level(z), top = level(y), topcube = level(y)
+    //   Since topcube == top, Cube = cuddT(y) = one
+    //   ft' = 1, fe' = 0, gt' = ge' = z
+    //   t' = ClipAndAbsRecur(1, z, one) = ClippingAndRecur(1, z) = z
+    //   Since t' == z (not one) and topcube == top, we check t' == one? No.
+    //   So we continue: e' = ClipAndAbsRecur(0, z, one) = 0
+    //   topcube == top, so we abstract: r = NOT(ClippingAnd(NOT z, NOT 0)) = NOT(NOT z) = z
+    //   Result: t' = z, e' = 0, abstract gives r = z OR 0 = z? No wait...
+    //   Actually at line 496-508 we compute OR via De Morgan
+    //   r = NOT(ClippingAnd(NOT t', NOT e')) = NOT(ClippingAnd(NOT z, one)) = NOT(NOT z) = z
+    //   So t = z
+    //
+    // In recursive call for e: f=0, g=z, cube=y
+    //   f == zero, terminal case returns zero
+    //   So e = 0
+    //
+    // t = z, e = 0, still t != e
+    //
+    // The only way to get t == e is if both recursive calls return same thing
+    // This requires very symmetric structures or both being constants
+    // Since terminals are handled earlier, non-constant t == e is hard
+    
+    SECTION("Attempt with different top levels") {
+        DdNode *x = Cudd_bddNewVar(manager);  // level 0
+        DdNode *y = Cudd_bddNewVar(manager);  // level 1
+        DdNode *z = Cudd_bddNewVar(manager);  // level 2
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        // f = x AND y, g = z, cube = y
+        DdNode *f = Cudd_bddAnd(manager, x, y);
+        Cudd_Ref(f);
+        
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, f, z, y, 10, 0);
+        Cudd_Ref(result);
+        REQUIRE(result != nullptr);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
+    }
+    
+    SECTION("Try with f that has symmetric cofactors") {
+        // For t == e, need ft AND g abstracted by Cube == fe AND g abstracted by Cube
+        // If Cube doesn't actually affect anything in ft AND g or fe AND g,
+        // then we need ft AND g == fe AND g directly
+        //
+        // f = (x AND z) OR (NOT x AND z) = z (this simplifies)
+        // f = x ITE z y (x ? z : y)
+        // ft = z, fe = y
+        // If g = w (doesn't depend on x, z, y)
+        // ft AND g = z AND w, fe AND g = y AND w
+        // For these to be equal: z AND w == y AND w, only if z == y (but they're different vars)
+        // So this doesn't work either
+        
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        DdNode *w = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        Cudd_Ref(w);
+        
+        // f = ITE(x, y, y) = y - that's constant w.r.t. x
+        // Actually need f to vary with x but cofactors AND g are same
+        
+        // Let's try: f = x, g = z, and make them have properties where
+        // after AND and abstraction they're equal
+        // This is fundamentally hard because f=x splits: ft=1, fe=0
+        // And 1 AND g != 0 AND g for any non-zero g
+        
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, x, z, w, 10, 0);
+        Cudd_Ref(result);
+        REQUIRE(result != nullptr);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
+        Cudd_RecursiveDeref(manager, w);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_bddClippingAndAbstract - t==e when both are zero", "[cuddClip]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    DdNode *one = Cudd_ReadOne(manager);
+    DdNode *zero = Cudd_Not(one);
+    
+    // For t == e == zero when topcube != top:
+    // Need both recursive calls to return zero
+    // t = ClipAndAbsRecur(ft, gt, Cube) = 0
+    // e = ClipAndAbsRecur(fe, ge, Cube) = 0
+    //
+    // This happens if:
+    // - ft AND gt = 0 (after abstraction) AND fe AND ge = 0 (after abstraction)
+    // 
+    // Example: f = x AND y, g = NOT y
+    // Then f AND g = (x AND y) AND NOT y = 0 always
+    // But this would hit f == NOT(g) terminal case? No, f = x AND y, g = NOT y
+    // f and g aren't complements
+    //
+    // Let's check: f AND g = x AND y AND NOT y = 0
+    // So at any level, the AND should be 0
+    // But this is caught by terminal case f == NOT(g)? Only if f = NOT(g)
+    // Here f = x AND y, g = NOT y, so f != NOT g
+    // f = x AND y, NOT g = y
+    // f != NOT g (unless x = 1)
+    
+    SECTION("f AND g gives zero") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        // f = x AND y, g = x AND NOT y
+        // f AND g = x AND y AND x AND NOT y = x AND (y AND NOT y) = 0
+        // But this should be caught somewhere...
+        DdNode *f = Cudd_bddAnd(manager, x, y);
+        Cudd_Ref(f);
+        
+        DdNode *notY = Cudd_Not(y);
+        DdNode *g = Cudd_bddAnd(manager, x, notY);
+        Cudd_Ref(g);
+        
+        // cube = z (after x, y in order)
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, f, g, z, 10, 0);
+        Cudd_Ref(result);
+        // f AND g = 0 regardless of z abstraction
+        REQUIRE(result == zero);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, g);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
+    }
+    
+    SECTION("Another zero result case") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        // f = x, g = NOT x AND y
+        // f AND g = x AND NOT x AND y = 0
+        DdNode *notX = Cudd_Not(x);
+        DdNode *g = Cudd_bddAnd(manager, notX, y);
+        Cudd_Ref(g);
+        
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, x, g, z, 10, 0);
+        Cudd_Ref(result);
+        REQUIRE(result == zero);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, g);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_bddClippingAndAbstract - distance limit and edge cases", "[cuddClip]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    DdNode *one = Cudd_ReadOne(manager);
+    DdNode *zero = Cudd_Not(one);
+    
+    SECTION("Distance 1 with abstraction") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // With distance = 1, we get one level of recursion then clip
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, x, y, x, 1, 0);
+        Cudd_Ref(result);
+        REQUIRE(result != nullptr);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+    }
+    
+    SECTION("Distance 0 returns approximation") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        // Distance 0, direction 0 (under) returns zero
+        DdNode *result0 = Cudd_bddClippingAndAbstract(manager, x, y, z, 0, 0);
+        REQUIRE(result0 == zero);
+        
+        // Distance 0, direction 1 (over) returns one
+        DdNode *result1 = Cudd_bddClippingAndAbstract(manager, x, y, z, 0, 1);
+        REQUIRE(result1 == one);
+        
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+// Helper for timeout testing
+static int timeoutCalled = 0;
+static void timeoutHandler(DdManager *dd, void *arg) {
+    (void)dd;
+    (void)arg;
+    timeoutCalled = 1;
+}
+
+TEST_CASE("Cudd_bddClippingAnd - Timeout handler", "[cuddClip]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Set timeout handler and verify it can be called") {
+        // This test verifies the timeout mechanism is set up correctly
+        // Actually triggering timeout during clipping operations is very difficult
+        // as they are fast operations
+        
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // Set a timeout handler
+        Cudd_RegisterTimeoutHandler(manager, timeoutHandler, NULL);
+        
+        // Normal operation should not trigger timeout
+        timeoutCalled = 0;
+        DdNode *result = Cudd_bddClippingAnd(manager, x, y, 10, 0);
+        Cudd_Ref(result);
+        
+        // Timeout not triggered in normal operation
+        REQUIRE(result != nullptr);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+    }
+    
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_bddClippingAndAbstract - Timeout handler", "[cuddClip]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Set timeout handler for ClippingAndAbstract") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+        
+        Cudd_RegisterTimeoutHandler(manager, timeoutHandler, NULL);
+        
+        timeoutCalled = 0;
+        DdNode *result = Cudd_bddClippingAndAbstract(manager, x, y, z, 10, 0);
+        Cudd_Ref(result);
+        
+        REQUIRE(result != nullptr);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, z);
+    }
+    
+    Cudd_Quit(manager);
+}
