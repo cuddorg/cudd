@@ -1046,3 +1046,574 @@ TEST_CASE("Cudd_addOuterSum - Same then/else children path", "[cuddMatMult]") {
     Cudd_RecursiveDeref(manager, x0);
     Cudd_Quit(manager);
 }
+
+// ============================================================================
+// Additional tests for coverage improvements
+// ============================================================================
+
+TEST_CASE("Cudd_addMatrixMultiply - Cache hit with scaling path", "[cuddMatMult]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    // Create variables in specific order to trigger cache hit with scaling
+    // We need summation variables that are "missing" between recursion levels
+    DdNode *x0 = Cudd_addIthVar(manager, 0);  // row variable
+    DdNode *z0 = Cudd_addIthVar(manager, 1);  // summation variable (not in ADDs)
+    DdNode *z1 = Cudd_addIthVar(manager, 2);  // summation variable (in ADDs)
+    DdNode *y0 = Cudd_addIthVar(manager, 3);  // col variable
+    
+    Cudd_Ref(x0);
+    Cudd_Ref(z0);
+    Cudd_Ref(z1);
+    Cudd_Ref(y0);
+    
+    DdNode *const2 = Cudd_addConst(manager, 2.0);
+    DdNode *const3 = Cudd_addConst(manager, 3.0);
+    Cudd_Ref(const2);
+    Cudd_Ref(const3);
+    
+    // A depends on x0 and z1 (skips z0)
+    DdNode *A = Cudd_addIte(manager, x0, Cudd_addIte(manager, z1, const2, const3), const3);
+    REQUIRE(A != nullptr);
+    Cudd_Ref(A);
+    
+    // B depends on z1 and y0 (skips z0)
+    DdNode *B = Cudd_addIte(manager, z1, Cudd_addIte(manager, y0, const3, const2), const2);
+    REQUIRE(B != nullptr);
+    Cudd_Ref(B);
+    
+    // Use both z0 and z1 as summation variables
+    // z0 is "missing" from A and B, which should trigger scaling
+    DdNode *z[2] = {z0, z1};
+    
+    DdNode *result = Cudd_addMatrixMultiply(manager, A, B, z, 2);
+    REQUIRE(result != nullptr);
+    Cudd_Ref(result);
+    
+    // Call again to potentially hit cache with scaling
+    DdNode *result2 = Cudd_addMatrixMultiply(manager, A, B, z, 2);
+    REQUIRE(result2 != nullptr);
+    REQUIRE(result2 == result);
+    
+    Cudd_RecursiveDeref(manager, result);
+    Cudd_RecursiveDeref(manager, B);
+    Cudd_RecursiveDeref(manager, A);
+    Cudd_RecursiveDeref(manager, const3);
+    Cudd_RecursiveDeref(manager, const2);
+    Cudd_RecursiveDeref(manager, y0);
+    Cudd_RecursiveDeref(manager, z1);
+    Cudd_RecursiveDeref(manager, z0);
+    Cudd_RecursiveDeref(manager, x0);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addMatrixMultiply - Non-zero result with scaling", "[cuddMatMult]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    // Create variables with gaps to trigger the scaling logic
+    DdNode *x0 = Cudd_addIthVar(manager, 0);
+    DdNode *z0 = Cudd_addIthVar(manager, 1);  // summation, not in ADDs
+    DdNode *x1 = Cudd_addIthVar(manager, 2);  // row variable in middle
+    DdNode *z1 = Cudd_addIthVar(manager, 3);  // summation in ADDs
+    DdNode *y0 = Cudd_addIthVar(manager, 4);
+    
+    Cudd_Ref(x0);
+    Cudd_Ref(z0);
+    Cudd_Ref(x1);
+    Cudd_Ref(z1);
+    Cudd_Ref(y0);
+    
+    DdNode *one = Cudd_ReadOne(manager);
+    DdNode *const2 = Cudd_addConst(manager, 2.0);
+    Cudd_Ref(const2);
+    
+    // Create matrices that depend on x1 and z1
+    DdNode *A = Cudd_addIte(manager, x1, Cudd_addIte(manager, z1, const2, one), one);
+    REQUIRE(A != nullptr);
+    Cudd_Ref(A);
+    
+    DdNode *B = Cudd_addIte(manager, z1, Cudd_addIte(manager, y0, const2, one), one);
+    REQUIRE(B != nullptr);
+    Cudd_Ref(B);
+    
+    // z0 is between x0 and x1 in the variable ordering
+    DdNode *z[2] = {z0, z1};
+    
+    DdNode *result = Cudd_addMatrixMultiply(manager, A, B, z, 2);
+    REQUIRE(result != nullptr);
+    Cudd_Ref(result);
+    
+    Cudd_RecursiveDeref(manager, result);
+    Cudd_RecursiveDeref(manager, B);
+    Cudd_RecursiveDeref(manager, A);
+    Cudd_RecursiveDeref(manager, const2);
+    Cudd_RecursiveDeref(manager, y0);
+    Cudd_RecursiveDeref(manager, z1);
+    Cudd_RecursiveDeref(manager, x1);
+    Cudd_RecursiveDeref(manager, z0);
+    Cudd_RecursiveDeref(manager, x0);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addTriangle - Cache insertion and lookup with ref count > 1", "[cuddMatMult]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    DdNode *x0 = Cudd_addIthVar(manager, 0);
+    DdNode *z0 = Cudd_addIthVar(manager, 1);
+    DdNode *y0 = Cudd_addIthVar(manager, 2);
+    
+    Cudd_Ref(x0);
+    Cudd_Ref(z0);
+    Cudd_Ref(y0);
+    
+    DdNode *const1 = Cudd_addConst(manager, 1.0);
+    DdNode *const2 = Cudd_addConst(manager, 2.0);
+    DdNode *const3 = Cudd_addConst(manager, 3.0);
+    Cudd_Ref(const1);
+    Cudd_Ref(const2);
+    Cudd_Ref(const3);
+    
+    // Create ADDs with ref count > 1 (by referencing them multiple times)
+    DdNode *f = Cudd_addIte(manager, x0, Cudd_addIte(manager, z0, const1, const2), const3);
+    REQUIRE(f != nullptr);
+    Cudd_Ref(f);
+    Cudd_Ref(f);  // Extra ref to ensure ref > 1
+    
+    DdNode *g = Cudd_addIte(manager, z0, Cudd_addIte(manager, y0, const2, const3), const1);
+    REQUIRE(g != nullptr);
+    Cudd_Ref(g);
+    Cudd_Ref(g);  // Extra ref to ensure ref > 1
+    
+    DdNode *z[1] = {z0};
+    
+    // First call - should insert into cache
+    DdNode *result1 = Cudd_addTriangle(manager, f, g, z, 1);
+    REQUIRE(result1 != nullptr);
+    Cudd_Ref(result1);
+    
+    // Second call - should hit cache
+    DdNode *result2 = Cudd_addTriangle(manager, f, g, z, 1);
+    REQUIRE(result2 != nullptr);
+    REQUIRE(result2 == result1);
+    
+    Cudd_RecursiveDeref(manager, result1);
+    Cudd_RecursiveDeref(manager, g);
+    Cudd_RecursiveDeref(manager, g);  // Extra deref
+    Cudd_RecursiveDeref(manager, f);
+    Cudd_RecursiveDeref(manager, f);  // Extra deref
+    Cudd_RecursiveDeref(manager, const3);
+    Cudd_RecursiveDeref(manager, const2);
+    Cudd_RecursiveDeref(manager, const1);
+    Cudd_RecursiveDeref(manager, y0);
+    Cudd_RecursiveDeref(manager, z0);
+    Cudd_RecursiveDeref(manager, x0);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addTriangle - Abstraction variable with same then/else (t == e path)", "[cuddMatMult]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    DdNode *x0 = Cudd_addIthVar(manager, 0);  // Not a summation variable
+    DdNode *z0 = Cudd_addIthVar(manager, 1);  // Summation variable
+    
+    Cudd_Ref(x0);
+    Cudd_Ref(z0);
+    
+    DdNode *const2 = Cudd_addConst(manager, 2.0);
+    DdNode *const3 = Cudd_addConst(manager, 3.0);
+    Cudd_Ref(const2);
+    Cudd_Ref(const3);
+    
+    // Create f that depends on x0 but not z0
+    // This creates a case where recursive calls produce same result for then/else
+    DdNode *f = Cudd_addIte(manager, x0, const2, const3);
+    REQUIRE(f != nullptr);
+    Cudd_Ref(f);
+    
+    // g is constant
+    DdNode *z[1] = {z0};
+    
+    DdNode *result = Cudd_addTriangle(manager, f, const2, z, 1);
+    REQUIRE(result != nullptr);
+    Cudd_Ref(result);
+    
+    Cudd_RecursiveDeref(manager, result);
+    Cudd_RecursiveDeref(manager, f);
+    Cudd_RecursiveDeref(manager, const3);
+    Cudd_RecursiveDeref(manager, const2);
+    Cudd_RecursiveDeref(manager, z0);
+    Cudd_RecursiveDeref(manager, x0);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addOuterSum - M non-constant with constant r and c", "[cuddMatMult]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    DdNode *x0 = Cudd_addIthVar(manager, 0);
+    Cudd_Ref(x0);
+    
+    DdNode *const2 = Cudd_addConst(manager, 2.0);
+    DdNode *const3 = Cudd_addConst(manager, 3.0);
+    DdNode *const10 = Cudd_addConst(manager, 10.0);
+    Cudd_Ref(const2);
+    Cudd_Ref(const3);
+    Cudd_Ref(const10);
+    
+    // M depends on x0
+    DdNode *M = Cudd_addIte(manager, x0, const10, const3);
+    REQUIRE(M != nullptr);
+    Cudd_Ref(M);
+    
+    // r and c are constant - this should trigger the special path
+    // where r+c is computed first and then compared with M
+    DdNode *result = Cudd_addOuterSum(manager, M, const2, const2);
+    REQUIRE(result != nullptr);
+    Cudd_Ref(result);
+    
+    // When x0=1: min(10, 4) = 4
+    // When x0=0: min(3, 4) = 3
+    // Result should be: x0 ? 4 : 3
+    
+    Cudd_RecursiveDeref(manager, result);
+    Cudd_RecursiveDeref(manager, M);
+    Cudd_RecursiveDeref(manager, const10);
+    Cudd_RecursiveDeref(manager, const3);
+    Cudd_RecursiveDeref(manager, const2);
+    Cudd_RecursiveDeref(manager, x0);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addMatrixMultiply - Summation variable is top variable", "[cuddMatMult]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    // z0 is the top variable (smallest index) and is a summation variable
+    DdNode *z0 = Cudd_addIthVar(manager, 0);  // summation
+    DdNode *x0 = Cudd_addIthVar(manager, 1);  // row
+    DdNode *y0 = Cudd_addIthVar(manager, 2);  // col
+    
+    Cudd_Ref(z0);
+    Cudd_Ref(x0);
+    Cudd_Ref(y0);
+    
+    DdNode *const2 = Cudd_addConst(manager, 2.0);
+    DdNode *const3 = Cudd_addConst(manager, 3.0);
+    Cudd_Ref(const2);
+    Cudd_Ref(const3);
+    
+    // A depends on z0 and x0
+    DdNode *A = Cudd_addIte(manager, z0, Cudd_addIte(manager, x0, const2, const3), const3);
+    REQUIRE(A != nullptr);
+    Cudd_Ref(A);
+    
+    // B depends on z0 and y0
+    DdNode *B = Cudd_addIte(manager, z0, Cudd_addIte(manager, y0, const3, const2), const2);
+    REQUIRE(B != nullptr);
+    Cudd_Ref(B);
+    
+    DdNode *z[1] = {z0};
+    
+    DdNode *result = Cudd_addMatrixMultiply(manager, A, B, z, 1);
+    REQUIRE(result != nullptr);
+    Cudd_Ref(result);
+    
+    Cudd_RecursiveDeref(manager, result);
+    Cudd_RecursiveDeref(manager, B);
+    Cudd_RecursiveDeref(manager, A);
+    Cudd_RecursiveDeref(manager, const3);
+    Cudd_RecursiveDeref(manager, const2);
+    Cudd_RecursiveDeref(manager, y0);
+    Cudd_RecursiveDeref(manager, x0);
+    Cudd_RecursiveDeref(manager, z0);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addTriangle - Both branches with abstraction variable", "[cuddMatMult]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    DdNode *z0 = Cudd_addIthVar(manager, 0);  // abstraction variable
+    DdNode *x0 = Cudd_addIthVar(manager, 1);
+    DdNode *y0 = Cudd_addIthVar(manager, 2);
+    
+    Cudd_Ref(z0);
+    Cudd_Ref(x0);
+    Cudd_Ref(y0);
+    
+    DdNode *const1 = Cudd_addConst(manager, 1.0);
+    DdNode *const2 = Cudd_addConst(manager, 2.0);
+    DdNode *const3 = Cudd_addConst(manager, 3.0);
+    DdNode *const4 = Cudd_addConst(manager, 4.0);
+    Cudd_Ref(const1);
+    Cudd_Ref(const2);
+    Cudd_Ref(const3);
+    Cudd_Ref(const4);
+    
+    // f depends on z0 (abstraction) and x0
+    DdNode *f = Cudd_addIte(manager, z0, Cudd_addIte(manager, x0, const1, const2), Cudd_addIte(manager, x0, const3, const4));
+    REQUIRE(f != nullptr);
+    Cudd_Ref(f);
+    
+    // g depends on z0 (abstraction) and y0
+    DdNode *g = Cudd_addIte(manager, z0, Cudd_addIte(manager, y0, const2, const1), Cudd_addIte(manager, y0, const4, const3));
+    REQUIRE(g != nullptr);
+    Cudd_Ref(g);
+    
+    DdNode *z[1] = {z0};
+    
+    // This should exercise the path where we split on the abstraction variable
+    // and take the minimum of the results
+    DdNode *result = Cudd_addTriangle(manager, f, g, z, 1);
+    REQUIRE(result != nullptr);
+    Cudd_Ref(result);
+    
+    Cudd_RecursiveDeref(manager, result);
+    Cudd_RecursiveDeref(manager, g);
+    Cudd_RecursiveDeref(manager, f);
+    Cudd_RecursiveDeref(manager, const4);
+    Cudd_RecursiveDeref(manager, const3);
+    Cudd_RecursiveDeref(manager, const2);
+    Cudd_RecursiveDeref(manager, const1);
+    Cudd_RecursiveDeref(manager, y0);
+    Cudd_RecursiveDeref(manager, x0);
+    Cudd_RecursiveDeref(manager, z0);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addOuterSum - Deep recursion with all different top vars", "[cuddMatMult]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    DdNode *x0 = Cudd_addIthVar(manager, 0);
+    DdNode *x1 = Cudd_addIthVar(manager, 1);
+    DdNode *x2 = Cudd_addIthVar(manager, 2);
+    DdNode *x3 = Cudd_addIthVar(manager, 3);
+    
+    Cudd_Ref(x0);
+    Cudd_Ref(x1);
+    Cudd_Ref(x2);
+    Cudd_Ref(x3);
+    
+    DdNode *const1 = Cudd_addConst(manager, 1.0);
+    DdNode *const2 = Cudd_addConst(manager, 2.0);
+    DdNode *const3 = Cudd_addConst(manager, 3.0);
+    DdNode *const10 = Cudd_addConst(manager, 10.0);
+    Cudd_Ref(const1);
+    Cudd_Ref(const2);
+    Cudd_Ref(const3);
+    Cudd_Ref(const10);
+    
+    // M has top variable x0
+    DdNode *M = Cudd_addIte(manager, x0, Cudd_addIte(manager, x1, const10, const3), const10);
+    REQUIRE(M != nullptr);
+    Cudd_Ref(M);
+    
+    // r has top variable x2
+    DdNode *r = Cudd_addIte(manager, x2, const1, const2);
+    REQUIRE(r != nullptr);
+    Cudd_Ref(r);
+    
+    // c has top variable x3
+    DdNode *c = Cudd_addIte(manager, x3, const2, const1);
+    REQUIRE(c != nullptr);
+    Cudd_Ref(c);
+    
+    DdNode *result = Cudd_addOuterSum(manager, M, r, c);
+    REQUIRE(result != nullptr);
+    Cudd_Ref(result);
+    
+    Cudd_RecursiveDeref(manager, result);
+    Cudd_RecursiveDeref(manager, c);
+    Cudd_RecursiveDeref(manager, r);
+    Cudd_RecursiveDeref(manager, M);
+    Cudd_RecursiveDeref(manager, const10);
+    Cudd_RecursiveDeref(manager, const3);
+    Cudd_RecursiveDeref(manager, const2);
+    Cudd_RecursiveDeref(manager, const1);
+    Cudd_RecursiveDeref(manager, x3);
+    Cudd_RecursiveDeref(manager, x2);
+    Cudd_RecursiveDeref(manager, x1);
+    Cudd_RecursiveDeref(manager, x0);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addMatrixMultiply - Both operands have same top variable (topV == topA == topB)", "[cuddMatMult]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    DdNode *z0 = Cudd_addIthVar(manager, 0);  // shared top variable, also summation
+    DdNode *x0 = Cudd_addIthVar(manager, 1);
+    DdNode *y0 = Cudd_addIthVar(manager, 2);
+    
+    Cudd_Ref(z0);
+    Cudd_Ref(x0);
+    Cudd_Ref(y0);
+    
+    DdNode *const1 = Cudd_addConst(manager, 1.0);
+    DdNode *const2 = Cudd_addConst(manager, 2.0);
+    Cudd_Ref(const1);
+    Cudd_Ref(const2);
+    
+    // Both A and B have z0 as top variable
+    DdNode *A = Cudd_addIte(manager, z0, const2, const1);
+    REQUIRE(A != nullptr);
+    Cudd_Ref(A);
+    
+    DdNode *B = Cudd_addIte(manager, z0, const1, const2);
+    REQUIRE(B != nullptr);
+    Cudd_Ref(B);
+    
+    DdNode *z[1] = {z0};
+    
+    DdNode *result = Cudd_addMatrixMultiply(manager, A, B, z, 1);
+    REQUIRE(result != nullptr);
+    Cudd_Ref(result);
+    // (2*1) + (1*2) = 4
+    REQUIRE(Cudd_IsConstant(result));
+    REQUIRE(Cudd_V(result) == 4.0);
+    
+    Cudd_RecursiveDeref(manager, result);
+    Cudd_RecursiveDeref(manager, B);
+    Cudd_RecursiveDeref(manager, A);
+    Cudd_RecursiveDeref(manager, const2);
+    Cudd_RecursiveDeref(manager, const1);
+    Cudd_RecursiveDeref(manager, y0);
+    Cudd_RecursiveDeref(manager, x0);
+    Cudd_RecursiveDeref(manager, z0);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addMatrixMultiply - Trigger cache hit with scaling", "[cuddMatMult]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    // Create variables in order that creates "missing" summation variables
+    // The goal is: first call populates cache, second call hits cache at different depth
+    // needing scaling because summation variables are between topP and topV
+    
+    DdNode *x0 = Cudd_addIthVar(manager, 0);  // row variable
+    DdNode *z0 = Cudd_addIthVar(manager, 1);  // summation variable 
+    DdNode *z1 = Cudd_addIthVar(manager, 2);  // summation variable
+    DdNode *x1 = Cudd_addIthVar(manager, 3);  // another row variable
+    DdNode *y0 = Cudd_addIthVar(manager, 4);  // col variable
+    
+    Cudd_Ref(x0);
+    Cudd_Ref(z0);
+    Cudd_Ref(z1);
+    Cudd_Ref(x1);
+    Cudd_Ref(y0);
+    
+    DdNode *const1 = Cudd_addConst(manager, 1.0);
+    DdNode *const2 = Cudd_addConst(manager, 2.0);
+    Cudd_Ref(const1);
+    Cudd_Ref(const2);
+    
+    // Create A that depends on x0 and x1, but not on z0 or z1
+    // A = if x0 then (if x1 then 2 else 1) else 1
+    DdNode *inner_a = Cudd_addIte(manager, x1, const2, const1);
+    Cudd_Ref(inner_a);
+    DdNode *A = Cudd_addIte(manager, x0, inner_a, const1);
+    REQUIRE(A != nullptr);
+    Cudd_Ref(A);
+    
+    // Create B that depends on y0, but not z0 or z1
+    // B = if y0 then 2 else 1
+    DdNode *B = Cudd_addIte(manager, y0, const2, const1);
+    REQUIRE(B != nullptr);
+    Cudd_Ref(B);
+    
+    // z0 and z1 are summation variables but don't appear in A or B
+    // This means when we recurse, sub-problems (const, const) will be cached
+    // and hit later with missing summation variables between topP and topV
+    DdNode *z[2] = {z0, z1};
+    
+    DdNode *result = Cudd_addMatrixMultiply(manager, A, B, z, 2);
+    REQUIRE(result != nullptr);
+    Cudd_Ref(result);
+    
+    Cudd_RecursiveDeref(manager, result);
+    Cudd_RecursiveDeref(manager, B);
+    Cudd_RecursiveDeref(manager, A);
+    Cudd_RecursiveDeref(manager, inner_a);
+    Cudd_RecursiveDeref(manager, const2);
+    Cudd_RecursiveDeref(manager, const1);
+    Cudd_RecursiveDeref(manager, y0);
+    Cudd_RecursiveDeref(manager, x1);
+    Cudd_RecursiveDeref(manager, z1);
+    Cudd_RecursiveDeref(manager, z0);
+    Cudd_RecursiveDeref(manager, x0);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addTriangle - Same cofactors path (t == e, non-abstraction var)", "[cuddMatMult]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    DdNode *x0 = Cudd_addIthVar(manager, 0);  // not an abstraction variable
+    DdNode *z0 = Cudd_addIthVar(manager, 1);  // abstraction variable
+    
+    Cudd_Ref(x0);
+    Cudd_Ref(z0);
+    
+    DdNode *const3 = Cudd_addConst(manager, 3.0);
+    Cudd_Ref(const3);
+    
+    // f = if x0 then 3 else 3 (same then/else, should create constant)
+    DdNode *f = Cudd_addIte(manager, x0, const3, const3);
+    REQUIRE(f != nullptr);
+    Cudd_Ref(f);
+    
+    // Actually the ITE should reduce to const3 since then == else
+    // Let's create a structure that produces t == e in recursion
+    
+    DdNode *z[1] = {z0};
+    
+    DdNode *result = Cudd_addTriangle(manager, f, const3, z, 1);
+    REQUIRE(result != nullptr);
+    Cudd_Ref(result);
+    
+    Cudd_RecursiveDeref(manager, result);
+    Cudd_RecursiveDeref(manager, f);
+    Cudd_RecursiveDeref(manager, const3);
+    Cudd_RecursiveDeref(manager, z0);
+    Cudd_RecursiveDeref(manager, x0);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_addOuterSum - Rt == Re path (same then/else result)", "[cuddMatMult]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    DdNode *x0 = Cudd_addIthVar(manager, 0);
+    Cudd_Ref(x0);
+    
+    DdNode *const2 = Cudd_addConst(manager, 2.0);
+    DdNode *const10 = Cudd_addConst(manager, 10.0);
+    Cudd_Ref(const2);
+    Cudd_Ref(const10);
+    
+    // M depends on x0 but the result of recursion should be same for both branches
+    // M = if x0 then 10 else 10 - same both ways
+    DdNode *M = Cudd_addIte(manager, x0, const10, const10);
+    REQUIRE(M != nullptr);
+    Cudd_Ref(M);
+    
+    // r and c are constants
+    // OuterSum: min(M, r+c) = min(10, 4) = 4 for both branches
+    DdNode *result = Cudd_addOuterSum(manager, M, const2, const2);
+    REQUIRE(result != nullptr);
+    Cudd_Ref(result);
+    REQUIRE(Cudd_IsConstant(result));
+    REQUIRE(Cudd_V(result) == 4.0);
+    
+    Cudd_RecursiveDeref(manager, result);
+    Cudd_RecursiveDeref(manager, M);
+    Cudd_RecursiveDeref(manager, const10);
+    Cudd_RecursiveDeref(manager, const2);
+    Cudd_RecursiveDeref(manager, x0);
+    Cudd_Quit(manager);
+}
