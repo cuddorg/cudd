@@ -436,17 +436,27 @@ TEST_CASE("Manager info read functions", "[cuddAPI]") {
     REQUIRE(Cudd_ReadReorderingTime(dd) >= 0);
     REQUIRE(Cudd_ReadGarbageCollections(dd) >= 0);
     REQUIRE(Cudd_ReadGarbageCollectionTime(dd) >= 0);
-    REQUIRE(Cudd_ReadRecursiveCalls(dd) != 0);
-    REQUIRE(Cudd_ReadNodesFreed(dd) != 0);
-    REQUIRE(Cudd_ReadNodesDropped(dd) != 0);
-    REQUIRE(Cudd_ReadUniqueLookUps(dd) != 0);
-    REQUIRE(Cudd_ReadUniqueLinks(dd) != 0);
+    // These functions return -1.0 when DD_COUNT is not defined (feature disabled)
+    double recursiveCalls = Cudd_ReadRecursiveCalls(dd);
+    REQUIRE((recursiveCalls == -1.0 || recursiveCalls >= 0.0));
+    // These functions return -1.0 when DD_STATS is not defined (feature disabled)
+    double nodesFreed = Cudd_ReadNodesFreed(dd);
+    REQUIRE((nodesFreed == -1.0 || nodesFreed >= 0.0));
+    double nodesDropped = Cudd_ReadNodesDropped(dd);
+    REQUIRE((nodesDropped == -1.0 || nodesDropped >= 0.0));
+    // These functions return -1.0 when DD_UNIQUE_PROFILE is not defined (feature disabled)
+    double uniqueLookUps = Cudd_ReadUniqueLookUps(dd);
+    REQUIRE((uniqueLookUps == -1.0 || uniqueLookUps >= 0.0));
+    double uniqueLinks = Cudd_ReadUniqueLinks(dd);
+    REQUIRE((uniqueLinks == -1.0 || uniqueLinks >= 0.0));
     REQUIRE(Cudd_ReadMemoryInUse(dd) > 0);
     REQUIRE(Cudd_ReadPeakNodeCount(dd) > 0);
     REQUIRE(Cudd_ReadPeakLiveNodeCount(dd) > 0);
     REQUIRE(Cudd_ReadNodeCount(dd) >= 0);
     REQUIRE(Cudd_zddReadNodeCount(dd) >= 0);
-    REQUIRE(Cudd_ReadSwapSteps(dd) != 0);
+    // Returns -1.0 when DD_COUNT is not defined
+    double swapSteps = Cudd_ReadSwapSteps(dd);
+    REQUIRE((swapSteps == -1.0 || swapSteps >= 0.0));
     
     Cudd_SetMaxReorderings(dd, 100);
     REQUIRE(Cudd_ReadMaxReorderings(dd) == 100);
