@@ -204,10 +204,10 @@ TEST_CASE("cuddPrintNode - Complemented", "[cuddCheck]") {
 TEST_CASE("cuddPrintVarGroups - BDD with various flags", "[cuddCheck]") {
     DdManager *m = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
     REQUIRE(m != nullptr);
-    // Cudd_MakeTreeNode creates and sets the tree in the manager
+    // Cudd_MakeTreeNode creates the tree structure in the manager and returns the group node
     MtrNode *group = Cudd_MakeTreeNode(m, 0, 5, MTR_DEFAULT);
     REQUIRE(group != nullptr);
-    // Get the actual tree from the manager (not the group returned)
+    // Get the tree root from the manager for cuddPrintVarGroups
     MtrNode *tree = Cudd_ReadTree(m);
     REQUIRE(tree != nullptr);
     cuddPrintVarGroups(m, tree, 0, 1);
