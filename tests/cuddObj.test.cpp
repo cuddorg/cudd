@@ -3858,3 +3858,148 @@ TEST_CASE("ADD IteConstant operation", "[cuddObj][ADD][.skip]") {
     // IteConstant has complex requirements - skipping
     REQUIRE(true);
 }
+
+// Test BDD operations with limits (increased coverage)
+TEST_CASE("BDD operations with limits", "[cuddObj][BDD]") {
+    Cudd mgr;
+    BDD x = mgr.bddVar(0);
+    BDD y = mgr.bddVar(1);
+    BDD z = mgr.bddVar(2);
+    BDD cube = y;
+    
+    SECTION("ExistAbstract with limit") {
+        BDD f = (x & y) | (y & z);
+        BDD result = f.ExistAbstract(cube, 100);
+        REQUIRE(result.getNode() != nullptr);
+    }
+    
+    SECTION("Ite with limit") {
+        BDD result = x.Ite(y, z, 100);
+        REQUIRE(result.getNode() != nullptr);
+    }
+    
+    SECTION("And with limit") {
+        BDD result = x.And(y, 100);
+        REQUIRE(result.getNode() != nullptr);
+    }
+    
+    SECTION("Or with limit") {
+        BDD result = x.Or(y, 100);
+        REQUIRE(result.getNode() != nullptr);
+    }
+    
+    SECTION("Xnor with limit") {
+        BDD result = x.Xnor(y, 100);
+        REQUIRE(result.getNode() != nullptr);
+    }
+}
+
+// Test BDD ConstrainDecomp
+TEST_CASE("BDD ConstrainDecomp operation", "[cuddObj][BDD]") {
+    Cudd mgr;
+    BDD x = mgr.bddVar(0);
+    BDD y = mgr.bddVar(1);
+    BDD f = x & y;
+    
+    SECTION("ConstrainDecomp") {
+        std::vector<BDD> result = f.ConstrainDecomp();
+        REQUIRE(result.size() > 0);
+    }
+}
+
+// Test BDD CharToVect
+TEST_CASE("BDD CharToVect operation", "[cuddObj][BDD]") {
+    Cudd mgr;
+    BDD x = mgr.bddVar(0);
+    BDD y = mgr.bddVar(1);
+    BDD f = x & y;
+    
+    SECTION("CharToVect") {
+        std::vector<BDD> result = f.CharToVect();
+        REQUIRE(result.size() > 0);
+    }
+}
+
+// Test Cudd OrderString
+TEST_CASE("Cudd OrderString operation", "[cuddObj][Cudd]") {
+    Cudd mgr;
+    BDD x = mgr.bddVar(0);
+    BDD y = mgr.bddVar(1);
+    
+    SECTION("OrderString without names") {
+        std::string order = mgr.OrderString();
+        REQUIRE(order.length() > 0);
+    }
+    
+    SECTION("OrderString with names") {
+        Cudd mgr2;
+        mgr2.pushVariableName("a");
+        mgr2.pushVariableName("b");
+        BDD xa = mgr2.bddVar(0);
+        BDD xb = mgr2.bddVar(1);
+        std::string order = mgr2.OrderString();
+        REQUIRE(order.find("a") != std::string::npos);
+        REQUIRE(order.find("b") != std::string::npos);
+    }
+}
+
+// Test ZDD DiffConst
+TEST_CASE("ZDD DiffConst operation", "[cuddObj][ZDD]") {
+    Cudd mgr;
+    mgr.bddVar(0);
+    mgr.bddVar(1);
+    mgr.zddVarsFromBddVars(2);
+    
+    SECTION("DiffConst with identical ZDDs") {
+        ZDD z1 = mgr.zddVar(0);
+        ZDD z2 = mgr.zddVar(0);
+        ZDD result = z1.DiffConst(z2);
+        REQUIRE(result.getNode() != nullptr);
+    }
+}
+
+// Test BDD MakePrime extended
+TEST_CASE("BDD MakePrime operation extended", "[cuddObj][BDD]") {
+    Cudd mgr;
+    BDD x = mgr.bddVar(0);
+    BDD y = mgr.bddVar(1);
+    BDD f = x | y;
+    
+    SECTION("MakePrime with cube extended") {
+        // Create a minterm (cube): x & y
+        BDD cube = x & y;
+        // MakePrime expands a cube to a prime implicant
+        BDD result = cube.MakePrime(f);
+        CHECK(result.getNode() != static_cast<DdNode*>(nullptr));
+    }
+}
+
+// Test BDD MaximallyExpand extended
+TEST_CASE("BDD MaximallyExpand operation extended", "[cuddObj][BDD]") {
+    Cudd mgr;
+    BDD x = mgr.bddVar(0);
+    BDD y = mgr.bddVar(1);
+    
+    SECTION("MaximallyExpand extended") {
+        BDD cube = x & y;
+        BDD ub = x | y;
+        BDD f = x;
+        BDD result = cube.MaximallyExpand(ub, f);
+        CHECK(result.getNode() != static_cast<DdNode*>(nullptr));
+    }
+}
+
+// Test ABDD CofMinterm extended
+TEST_CASE("ABDD CofMinterm operation extended", "[cuddObj][ABDD]") {
+    Cudd mgr;
+    BDD x = mgr.bddVar(0);
+    BDD y = mgr.bddVar(1);
+    BDD f = x | y;
+    
+    SECTION("CofMinterm extended") {
+        double* result = f.CofMinterm();
+        CHECK(result != static_cast<double*>(nullptr));
+        // Free the result array
+        free(result);
+    }
+}
