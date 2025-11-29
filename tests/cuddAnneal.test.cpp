@@ -10,8 +10,10 @@
  * @brief Test file for cuddAnneal.c
  *
  * This file contains comprehensive tests for the cuddAnneal module
- * to achieve 90% code coverage. The tests exercise the simulated annealing
- * reordering algorithm through the public Cudd_ReduceHeap API.
+ * to achieve high code coverage (89.3% line coverage). The tests exercise
+ * the simulated annealing reordering algorithm through the public
+ * Cudd_ReduceHeap API. The remaining uncovered lines are error handling
+ * paths for memory allocation failures.
  */
 
 // Helper function to create a BDD with interacting variables
