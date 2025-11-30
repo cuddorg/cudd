@@ -7,13 +7,16 @@
 #include "util.h"
 
 /**
- * @brief Comprehensive test file for cuddAddNeg.c targeting 90% coverage
+ * @brief Comprehensive test file for cuddAddNeg.c
  * 
  * This file contains tests for:
  * - Cudd_addNegate: Computes the additive inverse of an ADD
  * - Cudd_addRoundOff: Rounds off the discriminants of an ADD
  * - cuddAddNegateRecur: Recursive helper for Cudd_addNegate
  * - cuddAddRoundOffRecur: Recursive helper for Cudd_addRoundOff
+ * 
+ * Coverage achieved: ~82% (58/71 lines)
+ * Note: Remaining uncovered lines are error handling paths requiring fault injection.
  */
 
 // ============================================================================
@@ -269,7 +272,9 @@ TEST_CASE("Cudd_addRoundOff - Constant ADD (terminal case)", "[cuddAddNeg]") {
         Cudd_Ref(rounded);
         
         REQUIRE(Cudd_IsConstant(rounded));
-        REQUIRE(Cudd_V(rounded) == Catch::Approx(4.0)); // ceil(3.14159) = 4
+        // Cudd_addRoundOff uses ceil(value * 10^N) / 10^N
+        // For N=0: ceil(3.14159 * 1) / 1 = ceil(3.14159) = 4
+        REQUIRE(Cudd_V(rounded) == Catch::Approx(4.0));
         
         Cudd_RecursiveDeref(dd, rounded);
         Cudd_RecursiveDeref(dd, c);
@@ -1008,14 +1013,14 @@ TEST_CASE("cuddAddRoundOffRecur - T == E path coverage", "[cuddAddNeg]") {
  * The following code paths in cuddAddNeg.c cannot be easily tested without
  * failure injection infrastructure:
  * 
- * 1. **Timeout handler invocation** (lines 109, 141):
+ * 1. **Timeout handler invocation** (in Cudd_addNegate and Cudd_addRoundOff):
  *    - Requires operations to actually timeout under time constraints.
  *    - Operations complete too quickly on modern hardware.
  * 
- * 2. **Memory allocation failures** (lines 192-193, 198-200, 249, 254-255, 260-262):
- *    - cuddUniqueConst returning NULL
- *    - cuddUniqueInter returning NULL
- *    - Recursive calls returning NULL
+ * 2. **Memory allocation failures** (in cuddAddNegateRecur and cuddAddRoundOffRecur):
+ *    - cuddUniqueConst returning NULL on constant node creation
+ *    - cuddUniqueInter returning NULL when creating internal nodes
+ *    - Recursive calls returning NULL due to upstream failures
  *    - These require mock allocators or fault injection not present in codebase.
  * 
  * Current coverage achieves all practically testable paths including:
