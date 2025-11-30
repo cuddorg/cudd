@@ -201,7 +201,7 @@ TEST_CASE("Cudd_addResidue - LSB on top, unsigned (default)", "[cuddAddWalsh]") 
     Cudd_Ref(result);
     
     // Verify the result represents residues mod 3
-    // Values 0..7 mod 3 should give residues 0, 1, 2, 0, 1, 2, 1, 2
+    // Values 0..7 mod 3 should give residues 0, 1, 2, 0, 1, 2, 0, 1
     int leaves = Cudd_CountLeaves(result);
     REQUIRE(leaves == 3); // Residues 0, 1, 2
     
