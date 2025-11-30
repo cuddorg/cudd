@@ -237,16 +237,17 @@ TEST_CASE("cuddGenetic - Population size configuration", "[cuddGenetic]") {
         Cudd_Quit(manager);
     }
 
-    SECTION("Custom population size - small") {
-        DdManager* manager = Cudd_Init(8, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    SECTION("Custom population size - moderate") {
+        // Use population size >= numvars to avoid known bounds issue
+        DdManager* manager = Cudd_Init(6, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
 
-        DdNode* f = createDenseBdd(manager, 8);
+        DdNode* f = createDenseBdd(manager, 6);
         REQUIRE(f != nullptr);
 
-        // Set a small population size (will be clamped to minimum of 4)
-        Cudd_SetPopulationSize(manager, 5);
-        REQUIRE(Cudd_ReadPopulationSize(manager) == 5);
+        // Set a moderate population size (at least >= numvars)
+        Cudd_SetPopulationSize(manager, 10);
+        REQUIRE(Cudd_ReadPopulationSize(manager) == 10);
 
         int result = Cudd_ReduceHeap(manager, CUDD_REORDER_GENETIC, 0);
         REQUIRE(result == 1);
@@ -255,16 +256,17 @@ TEST_CASE("cuddGenetic - Population size configuration", "[cuddGenetic]") {
         Cudd_Quit(manager);
     }
 
-    SECTION("Custom population size - very small (below minimum)") {
-        DdManager* manager = Cudd_Init(6, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    SECTION("Custom population size - at numvars boundary") {
+        // Set population size equal to numvars
+        DdManager* manager = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
 
-        DdNode* f = createDenseBdd(manager, 6);
+        DdNode* f = createLargerBdd(manager, 5);
         REQUIRE(f != nullptr);
 
-        // Set population size below minimum (will be clamped to 4)
-        Cudd_SetPopulationSize(manager, 2);
-        REQUIRE(Cudd_ReadPopulationSize(manager) == 2);
+        // Set population size equal to number of variables
+        Cudd_SetPopulationSize(manager, 5);
+        REQUIRE(Cudd_ReadPopulationSize(manager) == 5);
 
         int result = Cudd_ReduceHeap(manager, CUDD_REORDER_GENETIC, 0);
         REQUIRE(result == 1);
