@@ -6,26 +6,35 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
+#include <cstdint>
+#include <climits>
 
 /**
  * @brief Comprehensive test file for cuddApa.c targeting 90% coverage
  * 
  * This file contains tests for all Arbitrary Precision Arithmetic (APA)
  * functions in the CUDD library.
+ * 
+ * Note: DdApaDigit is uint32_t, so DD_APA_BITS = 32
  */
+
+// Constants for test clarity (based on DdApaDigit being uint32_t)
+static const DdApaDigit APA_MAX_DIGIT = UINT32_MAX;
+static const DdApaDigit APA_MSB = static_cast<DdApaDigit>(1) << 31;  // APA_MSB
+static const int APA_BITS_PER_DIGIT = 32;
 
 // ============================================================================
 // Cudd_ApaNumberOfDigits Tests
 // ============================================================================
 
 TEST_CASE("Cudd_ApaNumberOfDigits - Basic digit calculation", "[cuddApa]") {
-    SECTION("Exact multiple of DD_APA_BITS (32)") {
+    SECTION("Exact multiple of bits per digit") {
         // 32 binary digits = 1 digit (32 bits per digit)
-        int digits = Cudd_ApaNumberOfDigits(32);
+        int digits = Cudd_ApaNumberOfDigits(APA_BITS_PER_DIGIT);
         REQUIRE(digits == 1);
         
         // 64 binary digits = 2 digits
-        digits = Cudd_ApaNumberOfDigits(64);
+        digits = Cudd_ApaNumberOfDigits(APA_BITS_PER_DIGIT * 2);
         REQUIRE(digits == 2);
     }
     
@@ -145,7 +154,7 @@ TEST_CASE("Cudd_ApaAdd - Addition operations", "[cuddApa]") {
         DdApaNumber sum = Cudd_NewApaNumber(digits);
         
         // Use maximum values to cause overflow/carry
-        a[0] = 0xFFFFFFFF;
+        a[0] = APA_MAX_DIGIT;
         b[0] = 1;
         
         DdApaDigit carry = Cudd_ApaAdd(digits, a, b, sum);
@@ -164,7 +173,7 @@ TEST_CASE("Cudd_ApaAdd - Addition operations", "[cuddApa]") {
         DdApaNumber sum = Cudd_NewApaNumber(digits);
         
         a[0] = 1;
-        a[1] = 0xFFFFFFFF;
+        a[1] = APA_MAX_DIGIT;
         b[0] = 0;
         b[1] = 1;
         
@@ -214,8 +223,8 @@ TEST_CASE("Cudd_ApaSubtract - Subtraction operations", "[cuddApa]") {
         DdApaDigit borrow = Cudd_ApaSubtract(digits, a, b, diff);
         // When a < b, we get a borrow. The function returns 
         // DD_MSDIGIT(partial) - 1, where partial starts at DD_APA_BASE.
-        // Result: 0xFFFFFFFF (which represents -1 or a borrow situation)
-        REQUIRE(borrow == 0xFFFFFFFF);
+        // Result: APA_MAX_DIGIT (which represents -1 or a borrow situation)
+        REQUIRE(borrow == APA_MAX_DIGIT);
         
         Cudd_FreeApaNumber(a);
         Cudd_FreeApaNumber(b);
@@ -235,7 +244,7 @@ TEST_CASE("Cudd_ApaSubtract - Subtraction operations", "[cuddApa]") {
         
         DdApaDigit borrow = Cudd_ApaSubtract(digits, a, b, diff);
         REQUIRE(diff[0] == 1);
-        REQUIRE(diff[1] == 0xFFFFFFFF);
+        REQUIRE(diff[1] == APA_MAX_DIGIT);
         REQUIRE(borrow == 0);
         
         Cudd_FreeApaNumber(a);
@@ -376,7 +385,7 @@ TEST_CASE("Cudd_ApaShiftRight - Right shift operations", "[cuddApa]") {
         Cudd_ApaShiftRight(digits, 1, a, b);
         
         // MSB should be 1 now
-        REQUIRE(b[0] == (4 | 0x80000000));
+        REQUIRE(b[0] == (4 | APA_MSB));
         
         Cudd_FreeApaNumber(a);
         Cudd_FreeApaNumber(b);
@@ -393,7 +402,7 @@ TEST_CASE("Cudd_ApaShiftRight - Right shift operations", "[cuddApa]") {
         Cudd_ApaShiftRight(digits, 0, a, b);
         
         // LSB of high digit should propagate to MSB of low digit
-        REQUIRE(b[1] == 0x80000000);
+        REQUIRE(b[1] == APA_MSB);
         REQUIRE(b[0] == 0);
         
         Cudd_FreeApaNumber(a);
@@ -477,7 +486,7 @@ TEST_CASE("Cudd_ApaPowerOfTwo - Power of two", "[cuddApa]") {
         DdApaNumber num = Cudd_NewApaNumber(digits);
         
         Cudd_ApaPowerOfTwo(digits, num, 31);
-        REQUIRE(num[0] == 0x80000000);
+        REQUIRE(num[0] == APA_MSB);
         
         Cudd_FreeApaNumber(num);
     }
@@ -496,7 +505,7 @@ TEST_CASE("Cudd_ApaPowerOfTwo - Power of two", "[cuddApa]") {
     SECTION("Power too large for digits - sets to 0") {
         int digits = 1;
         DdApaNumber num = Cudd_NewApaNumber(digits);
-        num[0] = 0xFFFFFFFF;  // Pre-set to non-zero
+        num[0] = APA_MAX_DIGIT;  // Pre-set to non-zero
         
         Cudd_ApaPowerOfTwo(digits, num, 100);  // Too large
         REQUIRE(num[0] == 0);
@@ -565,7 +574,7 @@ TEST_CASE("Cudd_ApaCompare - Comparison operations", "[cuddApa]") {
         
         first[0] = 1;
         first[1] = 0;
-        second[0] = 0xFFFFFFFF;
+        second[0] = APA_MAX_DIGIT;
         
         int result = Cudd_ApaCompare(digitsFirst, first, digitsSecond, second);
         REQUIRE(result == 1);
@@ -848,11 +857,15 @@ TEST_CASE("Cudd_ApaStringDecimal - Decimal string conversion", "[cuddApa]") {
     SECTION("Convert max 32-bit value") {
         int digits = 1;
         DdApaNumber num = Cudd_NewApaNumber(digits);
-        num[0] = 0xFFFFFFFF;
+        num[0] = APA_MAX_DIGIT;
         
         char *str = Cudd_ApaStringDecimal(digits, num);
         REQUIRE(str != nullptr);
-        REQUIRE(strcmp(str, "4294967295") == 0);
+        
+        // Build expected string from constant
+        char expected[20];
+        snprintf(expected, sizeof(expected), "%" PRIu32, APA_MAX_DIGIT);
+        REQUIRE(strcmp(str, expected) == 0);
         
         free(str);
         Cudd_FreeApaNumber(num);
@@ -1246,7 +1259,7 @@ TEST_CASE("cuddApa - Edge cases for additional coverage", "[cuddApa]") {
         DdApaNumber first = Cudd_NewApaNumber(digitsFirst);
         DdApaNumber second = Cudd_NewApaNumber(digitsSecond);
         
-        first[0] = 0xFFFFFFFF;
+        first[0] = APA_MAX_DIGIT;
         second[0] = 1;
         second[1] = 0;
         
@@ -1632,15 +1645,15 @@ TEST_CASE("cuddApa - Multi-digit arithmetic", "[cuddApa]") {
         DdApaNumber sum = Cudd_NewApaNumber(digits);
         
         // Set all digits to max to cause cascading carry
-        a[0] = 0xFFFFFFFF;
-        a[1] = 0xFFFFFFFF;
-        a[2] = 0xFFFFFFFF;
+        a[0] = APA_MAX_DIGIT;
+        a[1] = APA_MAX_DIGIT;
+        a[2] = APA_MAX_DIGIT;
         b[0] = 0;
         b[1] = 0;
         b[2] = 1;
         
         DdApaDigit carry = Cudd_ApaAdd(digits, a, b, sum);
-        // 0xFFFFFFFF...FFF + 1 = 0x100...000
+        // APA_MAX_DIGIT...FFF + 1 = 0x100...000
         REQUIRE(sum[0] == 0);
         REQUIRE(sum[1] == 0);
         REQUIRE(sum[2] == 0);
@@ -1667,8 +1680,8 @@ TEST_CASE("cuddApa - Multi-digit arithmetic", "[cuddApa]") {
         
         DdApaDigit borrow = Cudd_ApaSubtract(digits, a, b, diff);
         REQUIRE(diff[0] == 0);
-        REQUIRE(diff[1] == 0xFFFFFFFF);
-        REQUIRE(diff[2] == 0xFFFFFFFF);
+        REQUIRE(diff[1] == APA_MAX_DIGIT);
+        REQUIRE(diff[2] == APA_MAX_DIGIT);
         REQUIRE(borrow == 0);
         
         Cudd_FreeApaNumber(a);
@@ -1741,4 +1754,106 @@ TEST_CASE("cuddApa - ApaPrintExponential comprehensive", "[cuddApa]") {
         fclose(fp);
         Cudd_FreeApaNumber(num);
     }
+}
+
+// ============================================================================
+// Tests to exercise internal cuddApaCountMintermAux paths with multi-ref nodes
+// ============================================================================
+
+TEST_CASE("cuddApa - cuddApaCountMintermAux multi-ref constant paths", "[cuddApa]") {
+    DdManager *dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    SECTION("Count with node that has multiple references to same constant") {
+        // Create a BDD structure where constant nodes are referenced multiple times
+        DdNode *var0 = Cudd_bddIthVar(dd, 0);
+        DdNode *var1 = Cudd_bddIthVar(dd, 1);
+        DdNode *var2 = Cudd_bddIthVar(dd, 2);
+        
+        // Create a BDD like (v0 AND v1) OR (v0 AND v2)
+        // This shares v0 and has leaves that may be referenced multiple times
+        DdNode *a = Cudd_bddAnd(dd, var0, var1);
+        Cudd_Ref(a);
+        DdNode *b = Cudd_bddAnd(dd, var0, var2);
+        Cudd_Ref(b);
+        DdNode *f = Cudd_bddOr(dd, a, b);
+        Cudd_Ref(f);
+        Cudd_RecursiveDeref(dd, a);
+        Cudd_RecursiveDeref(dd, b);
+        
+        int digits;
+        DdApaNumber count = Cudd_ApaCountMinterm(dd, f, 5, &digits);
+        REQUIRE(count != nullptr);
+        
+        Cudd_FreeApaNumber(count);
+        Cudd_RecursiveDeref(dd, f);
+    }
+    
+    SECTION("Count with DAG structure sharing constant leaves") {
+        // Create multiple variables and complex DAG structure
+        DdNode *vars[5];
+        for (int i = 0; i < 5; i++) {
+            vars[i] = Cudd_bddIthVar(dd, i);
+        }
+        
+        // Build: (v0 AND v1 AND v2) OR (v0 AND v3 AND v4)
+        // This creates a DAG where constant leaves may be shared
+        DdNode *t1 = Cudd_bddAnd(dd, vars[0], vars[1]);
+        Cudd_Ref(t1);
+        DdNode *t2 = Cudd_bddAnd(dd, t1, vars[2]);
+        Cudd_Ref(t2);
+        Cudd_RecursiveDeref(dd, t1);
+        
+        DdNode *t3 = Cudd_bddAnd(dd, vars[0], vars[3]);
+        Cudd_Ref(t3);
+        DdNode *t4 = Cudd_bddAnd(dd, t3, vars[4]);
+        Cudd_Ref(t4);
+        Cudd_RecursiveDeref(dd, t3);
+        
+        DdNode *f = Cudd_bddOr(dd, t2, t4);
+        Cudd_Ref(f);
+        Cudd_RecursiveDeref(dd, t2);
+        Cudd_RecursiveDeref(dd, t4);
+        
+        int digits;
+        DdApaNumber count = Cudd_ApaCountMinterm(dd, f, 6, &digits);
+        REQUIRE(count != nullptr);
+        
+        Cudd_FreeApaNumber(count);
+        Cudd_RecursiveDeref(dd, f);
+    }
+    
+    SECTION("Count with deeply shared structure") {
+        // Create a structure where internal nodes are shared
+        DdNode *v0 = Cudd_bddIthVar(dd, 0);
+        DdNode *v1 = Cudd_bddIthVar(dd, 1);
+        DdNode *v2 = Cudd_bddIthVar(dd, 2);
+        DdNode *v3 = Cudd_bddIthVar(dd, 3);
+        
+        // (v0 XOR v1) creates structure with both constant leaves
+        DdNode *xor1 = Cudd_bddXor(dd, v0, v1);
+        Cudd_Ref(xor1);
+        
+        // Use xor1 in multiple places
+        DdNode *and1 = Cudd_bddAnd(dd, xor1, v2);
+        Cudd_Ref(and1);
+        DdNode *and2 = Cudd_bddAnd(dd, xor1, v3);
+        Cudd_Ref(and2);
+        
+        DdNode *result = Cudd_bddOr(dd, and1, and2);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDeref(dd, xor1);
+        Cudd_RecursiveDeref(dd, and1);
+        Cudd_RecursiveDeref(dd, and2);
+        
+        int digits;
+        DdApaNumber count = Cudd_ApaCountMinterm(dd, result, 5, &digits);
+        REQUIRE(count != nullptr);
+        
+        Cudd_FreeApaNumber(count);
+        Cudd_RecursiveDeref(dd, result);
+    }
+    
+    Cudd_Quit(dd);
 }
