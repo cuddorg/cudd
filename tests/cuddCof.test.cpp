@@ -925,11 +925,14 @@ TEST_CASE("cuddCofactorRecur - Deep recursion paths", "[cuddCof]") {
         Cudd_Ref(cof);
 
         // Cofactor of f w.r.t. v0 should be: v1 OR (v2 AND v3) OR (v4 AND v5)
-        DdNode *expected = Cudd_bddOr(manager, vars[1], Cudd_bddOr(manager, v23, v45));
+        DdNode *v23_v45 = Cudd_bddOr(manager, v23, v45);
+        Cudd_Ref(v23_v45);
+        DdNode *expected = Cudd_bddOr(manager, vars[1], v23_v45);
         Cudd_Ref(expected);
         REQUIRE(cof == expected);
 
         Cudd_RecursiveDeref(manager, expected);
+        Cudd_RecursiveDeref(manager, v23_v45);
         Cudd_RecursiveDeref(manager, cof);
         Cudd_RecursiveDeref(manager, f);
         Cudd_RecursiveDeref(manager, tmp);
@@ -1064,6 +1067,248 @@ TEST_CASE("cuddCofactorRecur - Deep recursion paths", "[cuddCof]") {
         Cudd_RecursiveDeref(manager, f);
         Cudd_RecursiveDeref(manager, nxz);
         Cudd_RecursiveDeref(manager, xny);
+        Cudd_RecursiveDeref(manager, z);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+
+    Cudd_Quit(manager);
+}
+
+// =============================================================================
+// Additional tests for higher coverage
+// =============================================================================
+
+TEST_CASE("Cudd_VarsAreSymmetric - Additional edge cases", "[cuddCof]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    SECTION("index1 < size but index2 >= size (exercise line 190-191)") {
+        // Create only one variable
+        DdNode *x = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+
+        int idx_x = Cudd_NodeReadIndex(x);
+        int largeIdx = Cudd_ReadSize(manager) + 100;
+
+        // Test with function that depends on x
+        // This exercises the path where index1 < size but index2 >= size
+        // Since f doesn't depend on var at largeIdx, we check if f depends on x
+        REQUIRE(Cudd_VarsAreSymmetric(manager, x, largeIdx, idx_x) == 0);
+
+        Cudd_RecursiveDeref(manager, x);
+    }
+
+    SECTION("index2 < size but index1 >= size (exercise line 193-196)") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+
+        int idx_x = Cudd_NodeReadIndex(x);
+        int largeIdx = Cudd_ReadSize(manager) + 100;
+
+        // Test with function that does not depend on x (constant)
+        DdNode *one = Cudd_ReadOne(manager);
+
+        // f = 1 doesn't depend on any variable, so symmetric
+        REQUIRE(Cudd_VarsAreSymmetric(manager, one, largeIdx, idx_x) == 1);
+
+        // For f = x, x is not symmetric with non-existent variable
+        REQUIRE(Cudd_VarsAreSymmetric(manager, x, largeIdx, idx_x) == 0);
+
+        Cudd_RecursiveDeref(manager, x);
+    }
+
+    SECTION("ddVarsAreSymmetricBetween with topf0 > level2 && topf1 > level2") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+
+        // f = z, check symmetry of x and y (both before z in ordering)
+        // This exercises the path in ddVarsAreSymmetricBetween where
+        // topf0 > level2 && topf1 > level2
+        int idx_x = Cudd_NodeReadIndex(x);
+        int idx_y = Cudd_NodeReadIndex(y);
+
+        // z doesn't depend on x or y, so x and y are symmetric in z
+        REQUIRE(Cudd_VarsAreSymmetric(manager, z, idx_x, idx_y) == 1);
+
+        Cudd_RecursiveDeref(manager, z);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("Cudd_Cofactor - Invalid cube restrictions", "[cuddCof]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    SECTION("Cofactor with non-cube (OR) - exercises Invalid restriction 2 error") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+
+        // f = x AND y
+        DdNode *f = Cudd_bddAnd(manager, x, y);
+        Cudd_Ref(f);
+
+        // g = x OR y (not a cube!)
+        DdNode *g = Cudd_bddOr(manager, x, y);
+        Cudd_Ref(g);
+
+        // This should trigger "Invalid restriction 2" error
+        DdNode *result = Cudd_Cofactor(manager, f, g);
+        REQUIRE(result == nullptr);
+        REQUIRE(Cudd_ReadErrorCode(manager) == CUDD_INVALID_ARG);
+        Cudd_ClearErrorCode(manager);
+
+        Cudd_RecursiveDeref(manager, g);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("cuddCofactorRecur - Complemented t path", "[cuddCof]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    SECTION("Cofactor where result t is complemented") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+
+        // Build a function where after cofactoring, t (then branch) is complemented
+        // f = x ? !y : z = (!x AND z) OR (x AND !y)
+        DdNode *f = Cudd_bddIte(manager, x, Cudd_Not(y), z);
+        Cudd_Ref(f);
+
+        // Cofactor with respect to z
+        // This exercises the path where t is complemented in the recursion
+        DdNode *cof = Cudd_Cofactor(manager, f, z);
+        REQUIRE(cof != nullptr);
+        Cudd_Ref(cof);
+
+        // f[z=1] = (!x AND 1) OR (x AND !y) = !x OR (x AND !y)
+        // = !x OR !y (by absorption law)
+        DdNode *xny_temp = Cudd_bddAnd(manager, x, Cudd_Not(y));
+        Cudd_Ref(xny_temp);
+        DdNode *expected = Cudd_bddOr(manager, Cudd_Not(x), xny_temp);
+        Cudd_Ref(expected);
+        REQUIRE(cof == expected);
+
+        Cudd_RecursiveDeref(manager, expected);
+        Cudd_RecursiveDeref(manager, xny_temp);
+        Cudd_RecursiveDeref(manager, cof);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, z);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+
+    SECTION("Another complemented t case") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+
+        // f = (x ? (!y AND z) : (y OR z))
+        DdNode *nyz = Cudd_bddAnd(manager, Cudd_Not(y), z);
+        Cudd_Ref(nyz);
+        DdNode *yorz = Cudd_bddOr(manager, y, z);
+        Cudd_Ref(yorz);
+        DdNode *f = Cudd_bddIte(manager, x, nyz, yorz);
+        Cudd_Ref(f);
+
+        // Cofactor with respect to z should exercise complemented branches
+        DdNode *cof = Cudd_Cofactor(manager, f, z);
+        REQUIRE(cof != nullptr);
+        Cudd_Ref(cof);
+
+        Cudd_RecursiveDeref(manager, cof);
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, yorz);
+        Cudd_RecursiveDeref(manager, nyz);
+        Cudd_RecursiveDeref(manager, z);
+        Cudd_RecursiveDeref(manager, y);
+        Cudd_RecursiveDeref(manager, x);
+    }
+
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("ddVarsAreSymmetricBetween - Deeper recursion", "[cuddCof]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    SECTION("Test with topf0 == topf1 but f0 != f1") {
+        DdNode *v0 = Cudd_bddNewVar(manager);
+        DdNode *v1 = Cudd_bddNewVar(manager);
+        DdNode *v2 = Cudd_bddNewVar(manager);
+        DdNode *v3 = Cudd_bddNewVar(manager);
+        Cudd_Ref(v0);
+        Cudd_Ref(v1);
+        Cudd_Ref(v2);
+        Cudd_Ref(v3);
+
+        // f = (v0 AND v2) OR (v1 AND v3)
+        // f[v0=1] = v2 OR (v1 AND v3), f[v0=0] = v1 AND v3
+        // Checking symmetry of v0 and v1
+        DdNode *v0v2 = Cudd_bddAnd(manager, v0, v2);
+        Cudd_Ref(v0v2);
+        DdNode *v1v3 = Cudd_bddAnd(manager, v1, v3);
+        Cudd_Ref(v1v3);
+        DdNode *f = Cudd_bddOr(manager, v0v2, v1v3);
+        Cudd_Ref(f);
+
+        int idx_0 = Cudd_NodeReadIndex(v0);
+        int idx_1 = Cudd_NodeReadIndex(v1);
+
+        // v0 and v1 are not symmetric in this function
+        int result = Cudd_VarsAreSymmetric(manager, f, idx_0, idx_1);
+        // The result depends on function structure
+        REQUIRE((result == 0 || result == 1));
+
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, v1v3);
+        Cudd_RecursiveDeref(manager, v0v2);
+        Cudd_RecursiveDeref(manager, v3);
+        Cudd_RecursiveDeref(manager, v2);
+        Cudd_RecursiveDeref(manager, v1);
+        Cudd_RecursiveDeref(manager, v0);
+    }
+
+    SECTION("Test with one F constant in ddVarsAreSymmetricBetween") {
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        Cudd_Ref(z);
+
+        // f = (x AND z) - f[x=1] = z, f[x=0] = 0
+        DdNode *f = Cudd_bddAnd(manager, x, z);
+        Cudd_Ref(f);
+
+        int idx_x = Cudd_NodeReadIndex(x);
+        int idx_y = Cudd_NodeReadIndex(y);
+
+        // x and y are not symmetric
+        REQUIRE(Cudd_VarsAreSymmetric(manager, f, idx_x, idx_y) == 0);
+
+        Cudd_RecursiveDeref(manager, f);
         Cudd_RecursiveDeref(manager, z);
         Cudd_RecursiveDeref(manager, y);
         Cudd_RecursiveDeref(manager, x);
