@@ -110,17 +110,17 @@ TEST_CASE("Cudd_addScalarInverse - Invalid epsilon", "[cuddAddInv]") {
         
         // Redirect stderr to suppress error message during test
         FILE *oldStderr = Cudd_ReadStderr(manager);
-        FILE *devNull = fopen("/dev/null", "w");
-        if (devNull) {
-            Cudd_SetStderr(manager, devNull);
+        FILE *tmpFile = tmpfile();  // Cross-platform temporary file
+        if (tmpFile) {
+            Cudd_SetStderr(manager, tmpFile);
         }
         
         DdNode *result = Cudd_addScalarInverse(manager, constTwo, var0);
         
         // Restore stderr
-        if (devNull) {
+        if (tmpFile) {
             Cudd_SetStderr(manager, oldStderr);
-            fclose(devNull);
+            fclose(tmpFile);
         }
         
         REQUIRE(result == nullptr);
@@ -603,77 +603,51 @@ static void timeoutHandler(DdManager *dd, void *arg) {
 }
 }
 
-TEST_CASE("Cudd_addScalarInverse - Timeout handler", "[cuddAddInv]") {
-    DdManager *manager = Cudd_Init(3, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+TEST_CASE("Cudd_addScalarInverse - Timeout handler registration", "[cuddAddInv]") {
+    // This test verifies that timeout handler can be registered and used with
+    // addScalarInverse. Actual timeout triggering depends on timing and computation
+    // size, which is system-dependent and not reliably testable.
+    DdManager *manager = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
     REQUIRE(manager != nullptr);
 
-    SECTION("Timeout handler is called when timeout expires") {
+    SECTION("Register timeout handler with addScalarInverse operation") {
         // Reset the flag
         g_timeoutHandlerCalled = false;
         
         // Register a timeout handler
         Cudd_RegisterTimeoutHandler(manager, timeoutHandler, nullptr);
         
-        // Set a very short time limit (already expired)
-        Cudd_SetStartTime(manager, Cudd_ReadElapsedTime(manager));
-        Cudd_SetTimeLimit(manager, 1); // 1 millisecond
+        // Verify handler is registered by reading it back
+        void *argp = nullptr;
+        DD_TOHFP handler = Cudd_ReadTimeoutHandler(manager, &argp);
+        REQUIRE(handler == timeoutHandler);
         
-        // Wait a bit to ensure timeout
-        volatile int dummy = 0;
-        for (int i = 0; i < 100000; i++) {
-            dummy += i;
-        }
-        (void)dummy;
-        
-        // Create a multi-level ADD to trigger the recursive function
+        // Build an ADD
         DdNode *var0 = Cudd_addIthVar(manager, 0);
         Cudd_Ref(var0);
-        DdNode *var1 = Cudd_addIthVar(manager, 1);
-        Cudd_Ref(var1);
-        
         DdNode *c1 = Cudd_addConst(manager, 2.0);
         Cudd_Ref(c1);
         DdNode *c2 = Cudd_addConst(manager, 4.0);
         Cudd_Ref(c2);
-        DdNode *c3 = Cudd_addConst(manager, 5.0);
-        Cudd_Ref(c3);
-        DdNode *c4 = Cudd_addConst(manager, 8.0);
-        Cudd_Ref(c4);
         
-        DdNode *inner1 = Cudd_addIte(manager, var1, c1, c2);
-        Cudd_Ref(inner1);
-        DdNode *inner2 = Cudd_addIte(manager, var1, c3, c4);
-        Cudd_Ref(inner2);
-        DdNode *f = Cudd_addIte(manager, var0, inner1, inner2);
+        DdNode *f = Cudd_addIte(manager, var0, c1, c2);
         Cudd_Ref(f);
         
         DdNode *epsilon = Cudd_addConst(manager, 1e-10);
         Cudd_Ref(epsilon);
         
-        // This may trigger timeout handling
+        // Normal operation should complete successfully
         DdNode *result = Cudd_addScalarInverse(manager, f, epsilon);
-        
-        // The result should still be computed (timeout doesn't abort operation)
-        // But timeout handler may or may not be called depending on timing
-        if (result != nullptr) {
-            Cudd_Ref(result);
-            Cudd_RecursiveDeref(manager, result);
-        }
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
         
         // Cleanup
+        Cudd_RecursiveDeref(manager, result);
         Cudd_RecursiveDeref(manager, epsilon);
         Cudd_RecursiveDeref(manager, f);
-        Cudd_RecursiveDeref(manager, inner2);
-        Cudd_RecursiveDeref(manager, inner1);
-        Cudd_RecursiveDeref(manager, c4);
-        Cudd_RecursiveDeref(manager, c3);
         Cudd_RecursiveDeref(manager, c2);
         Cudd_RecursiveDeref(manager, c1);
-        Cudd_RecursiveDeref(manager, var1);
         Cudd_RecursiveDeref(manager, var0);
-        
-        // Unset time limit
-        Cudd_UnsetTimeLimit(manager);
     }
 
     Cudd_Quit(manager);
