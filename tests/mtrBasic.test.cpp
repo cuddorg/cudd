@@ -813,12 +813,15 @@ TEST_CASE("mtrBasic - Edge cases", "[mtrBasic]") {
         root->low = 0;
         root->size = 100;
         
+        const int kNestingDepth = 5;
+        const int kSizeDecrement = 10;
+        
         MtrNode* current = root;
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < kNestingDepth; i++) {
             MtrNode* child = Mtr_CreateFirstChild(current);
             REQUIRE(child != nullptr);
             child->low = 0;
-            child->size = 100 - i * 10;
+            child->size = 100 - i * kSizeDecrement;
             current = child;
         }
         
@@ -833,7 +836,7 @@ TEST_CASE("mtrBasic - Edge cases", "[mtrBasic]") {
             copyNode = copyNode->child;
             depth++;
         }
-        REQUIRE(depth == 5);
+        REQUIRE(depth == kNestingDepth);
         
         Mtr_FreeTree(root);
         Mtr_FreeTree(copy);
@@ -845,12 +848,15 @@ TEST_CASE("mtrBasic - Edge cases", "[mtrBasic]") {
         root->low = 0;
         root->size = 100;
         
-        // Create 10 sibling children
-        for (int i = 0; i < 10; i++) {
+        const int kNumSiblings = 10;
+        const MtrHalfWord kSiblingSize = 10;
+        
+        // Create sibling children
+        for (int i = 0; i < kNumSiblings; i++) {
             MtrNode* child = Mtr_CreateLastChild(root);
             REQUIRE(child != nullptr);
-            child->low = static_cast<MtrHalfWord>(i * 10);
-            child->size = 10;
+            child->low = static_cast<MtrHalfWord>(i) * kSiblingSize;
+            child->size = kSiblingSize;
         }
         
         // Copy wide tree
@@ -865,7 +871,7 @@ TEST_CASE("mtrBasic - Edge cases", "[mtrBasic]") {
             REQUIRE(sibling->parent == copy);
             sibling = sibling->younger;
         }
-        REQUIRE(siblingCount == 10);
+        REQUIRE(siblingCount == kNumSiblings);
         
         Mtr_FreeTree(root);
         Mtr_FreeTree(copy);
