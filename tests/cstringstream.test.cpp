@@ -74,7 +74,7 @@ TEST_CASE("cstringstream - copyStringStream", "[cstringstream]") {
         deleteStringStream(dest);
     }
     
-    SECTION("Copy NULL stream returns 0") {
+    SECTION("Copy NULL stream returns nullptr") {
         cstringstream result = copyStringStream(nullptr);
         REQUIRE(result == nullptr);
     }
@@ -563,7 +563,7 @@ TEST_CASE("cstringstream - stringFromStringStream", "[cstringstream]") {
         deleteStringStream(ss);
     }
     
-    SECTION("NULL stream returns 0") {
+    SECTION("NULL stream returns nullptr") {
         char *str = stringFromStringStream(nullptr);
         REQUIRE(str == nullptr);
     }
