@@ -244,7 +244,9 @@ TEST_CASE("cuddHeapProfile - With constants", "[cuddCheck]") {
     Cudd_Ref(c1); Cudd_Ref(c2); Cudd_Ref(c3);
     
     FILE *orig = m->out;
-    m->out = fopen("/dev/null", "w");
+    FILE *devnull = fopen("/dev/null", "w");
+    REQUIRE(devnull != nullptr);
+    m->out = devnull;
     REQUIRE(cuddHeapProfile(m) == 1);
     fclose(m->out);
     m->out = orig;
@@ -268,7 +270,9 @@ TEST_CASE("cuddHeapProfile - Large structure for maxnodes tracking", "[cuddCheck
     }
     
     FILE *orig = m->out;
-    m->out = fopen("/dev/null", "w");
+    FILE *devnull = fopen("/dev/null", "w");
+    REQUIRE(devnull != nullptr);
+    m->out = devnull;
     REQUIRE(cuddHeapProfile(m) == 1);
     fclose(m->out);
     m->out = orig;
@@ -345,6 +349,7 @@ TEST_CASE("cuddPrintVarGroups - BDD non-silent mode", "[cuddCheck]") {
     // Non-silent mode (silent=0) - prints output
     // Redirect stdout to avoid test output
     FILE *devnull = fopen("/dev/null", "w");
+    REQUIRE(devnull != nullptr);
     FILE *orig_stdout = stdout;
     stdout = devnull;
     cuddPrintVarGroups(m, tree, 0, 0);
@@ -362,6 +367,7 @@ TEST_CASE("cuddPrintVarGroups - With FIXED flag", "[cuddCheck]") {
     REQUIRE(tree != nullptr);
     // Non-silent to exercise flag printing code
     FILE *devnull = fopen("/dev/null", "w");
+    REQUIRE(devnull != nullptr);
     FILE *orig_stdout = stdout;
     stdout = devnull;
     cuddPrintVarGroups(m, tree, 0, 0);
@@ -378,6 +384,7 @@ TEST_CASE("cuddPrintVarGroups - With SOFT flag", "[cuddCheck]") {
     MtrNode *tree = Cudd_ReadTree(m);
     REQUIRE(tree != nullptr);
     FILE *devnull = fopen("/dev/null", "w");
+    REQUIRE(devnull != nullptr);
     FILE *orig_stdout = stdout;
     stdout = devnull;
     cuddPrintVarGroups(m, tree, 0, 0);
@@ -417,6 +424,7 @@ TEST_CASE("cuddPrintVarGroups - Nested groups with children", "[cuddCheck]") {
     
     // This will exercise the recursion through children
     FILE *devnull = fopen("/dev/null", "w");
+    REQUIRE(devnull != nullptr);
     FILE *orig_stdout = stdout;
     stdout = devnull;
     cuddPrintVarGroups(m, tree, 0, 0);
@@ -446,7 +454,9 @@ TEST_CASE("Cudd_CheckKeys - ZDD with actual nodes", "[cuddCheck]") {
     Cudd_Ref(zunion);
     
     FILE *orig = m->out;
-    m->out = fopen("/dev/null", "w");
+    FILE *devnull = fopen("/dev/null", "w");
+    REQUIRE(devnull != nullptr);
+    m->out = devnull;
     int result = Cudd_CheckKeys(m);
     fclose(m->out);
     m->out = orig;
