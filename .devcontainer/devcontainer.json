@@ -1,0 +1,30 @@
+{
+  "name": "CUDD",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.shell.linux": "/bin/bash",
+        "cmake.sourceDirectory": "${workspaceFolder}",
+        "cmake.buildDirectory": "/tmp/build",
+        "cmake.generator": "Ninja",
+        "cmake.configureArgs": [
+          "-DCUDD_BUILD_SHARED_LIBS=OFF",
+          "-DCUDD_BUILD_DDDMP=ON",
+          "-DCUDD_BUILD_TESTS=ON"
+        ],
+        "C_Cpp.default.compileCommands": [
+          "{$workspaceFolder}/compile_commands.json"
+        ]
+      },
+      "extensions": [
+        "EditorConfig.EditorConfig",
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "redhat.vscode-yaml",
+      ]
+    }
+  }
+}

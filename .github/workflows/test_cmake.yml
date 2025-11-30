@@ -1,0 +1,54 @@
+name: CMake Build and Install
+
+on:
+  pull_request:
+    branches:
+      - main
+      - 4.0.0
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.event_name }}-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cmake-test:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        cmake-version: 
+          - '3.18' # debian11
+          - '3.22' # ubuntu22.04
+          - '3.25' # debian12
+          - '3.26' # rhel8, rhel9
+          - '3.28' # ubuntu24.04, leap15.6
+          - '3.30' # rhel10
+          - '3.31' # debian13, leap16.0
+          - 'latest'
+        build-shared-libs: ['ON', 'OFF']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup cmake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: ${{ matrix.cmake-version }}
+
+      - name: Configure
+        run: |
+          cmake -S . -B /tmp/build \
+            -DCUDD_BUILD_SHARED_LIBS=${{ matrix.build-shared-libs }}
+
+      - name: Build
+        run: cmake --build /tmp/build
+
+      - name: Install
+        run: sudo cmake --install /tmp/build
+
+      - name: Verify Installation
+        run: |
+          cmake -S extras/simple -B /tmp/simple
+          cmake --build /tmp/simple
