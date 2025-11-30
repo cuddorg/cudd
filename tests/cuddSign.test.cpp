@@ -11,8 +11,10 @@
  * @brief Test file for cuddSign.c
  * 
  * This file contains comprehensive tests for the cuddSign module
- * to achieve 90%+ code coverage for the Cudd_CofMinterm function
- * and its helper ddCofMintermAux.
+ * to achieve high code coverage for the Cudd_CofMinterm function
+ * and its helper ddCofMintermAux. Actual coverage achieved is 86.5%
+ * (64/74 lines). The remaining uncovered lines are error handling
+ * paths that require memory allocation failures to trigger.
  */
 
 TEST_CASE("Cudd_CofMinterm - Constant functions", "[cuddSign]") {
@@ -32,7 +34,9 @@ TEST_CASE("Cudd_CofMinterm - Constant functions", "[cuddSign]") {
 
         int size = Cudd_ReadSize(manager);
         REQUIRE(size == 1);
-        // For constant one with 1 variable, all positions should be 1.0
+        // For constant one with 1 variable:
+        // - result[0] to result[size-1] are variable signatures (all 1.0)
+        // - result[size] is the overall minterm fraction (also 1.0)
         for (int i = 0; i <= size; i++) {
             REQUIRE(result[i] == Catch::Approx(1.0));
         }
@@ -54,7 +58,9 @@ TEST_CASE("Cudd_CofMinterm - Constant functions", "[cuddSign]") {
 
         int size = Cudd_ReadSize(manager);
         REQUIRE(size == 1);
-        // For constant zero, all positions should be 0.0
+        // For constant zero with 1 variable:
+        // - result[0] to result[size-1] are variable signatures (all 0.0)
+        // - result[size] is the overall minterm fraction (also 0.0)
         for (int i = 0; i <= size; i++) {
             REQUIRE(result[i] == Catch::Approx(0.0));
         }
