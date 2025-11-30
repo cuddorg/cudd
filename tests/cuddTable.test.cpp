@@ -15,6 +15,27 @@
  * to achieve 90%+ code coverage.
  */
 
+// Global hook functions for GC testing
+static int preGCHookSuccess(DdManager* dd, const char* str, void* data) {
+    (void)dd; (void)str; (void)data;
+    return 1;  // Success
+}
+
+static int postGCHookSuccess(DdManager* dd, const char* str, void* data) {
+    (void)dd; (void)str; (void)data;
+    return 1;  // Success
+}
+
+static int preGCHookFail(DdManager* dd, const char* str, void* data) {
+    (void)dd; (void)str; (void)data;
+    return 0;  // Abort
+}
+
+static int postGCHookFail(DdManager* dd, const char* str, void* data) {
+    (void)dd; (void)str; (void)data;
+    return 0;  // Abort
+}
+
 // Helper function to verify a number is prime
 // Note: Returns true for n=1 because CUDD's Cudd_Prime function
 // can return 1 when called with 1 (it decrements p before the loop).
@@ -3615,25 +3636,12 @@ TEST_CASE("cuddGarbageCollect with hooks", "[cuddTable][gc][hooks]") {
         DdManager *manager = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
-        static int preGCCount = 0;
-        static int postGCCount = 0;
-        preGCCount = 0;
-        postGCCount = 0;
-        
         // Add pre-GC hook
-        int preResult = Cudd_AddHook(manager, [](DdManager* dd, const char* str, void* data) -> int {
-            (void)dd; (void)str; (void)data;
-            preGCCount++;
-            return 1;
-        }, CUDD_PRE_GC_HOOK);
+        int preResult = Cudd_AddHook(manager, preGCHookSuccess, CUDD_PRE_GC_HOOK);
         REQUIRE(preResult == 1);
         
         // Add post-GC hook
-        int postResult = Cudd_AddHook(manager, [](DdManager* dd, const char* str, void* data) -> int {
-            (void)dd; (void)str; (void)data;
-            postGCCount++;
-            return 1;
-        }, CUDD_POST_GC_HOOK);
+        int postResult = Cudd_AddHook(manager, postGCHookSuccess, CUDD_POST_GC_HOOK);
         REQUIRE(postResult == 1);
         
         // Create and destroy nodes to trigger GC
@@ -3651,6 +3659,10 @@ TEST_CASE("cuddGarbageCollect with hooks", "[cuddTable][gc][hooks]") {
         int collected = cuddGarbageCollect(manager, 1);
         (void)collected;
         
+        // Clean up hooks
+        Cudd_RemoveHook(manager, preGCHookSuccess, CUDD_PRE_GC_HOOK);
+        Cudd_RemoveHook(manager, postGCHookSuccess, CUDD_POST_GC_HOOK);
+        
         Cudd_Quit(manager);
     }
     
@@ -3659,13 +3671,7 @@ TEST_CASE("cuddGarbageCollect with hooks", "[cuddTable][gc][hooks]") {
         REQUIRE(manager != nullptr);
         
         // Add pre-GC hook that returns 0 (abort)
-        static bool hookCalled = false;
-        hookCalled = false;
-        int preResult = Cudd_AddHook(manager, [](DdManager* dd, const char* str, void* data) -> int {
-            (void)dd; (void)str; (void)data;
-            hookCalled = true;
-            return 0;  // Return 0 to abort GC
-        }, CUDD_PRE_GC_HOOK);
+        int preResult = Cudd_AddHook(manager, preGCHookFail, CUDD_PRE_GC_HOOK);
         REQUIRE(preResult == 1);
         
         // Create some dead nodes
@@ -3678,7 +3684,9 @@ TEST_CASE("cuddGarbageCollect with hooks", "[cuddTable][gc][hooks]") {
         // Force garbage collection - should be aborted by hook
         int collected = cuddGarbageCollect(manager, 1);
         REQUIRE(collected == 0);
-        REQUIRE(hookCalled == true);
+        
+        // Clean up
+        Cudd_RemoveHook(manager, preGCHookFail, CUDD_PRE_GC_HOOK);
         
         Cudd_Quit(manager);
     }
@@ -3697,16 +3705,16 @@ TEST_CASE("cuddGarbageCollect with hooks", "[cuddTable][gc][hooks]") {
         }
         
         // Add post-GC hook that returns 0
-        int postResult = Cudd_AddHook(manager, [](DdManager* dd, const char* str, void* data) -> int {
-            (void)dd; (void)str; (void)data;
-            return 0;  // Return 0 to abort after GC
-        }, CUDD_POST_GC_HOOK);
+        int postResult = Cudd_AddHook(manager, postGCHookFail, CUDD_POST_GC_HOOK);
         REQUIRE(postResult == 1);
         
         // Force garbage collection
         int collected = cuddGarbageCollect(manager, 1);
         // Should still collect nodes even if post-hook returns 0
         (void)collected;
+        
+        // Clean up
+        Cudd_RemoveHook(manager, postGCHookFail, CUDD_POST_GC_HOOK);
         
         Cudd_Quit(manager);
     }
