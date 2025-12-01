@@ -1553,13 +1553,15 @@ TEST_CASE("cuddZddFuncs - Variable helper edge cases", "[cuddZddFuncs]") {
         DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
-        // Test with odd index
+        // Test with odd index (1)
+        // cuddZddGetPosVarIndex clears the lowest bit: index & ~1
+        // cuddZddGetNegVarIndex sets the lowest bit: index | 1
         int pv = cuddZddGetPosVarIndex(manager, 1);
         int nv = cuddZddGetNegVarIndex(manager, 1);
-        REQUIRE(pv == 0);  // 1 & ~1 = 0
+        REQUIRE(pv == 0);  // 1 & ~1 = 1 & 0xFFFFFFFE = 0
         REQUIRE(nv == 1);  // 1 | 1 = 1
         
-        // Test with even index
+        // Test with even index (4)
         pv = cuddZddGetPosVarIndex(manager, 4);
         nv = cuddZddGetNegVarIndex(manager, 4);
         REQUIRE(pv == 4);  // 4 & ~1 = 4
@@ -1713,7 +1715,10 @@ TEST_CASE("cuddZddFuncs - cuddZddComplement internal function", "[cuddZddFuncs]"
             Cudd_Ref(isop);
             Cudd_Ref(zdd_I);
             
-            // Call internal cuddZddComplement function directly
+            // Call internal cuddZddComplement function directly to test the
+            // internal recursive implementation and cache behavior.
+            // This is necessary because Cudd_zddComplement is just a wrapper
+            // that always goes through cuddZddComplement.
             DdNode* comp = cuddZddComplement(manager, zdd_I);
             if (comp != nullptr) {
                 Cudd_Ref(comp);
@@ -1798,10 +1803,13 @@ TEST_CASE("cuddZddFuncs - cuddZddGetCofactors3 uncovered branches", "[cuddZddFun
         
         DdNode* f1, *f0, *fd;
         
-        // Test cofactors at different variables
+        // Directly test internal cuddZddGetCofactors3 function for coverage.
+        // This function is not exposed through a public API wrapper.
         int result = cuddZddGetCofactors3(manager, f, 0, &f1, &f0, &fd);
         REQUIRE(result == 0);
-        Cudd_Ref(f1); Cudd_Ref(f0); Cudd_Ref(fd);
+        Cudd_Ref(f1);
+        Cudd_Ref(f0);
+        Cudd_Ref(fd);
         Cudd_RecursiveDerefZdd(manager, f1);
         Cudd_RecursiveDerefZdd(manager, f0);
         Cudd_RecursiveDerefZdd(manager, fd);
@@ -1809,7 +1817,9 @@ TEST_CASE("cuddZddFuncs - cuddZddGetCofactors3 uncovered branches", "[cuddZddFun
         // Test with variable 1 (odd index)
         result = cuddZddGetCofactors3(manager, f, 1, &f1, &f0, &fd);
         REQUIRE(result == 0);
-        Cudd_Ref(f1); Cudd_Ref(f0); Cudd_Ref(fd);
+        Cudd_Ref(f1);
+        Cudd_Ref(f0);
+        Cudd_Ref(fd);
         Cudd_RecursiveDerefZdd(manager, f1);
         Cudd_RecursiveDerefZdd(manager, f0);
         Cudd_RecursiveDerefZdd(manager, fd);
@@ -1817,7 +1827,9 @@ TEST_CASE("cuddZddFuncs - cuddZddGetCofactors3 uncovered branches", "[cuddZddFun
         // Test with variable 2
         result = cuddZddGetCofactors3(manager, f, 2, &f1, &f0, &fd);
         REQUIRE(result == 0);
-        Cudd_Ref(f1); Cudd_Ref(f0); Cudd_Ref(fd);
+        Cudd_Ref(f1);
+        Cudd_Ref(f0);
+        Cudd_Ref(fd);
         Cudd_RecursiveDerefZdd(manager, f1);
         Cudd_RecursiveDerefZdd(manager, f0);
         Cudd_RecursiveDerefZdd(manager, fd);
@@ -1825,7 +1837,9 @@ TEST_CASE("cuddZddFuncs - cuddZddGetCofactors3 uncovered branches", "[cuddZddFun
         // Test with variable 3 (odd)
         result = cuddZddGetCofactors3(manager, f, 3, &f1, &f0, &fd);
         REQUIRE(result == 0);
-        Cudd_Ref(f1); Cudd_Ref(f0); Cudd_Ref(fd);
+        Cudd_Ref(f1);
+        Cudd_Ref(f0);
+        Cudd_Ref(fd);
         Cudd_RecursiveDerefZdd(manager, f1);
         Cudd_RecursiveDerefZdd(manager, f0);
         Cudd_RecursiveDerefZdd(manager, fd);
@@ -2359,7 +2373,9 @@ TEST_CASE("cuddZddFuncs - GetCofactors3 else branch (nv level < pv level)", "[cu
         // Test at variable 0 (even)
         int result = cuddZddGetCofactors3(manager, f, 0, &f1, &f0, &fd);
         REQUIRE(result == 0);
-        Cudd_Ref(f1); Cudd_Ref(f0); Cudd_Ref(fd);
+        Cudd_Ref(f1);
+        Cudd_Ref(f0);
+        Cudd_Ref(fd);
         Cudd_RecursiveDerefZdd(manager, f1);
         Cudd_RecursiveDerefZdd(manager, f0);
         Cudd_RecursiveDerefZdd(manager, fd);
@@ -2367,7 +2383,9 @@ TEST_CASE("cuddZddFuncs - GetCofactors3 else branch (nv level < pv level)", "[cu
         // Test at variable 1 (odd)
         result = cuddZddGetCofactors3(manager, f, 1, &f1, &f0, &fd);
         REQUIRE(result == 0);
-        Cudd_Ref(f1); Cudd_Ref(f0); Cudd_Ref(fd);
+        Cudd_Ref(f1);
+        Cudd_Ref(f0);
+        Cudd_Ref(fd);
         Cudd_RecursiveDerefZdd(manager, f1);
         Cudd_RecursiveDerefZdd(manager, f0);
         Cudd_RecursiveDerefZdd(manager, fd);
@@ -2375,7 +2393,9 @@ TEST_CASE("cuddZddFuncs - GetCofactors3 else branch (nv level < pv level)", "[cu
         // Test at variable 2 (even)
         result = cuddZddGetCofactors3(manager, f, 2, &f1, &f0, &fd);
         REQUIRE(result == 0);
-        Cudd_Ref(f1); Cudd_Ref(f0); Cudd_Ref(fd);
+        Cudd_Ref(f1);
+        Cudd_Ref(f0);
+        Cudd_Ref(fd);
         Cudd_RecursiveDerefZdd(manager, f1);
         Cudd_RecursiveDerefZdd(manager, f0);
         Cudd_RecursiveDerefZdd(manager, fd);
@@ -2383,7 +2403,9 @@ TEST_CASE("cuddZddFuncs - GetCofactors3 else branch (nv level < pv level)", "[cu
         // Test at variable 3 (odd)
         result = cuddZddGetCofactors3(manager, f, 3, &f1, &f0, &fd);
         REQUIRE(result == 0);
-        Cudd_Ref(f1); Cudd_Ref(f0); Cudd_Ref(fd);
+        Cudd_Ref(f1);
+        Cudd_Ref(f0);
+        Cudd_Ref(fd);
         Cudd_RecursiveDerefZdd(manager, f1);
         Cudd_RecursiveDerefZdd(manager, f0);
         Cudd_RecursiveDerefZdd(manager, fd);
@@ -2598,8 +2620,11 @@ TEST_CASE("cuddZddFuncs - More complex products", "[cuddZddFuncs]") {
         REQUIRE(manager != nullptr);
         
         // Create larger covers to exercise more paths
-        DdNode* vars[8];
-        for (int i = 0; i < 8; i++) {
+        const int NUM_VARS = 8;  // Total number of variables to use
+        const int VARS_PER_COVER = NUM_VARS / 2;  // Half for f, half for g
+        
+        DdNode* vars[NUM_VARS];
+        for (int i = 0; i < NUM_VARS; i++) {
             vars[i] = Cudd_zddIthVar(manager, i * 2);  // Even indices
             Cudd_Ref(vars[i]);
         }
@@ -2607,7 +2632,7 @@ TEST_CASE("cuddZddFuncs - More complex products", "[cuddZddFuncs]") {
         // Create f = v0 | v1 | v2 | v3
         DdNode* f = vars[0];
         Cudd_Ref(f);
-        for (int i = 1; i < 4; i++) {
+        for (int i = 1; i < VARS_PER_COVER; i++) {
             DdNode* tmp = Cudd_zddUnion(manager, f, vars[i]);
             Cudd_Ref(tmp);
             Cudd_RecursiveDerefZdd(manager, f);
@@ -2615,9 +2640,9 @@ TEST_CASE("cuddZddFuncs - More complex products", "[cuddZddFuncs]") {
         }
         
         // Create g = v4 | v5 | v6 | v7
-        DdNode* g = vars[4];
+        DdNode* g = vars[VARS_PER_COVER];
         Cudd_Ref(g);
-        for (int i = 5; i < 8; i++) {
+        for (int i = VARS_PER_COVER + 1; i < NUM_VARS; i++) {
             DdNode* tmp = Cudd_zddUnion(manager, g, vars[i]);
             Cudd_Ref(tmp);
             Cudd_RecursiveDerefZdd(manager, g);
@@ -2638,7 +2663,7 @@ TEST_CASE("cuddZddFuncs - More complex products", "[cuddZddFuncs]") {
         Cudd_RecursiveDerefZdd(manager, uprod);
         Cudd_RecursiveDerefZdd(manager, f);
         Cudd_RecursiveDerefZdd(manager, g);
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < NUM_VARS; i++) {
             Cudd_RecursiveDerefZdd(manager, vars[i]);
         }
         Cudd_Quit(manager);
