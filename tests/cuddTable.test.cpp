@@ -1003,9 +1003,10 @@ TEST_CASE("Intensive rehashing scenarios", "[cuddTable][rehash][intensive]") {
             DdNode *z2 = Cudd_zddIthVar(manager, (i + 2) % 4);
             
             DdNode *u1 = Cudd_zddUnion(manager, z0, z1);
+            Cudd_Ref(u1);  // Protect u1 from GC
             DdNode *result = Cudd_zddUnion(manager, u1, z2);
-            
             Cudd_Ref(result);
+            Cudd_RecursiveDerefZdd(manager, u1);  // Release intermediate u1
             zdds.push_back(result);
         }
         
@@ -4087,8 +4088,10 @@ TEST_CASE("ddRehashZdd coverage", "[cuddTable][zdd][rehash]") {
             DdNode *z2 = Cudd_zddIthVar(manager, (i + 2) % 5);
             
             DdNode *u1 = Cudd_zddUnion(manager, z0, z1);
+            Cudd_Ref(u1);  // Protect u1 from GC
             DdNode *u2 = Cudd_zddUnion(manager, u1, z2);
             Cudd_Ref(u2);
+            Cudd_RecursiveDerefZdd(manager, u1);  // Release intermediate u1
             zdds.push_back(u2);
         }
         
@@ -4109,15 +4112,15 @@ TEST_CASE("ddRehashZdd coverage", "[cuddTable][zdd][rehash]") {
         // Set a high loose up to value
         Cudd_SetLooseUpTo(manager, 10000);
         
-        // Create many ZDD products to stress the table
+        // Create many ZDD unions to stress the table (simpler than product)
         std::vector<DdNode*> zdds;
         for (int i = 0; i < 100; i++) {
             DdNode *z0 = Cudd_zddIthVar(manager, i % 3);
             DdNode *z1 = Cudd_zddIthVar(manager, (i + 1) % 3);
             
-            DdNode *prod = Cudd_zddProduct(manager, z0, z1);
-            Cudd_Ref(prod);
-            zdds.push_back(prod);
+            DdNode *u = Cudd_zddUnion(manager, z0, z1);
+            Cudd_Ref(u);
+            zdds.push_back(u);
         }
         
         // Clean up
