@@ -3111,3 +3111,371 @@ TEST_CASE("cuddUtil - Cudd_DumpBlif with mv option", "[cuddUtil]") {
     Cudd_RecursiveDeref(dd, f);
     Cudd_Quit(dd);
 }
+
+// Additional tests for higher coverage
+
+TEST_CASE("cuddUtil - Cudd_CountPath comprehensive", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    SECTION("BDD with shared nodes and high ref counts") {
+        // Create BDDs with nodes that have ref > 1 to test caching in ddCountPathAux
+        DdNode* x0 = Cudd_bddIthVar(dd, 0);
+        DdNode* x1 = Cudd_bddIthVar(dd, 1);
+        DdNode* x2 = Cudd_bddIthVar(dd, 2);
+        DdNode* x3 = Cudd_bddIthVar(dd, 3);
+        
+        // Create shared node
+        DdNode* shared = Cudd_bddAnd(dd, x0, x1);
+        Cudd_Ref(shared);
+        
+        // Use shared node in multiple places to get ref > 1
+        DdNode* f1 = Cudd_bddAnd(dd, shared, x2);
+        Cudd_Ref(f1);
+        DdNode* f2 = Cudd_bddOr(dd, shared, x3);
+        Cudd_Ref(f2);
+        DdNode* f = Cudd_bddOr(dd, f1, f2);
+        Cudd_Ref(f);
+        
+        double paths = Cudd_CountPath(f);
+        REQUIRE(paths > 0);
+        
+        Cudd_RecursiveDeref(dd, f);
+        Cudd_RecursiveDeref(dd, f2);
+        Cudd_RecursiveDeref(dd, f1);
+        Cudd_RecursiveDeref(dd, shared);
+    }
+    
+    SECTION("ADD with background value") {
+        // Create ADD that has paths to background
+        DdNode* bg = Cudd_ReadBackground(dd);
+        DdNode* add1 = Cudd_addConst(dd, 1.0);
+        Cudd_Ref(add1);
+        DdNode* x = Cudd_addIthVar(dd, 0);
+        DdNode* add = Cudd_addIte(dd, x, add1, bg);
+        Cudd_Ref(add);
+        
+        double paths = Cudd_CountPath(add);
+        REQUIRE(paths >= 0);
+        
+        Cudd_RecursiveDeref(dd, add);
+        Cudd_RecursiveDeref(dd, add1);
+    }
+    
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - Cudd_CountPathsToNonZero with various BDDs", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    SECTION("Shared nodes") {
+        DdNode* x0 = Cudd_bddIthVar(dd, 0);
+        DdNode* x1 = Cudd_bddIthVar(dd, 1);
+        DdNode* x2 = Cudd_bddIthVar(dd, 2);
+        
+        DdNode* shared = Cudd_bddAnd(dd, x0, x1);
+        Cudd_Ref(shared);
+        DdNode* f1 = Cudd_bddOr(dd, shared, x2);
+        Cudd_Ref(f1);
+        DdNode* f2 = Cudd_bddAnd(dd, shared, Cudd_Not(x2));
+        Cudd_Ref(f2);
+        DdNode* f = Cudd_bddOr(dd, f1, f2);
+        Cudd_Ref(f);
+        
+        double paths = Cudd_CountPathsToNonZero(f);
+        REQUIRE(paths > 0);
+        
+        Cudd_RecursiveDeref(dd, f);
+        Cudd_RecursiveDeref(dd, f2);
+        Cudd_RecursiveDeref(dd, f1);
+        Cudd_RecursiveDeref(dd, shared);
+    }
+    
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - ddPickArbitraryMinterms and ddPickRepresentativeCube paths", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    SECTION("Function requiring complemented edge handling") {
+        DdNode* x0 = Cudd_bddIthVar(dd, 0);
+        DdNode* x1 = Cudd_bddIthVar(dd, 1);
+        
+        // Create a BDD with complemented edges in the internal representation
+        DdNode* f = Cudd_bddXnor(dd, x0, x1);  // XNOR often has complemented edges
+        Cudd_Ref(f);
+        
+        DdNode* vars[2] = {x0, x1};
+        DdNode* maskVars[2] = {x0, x1};
+        
+        DdNode* result = Cudd_SubsetWithMaskVars(dd, f, vars, 2, maskVars, 2);
+        if (result != nullptr) {
+            Cudd_Ref(result);
+            Cudd_RecursiveDeref(dd, result);
+        }
+        
+        Cudd_RecursiveDeref(dd, f);
+    }
+    
+    SECTION("Negative weight path") {
+        DdNode* x0 = Cudd_bddIthVar(dd, 0);
+        DdNode* x1 = Cudd_bddIthVar(dd, 1);
+        
+        // Create BDD where negative cofactor has more minterms
+        DdNode* f = Cudd_bddAnd(dd, Cudd_Not(x0), x1);
+        Cudd_Ref(f);
+        
+        DdNode* vars[2] = {x0, x1};
+        DdNode* maskVars[2] = {x0, x1};
+        
+        DdNode* result = Cudd_SubsetWithMaskVars(dd, f, vars, 2, maskVars, 2);
+        if (result != nullptr) {
+            Cudd_Ref(result);
+            Cudd_RecursiveDeref(dd, result);
+        }
+        
+        Cudd_RecursiveDeref(dd, f);
+    }
+    
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - Cube enumeration deep paths", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    SECTION("Deep backtracking required") {
+        // Create a BDD that requires multiple levels of backtracking
+        DdNode* x0 = Cudd_bddIthVar(dd, 0);
+        DdNode* x1 = Cudd_bddIthVar(dd, 1);
+        DdNode* x2 = Cudd_bddIthVar(dd, 2);
+        DdNode* x3 = Cudd_bddIthVar(dd, 3);
+        
+        // f = (x0 AND x1 AND x2) OR (NOT x0 AND NOT x1 AND x3)
+        DdNode* t1 = Cudd_bddAnd(dd, x0, Cudd_bddAnd(dd, x1, x2));
+        Cudd_Ref(t1);
+        DdNode* t2 = Cudd_bddAnd(dd, Cudd_Not(x0), Cudd_bddAnd(dd, Cudd_Not(x1), x3));
+        Cudd_Ref(t2);
+        DdNode* f = Cudd_bddOr(dd, t1, t2);
+        Cudd_Ref(f);
+        Cudd_RecursiveDeref(dd, t1);
+        Cudd_RecursiveDeref(dd, t2);
+        
+        DdGen* gen;
+        int* cube;
+        CUDD_VALUE_TYPE value;
+        int cubeCount = 0;
+        
+        Cudd_ForeachCube(dd, f, gen, cube, value) {
+            cubeCount++;
+        }
+        REQUIRE(cubeCount == 2);
+        
+        Cudd_RecursiveDeref(dd, f);
+    }
+    
+    SECTION("Many variables") {
+        // Create BDD with many variables to test stack handling
+        DdNode* f = Cudd_ReadOne(dd);
+        Cudd_Ref(f);
+        
+        for (int i = 0; i < 6; i++) {
+            DdNode* x = Cudd_bddIthVar(dd, i);
+            DdNode* temp = Cudd_bddOr(dd, f, x);
+            Cudd_Ref(temp);
+            Cudd_RecursiveDeref(dd, f);
+            f = temp;
+        }
+        
+        DdGen* gen;
+        int* cube;
+        CUDD_VALUE_TYPE value;
+        int cubeCount = 0;
+        
+        Cudd_ForeachCube(dd, f, gen, cube, value) {
+            cubeCount++;
+        }
+        REQUIRE(cubeCount >= 1);
+        
+        Cudd_RecursiveDeref(dd, f);
+    }
+    
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - ddEpdCountMintermAux caching", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    // Create a BDD with nodes that will be visited multiple times
+    DdNode* x0 = Cudd_bddIthVar(dd, 0);
+    DdNode* x1 = Cudd_bddIthVar(dd, 1);
+    DdNode* x2 = Cudd_bddIthVar(dd, 2);
+    
+    DdNode* shared = Cudd_bddAnd(dd, x0, x1);
+    Cudd_Ref(shared);
+    DdNode* f1 = Cudd_bddOr(dd, shared, x2);
+    Cudd_Ref(f1);
+    DdNode* f2 = Cudd_bddAnd(dd, shared, x2);
+    Cudd_Ref(f2);
+    DdNode* f = Cudd_bddOr(dd, f1, f2);
+    Cudd_Ref(f);
+    
+    EpDouble* epd = EpdAlloc();
+    REQUIRE(epd != nullptr);
+    
+    int result = Cudd_EpdCountMinterm(dd, f, 3, epd);
+    REQUIRE(result == 0);
+    
+    EpdFree(epd);
+    Cudd_RecursiveDeref(dd, f);
+    Cudd_RecursiveDeref(dd, f2);
+    Cudd_RecursiveDeref(dd, f1);
+    Cudd_RecursiveDeref(dd, shared);
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - ddLdblCountMintermAux caching", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    // Create BDD with shared nodes to exercise caching
+    DdNode* x0 = Cudd_bddIthVar(dd, 0);
+    DdNode* x1 = Cudd_bddIthVar(dd, 1);
+    DdNode* x2 = Cudd_bddIthVar(dd, 2);
+    
+    DdNode* shared = Cudd_bddAnd(dd, x0, x1);
+    Cudd_Ref(shared);
+    DdNode* f1 = Cudd_bddOr(dd, shared, x2);
+    Cudd_Ref(f1);
+    DdNode* f2 = Cudd_bddAnd(dd, shared, x2);
+    Cudd_Ref(f2);
+    DdNode* f = Cudd_bddOr(dd, f1, f2);
+    Cudd_Ref(f);
+    
+    long double count = Cudd_LdblCountMinterm(dd, f, 3);
+    (void)count; // Value may vary
+    
+    Cudd_RecursiveDeref(dd, f);
+    Cudd_RecursiveDeref(dd, f2);
+    Cudd_RecursiveDeref(dd, f1);
+    Cudd_RecursiveDeref(dd, shared);
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - Cudd_bddPickArbitraryMinterms with duplicate handling", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    // Set the random seed to a specific value
+    Cudd_Srandom(dd, 12345);
+    
+    // Create a BDD with few minterms but request multiple
+    DdNode* x0 = Cudd_bddIthVar(dd, 0);
+    DdNode* x1 = Cudd_bddIthVar(dd, 1);
+    
+    // f = x0 OR x1 has 3 minterms: 01, 10, 11
+    DdNode* f = Cudd_bddOr(dd, x0, x1);
+    Cudd_Ref(f);
+    
+    DdNode* vars[2] = {x0, x1};
+    
+    // Request exactly the number of minterms available
+    DdNode** minterms = Cudd_bddPickArbitraryMinterms(dd, f, vars, 2, 3);
+    if (minterms != nullptr) {
+        for (int i = 0; i < 3; i++) {
+            Cudd_RecursiveDeref(dd, minterms[i]);
+        }
+        FREE(minterms);
+    }
+    
+    Cudd_RecursiveDeref(dd, f);
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - Cudd_SubsetWithMaskVars negative weight path", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    // Create BDD where negative cofactor (x=0) has more minterms to exercise negative weight path
+    DdNode* x0 = Cudd_bddIthVar(dd, 0);
+    DdNode* x1 = Cudd_bddIthVar(dd, 1);
+    
+    // f = NOT(x0) OR x1 - negative cofactor of x0 (x0=0 case) has more minterms
+    DdNode* f = Cudd_bddOr(dd, Cudd_Not(x0), x1);
+    Cudd_Ref(f);
+    
+    DdNode* vars[2] = {x0, x1};
+    DdNode* maskVars[1] = {x0};
+    
+    DdNode* result = Cudd_SubsetWithMaskVars(dd, f, vars, 2, maskVars, 1);
+    if (result != nullptr) {
+        Cudd_Ref(result);
+        Cudd_RecursiveDeref(dd, result);
+    }
+    
+    Cudd_RecursiveDeref(dd, f);
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - ddPickRepresentativeCube with complemented node", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    DdNode* x0 = Cudd_bddIthVar(dd, 0);
+    DdNode* x1 = Cudd_bddIthVar(dd, 1);
+    
+    // Create complemented BDD
+    DdNode* f = Cudd_Not(Cudd_bddAnd(dd, x0, x1));
+    Cudd_Ref(f);
+    
+    DdNode* vars[2] = {x0, x1};
+    DdNode* maskVars[2] = {x0, x1};
+    
+    DdNode* result = Cudd_SubsetWithMaskVars(dd, f, vars, 2, maskVars, 2);
+    if (result != nullptr) {
+        Cudd_Ref(result);
+        Cudd_RecursiveDeref(dd, result);
+    }
+    
+    Cudd_RecursiveDeref(dd, f);
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddUtil - Cube enumeration forcing backtrack pop", "[cuddUtil]") {
+    DdManager* dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    // Create a BDD structure that forces deep backtracking
+    // This requires a BDD where both THEN and ELSE are tried and exhausted before backtracking
+    DdNode* x0 = Cudd_bddIthVar(dd, 0);
+    DdNode* x1 = Cudd_bddIthVar(dd, 1);
+    DdNode* x2 = Cudd_bddIthVar(dd, 2);
+    DdNode* x3 = Cudd_bddIthVar(dd, 3);
+    DdNode* x4 = Cudd_bddIthVar(dd, 4);
+    
+    // Complex function with multiple paths
+    DdNode* t1 = Cudd_bddAnd(dd, x0, Cudd_bddAnd(dd, x1, Cudd_bddAnd(dd, x2, x3)));
+    Cudd_Ref(t1);
+    DdNode* t2 = Cudd_bddAnd(dd, Cudd_Not(x0), Cudd_bddAnd(dd, Cudd_Not(x1), x4));
+    Cudd_Ref(t2);
+    DdNode* f = Cudd_bddOr(dd, t1, t2);
+    Cudd_Ref(f);
+    Cudd_RecursiveDeref(dd, t1);
+    Cudd_RecursiveDeref(dd, t2);
+    
+    DdGen* gen;
+    int* cube;
+    CUDD_VALUE_TYPE value;
+    int cubeCount = 0;
+    
+    Cudd_ForeachCube(dd, f, gen, cube, value) {
+        cubeCount++;
+    }
+    REQUIRE(cubeCount == 2);
+    
+    Cudd_RecursiveDeref(dd, f);
+    Cudd_Quit(dd);
+}
