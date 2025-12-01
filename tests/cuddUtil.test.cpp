@@ -1513,6 +1513,61 @@ TEST_CASE("cuddUtil - Cudd_FirstCube and Cudd_NextCube comprehensive", "[cuddUti
         Cudd_RecursiveDeref(dd, f);
     }
     
+    SECTION("Complex BDD requiring backtracking") {
+        // Create a BDD where the first path leads to 0, requiring backtracking
+        DdNode* x0 = Cudd_bddIthVar(dd, 0);
+        DdNode* x1 = Cudd_bddIthVar(dd, 1);
+        DdNode* x2 = Cudd_bddIthVar(dd, 2);
+        
+        // f = (x0 AND x1) OR (NOT(x0) AND x2)
+        // This creates a BDD where following x0=0 first requires backtracking to x0=1
+        DdNode* t1 = Cudd_bddAnd(dd, x0, x1);
+        Cudd_Ref(t1);
+        DdNode* t2 = Cudd_bddAnd(dd, Cudd_Not(x0), x2);
+        Cudd_Ref(t2);
+        DdNode* f = Cudd_bddOr(dd, t1, t2);
+        Cudd_Ref(f);
+        Cudd_RecursiveDeref(dd, t1);
+        Cudd_RecursiveDeref(dd, t2);
+        
+        DdGen* gen;
+        int* cube;
+        CUDD_VALUE_TYPE value;
+        int cubeCount = 0;
+        
+        Cudd_ForeachCube(dd, f, gen, cube, value) {
+            cubeCount++;
+        }
+        REQUIRE(cubeCount >= 2);
+        
+        Cudd_RecursiveDeref(dd, f);
+    }
+    
+    SECTION("XOR BDD - multiple cubes with backtracking") {
+        DdNode* x0 = Cudd_bddIthVar(dd, 0);
+        DdNode* x1 = Cudd_bddIthVar(dd, 1);
+        DdNode* x2 = Cudd_bddIthVar(dd, 2);
+        
+        // XOR with 3 variables to force more backtracking
+        DdNode* t1 = Cudd_bddXor(dd, x0, x1);
+        Cudd_Ref(t1);
+        DdNode* f = Cudd_bddXor(dd, t1, x2);
+        Cudd_Ref(f);
+        Cudd_RecursiveDeref(dd, t1);
+        
+        DdGen* gen;
+        int* cube;
+        CUDD_VALUE_TYPE value;
+        int cubeCount = 0;
+        
+        Cudd_ForeachCube(dd, f, gen, cube, value) {
+            cubeCount++;
+        }
+        REQUIRE(cubeCount == 4);  // XOR of 3 vars has 4 minterms
+        
+        Cudd_RecursiveDeref(dd, f);
+    }
+    
     SECTION("Constant zero BDD") {
         DdGen* gen;
         int* cube;
@@ -1585,12 +1640,13 @@ TEST_CASE("cuddUtil - Cudd_FirstPrime and Cudd_NextPrime comprehensive", "[cuddU
         Cudd_RecursiveDeref(dd, upper);
     }
     
-    SECTION("Multiple variables") {
+    SECTION("XOR function - multiple primes") {
+        // XOR has exactly 2 primes: x0 AND NOT(x1), NOT(x0) AND x1
         DdNode* x0 = Cudd_bddIthVar(dd, 0);
         DdNode* x1 = Cudd_bddIthVar(dd, 1);
-        DdNode* lower = Cudd_bddOr(dd, x0, x1);
+        DdNode* lower = Cudd_bddXor(dd, x0, x1);
         Cudd_Ref(lower);
-        DdNode* upper = Cudd_ReadOne(dd);
+        DdNode* upper = Cudd_bddXor(dd, x0, x1);
         Cudd_Ref(upper);
         
         int* cube;
@@ -1603,7 +1659,31 @@ TEST_CASE("cuddUtil - Cudd_FirstPrime and Cudd_NextPrime comprehensive", "[cuddU
         }
         Cudd_GenFree(gen);
         
-        REQUIRE(primeCount >= 1);
+        REQUIRE(primeCount == 2);  // XOR has exactly 2 primes
+        
+        Cudd_RecursiveDeref(dd, lower);
+        Cudd_RecursiveDeref(dd, upper);
+    }
+    
+    SECTION("Multiple variables - OR") {
+        DdNode* x0 = Cudd_bddIthVar(dd, 0);
+        DdNode* x1 = Cudd_bddIthVar(dd, 1);
+        DdNode* lower = Cudd_bddOr(dd, x0, x1);
+        Cudd_Ref(lower);
+        DdNode* upper = Cudd_bddOr(dd, x0, x1);
+        Cudd_Ref(upper);
+        
+        int* cube;
+        int primeCount = 0;
+        
+        DdGen* gen = Cudd_FirstPrime(dd, lower, upper, &cube);
+        while (!Cudd_IsGenEmpty(gen)) {
+            primeCount++;
+            Cudd_NextPrime(gen, &cube);
+        }
+        Cudd_GenFree(gen);
+        
+        REQUIRE(primeCount == 2);  // OR has 2 primes: x0, NOT(x0) AND x1
         
         Cudd_RecursiveDeref(dd, lower);
         Cudd_RecursiveDeref(dd, upper);
