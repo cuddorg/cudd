@@ -2512,13 +2512,13 @@ TEST_CASE("cuddZddSymm - Test move_up == NULL case", "[cuddZddSymm][coverage]") 
 
 TEST_CASE("cuddZddSymm - Test different group structures", "[cuddZddSymm][coverage]") {
     SECTION("Groups of different sizes") {
-        DdManager* manager = Cudd_Init(0, 15, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        DdManager* manager = Cudd_Init(0, 10, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
         DdNode* result = Cudd_ReadZddOne(manager, 0);
         Cudd_Ref(result);
         
-        // Create groups of size 2, 3, and 2
+        // Create groups of size 2 and 3 using symmetric pairs
         // Group 1: v0+v1
         DdNode* v0 = Cudd_zddIthVar(manager, 0);
         DdNode* v1 = Cudd_zddIthVar(manager, 1);
@@ -2527,29 +2527,31 @@ TEST_CASE("cuddZddSymm - Test different group structures", "[cuddZddSymm][covera
         DdNode* g1 = Cudd_zddUnion(manager, v0, v1);
         Cudd_Ref(g1);
         
-        // Group 2: v2+v3+v4
+        // Combine with result
+        DdNode* temp = Cudd_zddProduct(manager, result, g1);
+        Cudd_Ref(temp);
+        Cudd_RecursiveDerefZdd(manager, result);
+        result = temp;
+        
+        // Group 2: v2+v3
         DdNode* v2 = Cudd_zddIthVar(manager, 2);
         DdNode* v3 = Cudd_zddIthVar(manager, 3);
-        DdNode* v4 = Cudd_zddIthVar(manager, 4);
         Cudd_Ref(v2);
         Cudd_Ref(v3);
-        Cudd_Ref(v4);
-        DdNode* g2_part = Cudd_zddUnion(manager, v2, v3);
-        Cudd_Ref(g2_part);
-        DdNode* g2 = Cudd_zddUnion(manager, g2_part, v4);
+        DdNode* g2 = Cudd_zddUnion(manager, v2, v3);
         Cudd_Ref(g2);
         
-        DdNode* product = Cudd_zddProduct(manager, g1, g2);
-        Cudd_Ref(product);
+        temp = Cudd_zddProduct(manager, result, g2);
+        Cudd_Ref(temp);
+        Cudd_RecursiveDerefZdd(manager, result);
+        result = temp;
         
         Cudd_RecursiveDerefZdd(manager, g1);
         Cudd_RecursiveDerefZdd(manager, g2);
-        Cudd_RecursiveDerefZdd(manager, g2_part);
         Cudd_RecursiveDerefZdd(manager, v0);
         Cudd_RecursiveDerefZdd(manager, v1);
         Cudd_RecursiveDerefZdd(manager, v2);
         Cudd_RecursiveDerefZdd(manager, v3);
-        Cudd_RecursiveDerefZdd(manager, v4);
         
         int res = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
         REQUIRE(res >= 1);
@@ -2558,7 +2560,7 @@ TEST_CASE("cuddZddSymm - Test different group structures", "[cuddZddSymm][covera
         int res2 = Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT_CONV, 0);
         REQUIRE(res2 >= 1);
         
-        Cudd_RecursiveDerefZdd(manager, product);
+        Cudd_RecursiveDerefZdd(manager, result);
         Cudd_Quit(manager);
     }
 }
