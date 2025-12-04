@@ -16,6 +16,9 @@
  * to achieve 90%+ code coverage.
  */
 
+// Global variables for hook testing
+static bool g_postGCHookCalled = false;
+
 // Global hook functions for GC testing
 static int preGCHookSuccess(DdManager* dd, const char* str, void* data) {
     (void)dd; (void)str; (void)data;
@@ -24,6 +27,7 @@ static int preGCHookSuccess(DdManager* dd, const char* str, void* data) {
 
 static int postGCHookSuccess(DdManager* dd, const char* str, void* data) {
     (void)dd; (void)str; (void)data;
+    g_postGCHookCalled = true;
     return 1;  // Success
 }
 
@@ -35,6 +39,11 @@ static int preGCHookFail(DdManager* dd, const char* str, void* data) {
 static int postGCHookFail(DdManager* dd, const char* str, void* data) {
     (void)dd; (void)str; (void)data;
     return 0;  // Abort
+}
+
+static int preGCHookFailure(DdManager* dd, const char* str, void* data) {
+    (void)dd; (void)str; (void)data;
+    return 0;  // Abort/Failure
 }
 
 // Helper function to verify a number is prime
@@ -3841,6 +3850,34 @@ TEST_CASE("cuddGarbageCollect edge cases", "[cuddTable][gc][edge]") {
 }
 
 TEST_CASE("cuddShrinkSubtable coverage", "[cuddTable][shrink]") {
+    SECTION("Direct call to cuddShrinkSubtable") {
+        DdManager *manager = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create some nodes in the first subtable
+        std::vector<DdNode*> bdds;
+        for (int i = 0; i < 50; i++) {
+            DdNode *x0 = Cudd_bddIthVar(manager, 0);
+            DdNode *x1 = Cudd_bddIthVar(manager, 1);
+            DdNode *result = Cudd_bddAnd(manager, x0, x1);
+            Cudd_Ref(result);
+            bdds.push_back(result);
+        }
+        
+        // Force the first subtable to grow
+        REQUIRE(manager->subtables[0].slots > 0);
+        
+        // Shrink subtable 0 directly
+        cuddShrinkSubtable(manager, 0);
+        
+        // Clean up
+        for (auto bdd : bdds) {
+            Cudd_RecursiveDeref(manager, bdd);
+        }
+        
+        Cudd_Quit(manager);
+    }
+    
     SECTION("Shrink subtable through reordering") {
         DdManager *manager = Cudd_Init(10, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
@@ -5361,6 +5398,544 @@ TEST_CASE("Constant table rehashing", "[cuddTable][const][rehash]") {
             REQUIRE(c1 == c2);
         }
         
+        Cudd_Quit(manager);
+    }
+}
+
+// =============================================================================
+// Additional coverage tests for 80%+ target
+// =============================================================================
+
+TEST_CASE("ZDD operations with GC", "[cuddTable][zdd][gc][ops]") {
+    SECTION("ZDD operations that naturally trigger GC") {
+        DdManager *manager = Cudd_Init(0, 10, 16, 16, 0);  // Small tables
+        REQUIRE(manager != nullptr);
+        
+        // Create and use ZDD nodes normally
+        std::vector<DdNode*> zdds;
+        for (int i = 0; i < 100; i++) {
+            DdNode *z0 = Cudd_zddIthVar(manager, i % 10);
+            DdNode *z1 = Cudd_zddIthVar(manager, (i + 1) % 10);
+            DdNode *u = Cudd_zddUnion(manager, z0, z1);
+            Cudd_Ref(u);
+            zdds.push_back(u);
+        }
+        
+        // Clean up properly
+        for (auto zdd : zdds) {
+            Cudd_RecursiveDerefZdd(manager, zdd);
+        }
+        
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddFindParent coverage attempt", "[cuddTable][findparent][coverage]") {
+    SECTION("Destroy subtables with no parents") {
+        DdManager *manager = Cudd_Init(20, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create BDDs using first 10 variables only
+        std::vector<DdNode*> bdds;
+        for (int i = 0; i < 10; i++) {
+            DdNode *var = Cudd_bddIthVar(manager, i);
+            DdNode *next = Cudd_bddIthVar(manager, (i + 1) % 10);
+            DdNode *result = Cudd_bddAnd(manager, var, next);
+            Cudd_Ref(result);
+            bdds.push_back(result);
+        }
+        
+        // The last 10 subtables (10-19) are unused and can be destroyed
+        int result = cuddDestroySubtables(manager, 10);
+        REQUIRE(result == 1);
+        REQUIRE(Cudd_ReadSize(manager) == 10);
+        
+        // Clean up
+        for (auto bdd : bdds) {
+            Cudd_RecursiveDeref(manager, bdd);
+        }
+        
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Attempt destroy with parent nodes present") {
+        DdManager *manager = Cudd_Init(10, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create BDDs using all variables
+        DdNode *x0 = Cudd_bddIthVar(manager, 0);
+        DdNode *x9 = Cudd_bddIthVar(manager, 9);
+        DdNode *result = Cudd_bddAnd(manager, x0, x9);
+        Cudd_Ref(result);
+        
+        // Try to destroy subtables - should fail since x9 is in use
+        int destroyResult = cuddDestroySubtables(manager, 5);
+        REQUIRE(destroyResult == 0);
+        
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("GC fraction adjustment", "[cuddTable][gc][fraction]") {
+    SECTION("Trigger GC fraction adjustment path") {
+        DdManager *manager = Cudd_Init(10, 0, 16, 16, 0);  // Small tables
+        REQUIRE(manager != nullptr);
+        
+        // Set looseUpTo to a high value to trigger the fraction adjustment
+        Cudd_SetLooseUpTo(manager, 100000);
+        
+        // Create and release nodes to trigger GC with fraction adjustment
+        for (int round = 0; round < 10; round++) {
+            std::vector<DdNode*> bdds;
+            for (int i = 0; i < 50; i++) {
+                DdNode *x = Cudd_bddIthVar(manager, i % 10);
+                DdNode *y = Cudd_bddIthVar(manager, (i + 1) % 10);
+                DdNode *result = Cudd_bddAnd(manager, x, y);
+                Cudd_Ref(result);
+                bdds.push_back(result);
+            }
+            
+            // Deref to create dead nodes
+            for (auto bdd : bdds) {
+                Cudd_RecursiveDeref(manager, bdd);
+            }
+            
+            // Force GC with clearCache flag
+            cuddGarbageCollect(manager, 1);
+        }
+        
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("GC with very low dead count") {
+        DdManager *manager = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Call GC when there are no dead nodes
+        int collected = cuddGarbageCollect(manager, 1);
+        REQUIRE(collected == 0);  // No dead nodes to collect
+        
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("GC fraction adjustment path") {
+        // Use small tables and set high looseUpTo to trigger fraction adjustment
+        DdManager *manager = Cudd_Init(5, 0, 16, 16, 0);  // Very small tables
+        REQUIRE(manager != nullptr);
+        
+        // Set looseUpTo to a very high value so slots <= looseUpTo
+        Cudd_SetLooseUpTo(manager, 1000000);
+        
+        // Verify stash exists (it should for a newly created manager)
+        // The gcFrac should be at DD_GC_FRAC_LO initially
+        
+        // Call GC with clearCache=1 and no dead nodes
+        // This should trigger the fraction adjustment path
+        int collected = cuddGarbageCollect(manager, 1);
+        REQUIRE(collected == 0);
+        
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("Subtable shifting in destroy", "[cuddTable][destroy][shift]") {
+    SECTION("Destroy middle subtables causing shift") {
+        DdManager *manager = Cudd_Init(20, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Don't use the last 5 variables, so they can be destroyed
+        int size = Cudd_ReadSize(manager);
+        REQUIRE(size == 20);
+        
+        // Destroy last 5 subtables
+        int result = cuddDestroySubtables(manager, 5);
+        if (result == 1) {
+            REQUIRE(Cudd_ReadSize(manager) == 15);
+        }
+        
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Destroy with live nodes at various levels") {
+        DdManager *manager = Cudd_Init(15, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create live nodes only in first 10 variables
+        std::vector<DdNode*> bdds;
+        for (int i = 0; i < 10; i++) {
+            DdNode *var = Cudd_bddIthVar(manager, i);
+            Cudd_Ref(var);
+            bdds.push_back(var);
+        }
+        
+        // Try to destroy last 5 - should succeed
+        int result = cuddDestroySubtables(manager, 5);
+        REQUIRE(result == 1);
+        REQUIRE(Cudd_ReadSize(manager) == 10);
+        
+        // Clean up
+        for (auto bdd : bdds) {
+            Cudd_RecursiveDeref(manager, bdd);
+        }
+        
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("Pre-GC hook returning failure", "[cuddTable][gc][hook][fail]") {
+    SECTION("Pre-GC hook returns 0 to abort GC") {
+        DdManager *manager = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Add a hook that returns 0 (failure)
+        int addResult = Cudd_AddHook(manager, preGCHookFailure, CUDD_PRE_GC_HOOK);
+        REQUIRE(addResult == 1);
+        
+        // Create and deref some nodes
+        std::vector<DdNode*> bdds;
+        for (int i = 0; i < 50; i++) {
+            DdNode *x = Cudd_bddIthVar(manager, i % 5);
+            DdNode *y = Cudd_bddIthVar(manager, (i + 1) % 5);
+            DdNode *result = Cudd_bddAnd(manager, x, y);
+            Cudd_Ref(result);
+            bdds.push_back(result);
+        }
+        
+        for (auto bdd : bdds) {
+            Cudd_RecursiveDeref(manager, bdd);
+        }
+        
+        // GC should return 0 because pre-hook fails
+        int collected = cuddGarbageCollect(manager, 1);
+        REQUIRE(collected == 0);
+        
+        // Remove the hook and clean up
+        Cudd_RemoveHook(manager, preGCHookFailure, CUDD_PRE_GC_HOOK);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("Post-GC hook exercise", "[cuddTable][gc][hook][post]") {
+    SECTION("Post-GC hook called after collection") {
+        DdManager *manager = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        g_postGCHookCalled = false;
+        
+        int addResult = Cudd_AddHook(manager, postGCHookSuccess, CUDD_POST_GC_HOOK);
+        REQUIRE(addResult == 1);
+        
+        // Create and deref nodes to have dead nodes
+        for (int i = 0; i < 100; i++) {
+            DdNode *x = Cudd_bddIthVar(manager, i % 5);
+            DdNode *y = Cudd_bddIthVar(manager, (i + 1) % 5);
+            DdNode *result = Cudd_bddAnd(manager, x, y);
+            Cudd_Ref(result);
+            Cudd_RecursiveDeref(manager, result);
+        }
+        
+        // Force GC
+        cuddGarbageCollect(manager, 1);
+        
+        // Post hook should have been called
+        REQUIRE(g_postGCHookCalled == true);
+        
+        Cudd_RemoveHook(manager, postGCHookSuccess, CUDD_POST_GC_HOOK);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("Resize table with many variables", "[cuddTable][resize][many]") {
+    SECTION("Create many variables to trigger multiple resizes") {
+        DdManager *manager = Cudd_Init(5, 0, 16, 16, 0);  // Start small
+        REQUIRE(manager != nullptr);
+        
+        // Create many variables, triggering resizes
+        for (int i = 5; i < 200; i++) {
+            DdNode *var = Cudd_bddIthVar(manager, i);
+            REQUIRE(var != nullptr);
+        }
+        
+        REQUIRE(Cudd_ReadSize(manager) == 200);
+        
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("ZDD table resize with many ZDD variables") {
+        DdManager *manager = Cudd_Init(0, 5, 16, 16, 0);  // Start small
+        REQUIRE(manager != nullptr);
+        
+        // Create many ZDD variables
+        for (int i = 5; i < 100; i++) {
+            DdNode *var = Cudd_zddIthVar(manager, i);
+            REQUIRE(var != nullptr);
+        }
+        
+        REQUIRE(Cudd_ReadZddSize(manager) == 100);
+        
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("Unique table hash collision stress", "[cuddTable][hash][collision]") {
+    SECTION("Create many nodes to stress hash tables") {
+        DdManager *manager = Cudd_Init(10, 0, 16, 16, 0);  // Small table
+        REQUIRE(manager != nullptr);
+        
+        std::vector<DdNode*> nodes;
+        
+        // Create many unique nodes to force collisions
+        for (int i = 0; i < 10; i++) {
+            for (int j = i + 1; j < 10; j++) {
+                DdNode *xi = Cudd_bddIthVar(manager, i);
+                DdNode *xj = Cudd_bddIthVar(manager, j);
+                
+                DdNode *andNode = Cudd_bddAnd(manager, xi, xj);
+                Cudd_Ref(andNode);
+                nodes.push_back(andNode);
+                
+                DdNode *orNode = Cudd_bddOr(manager, xi, xj);
+                Cudd_Ref(orNode);
+                nodes.push_back(orNode);
+                
+                DdNode *xorNode = Cudd_bddXor(manager, xi, xj);
+                Cudd_Ref(xorNode);
+                nodes.push_back(xorNode);
+            }
+        }
+        
+        // Clean up
+        for (auto node : nodes) {
+            Cudd_RecursiveDeref(manager, node);
+        }
+        
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddDestroySubtables with shifting", "[cuddTable][destroy][shift2]") {
+    SECTION("Destroy causing multiple shifts") {
+        DdManager *manager = Cudd_Init(30, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Use only first 20 variables
+        std::vector<DdNode*> bdds;
+        for (int i = 0; i < 20; i++) {
+            DdNode *var = Cudd_bddIthVar(manager, i);
+            DdNode *next = Cudd_bddIthVar(manager, (i + 1) % 20);
+            DdNode *result = Cudd_bddAnd(manager, var, next);
+            Cudd_Ref(result);
+            bdds.push_back(result);
+        }
+        
+        // Now destroy last 10 subtables - should work since they're unused
+        int result = cuddDestroySubtables(manager, 10);
+        REQUIRE(result == 1);
+        REQUIRE(Cudd_ReadSize(manager) == 20);
+        
+        // Clean up
+        for (auto bdd : bdds) {
+            Cudd_RecursiveDeref(manager, bdd);
+        }
+        
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("Auto reordering with unique table", "[cuddTable][auto][reorder2]") {
+    SECTION("Enable auto reordering and trigger through node creation") {
+        DdManager *manager = Cudd_Init(20, 0, 16, 16, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Enable auto reordering
+        Cudd_AutodynEnable(manager, CUDD_REORDER_SIFT);
+        
+        // Set low threshold
+        Cudd_SetNextReordering(manager, 50);
+        
+        // Create many nodes to potentially trigger reordering
+        std::vector<DdNode*> nodes;
+        for (int i = 0; i < 100; i++) {
+            DdNode *x = Cudd_bddIthVar(manager, i % 20);
+            DdNode *y = Cudd_bddIthVar(manager, (i + 5) % 20);
+            DdNode *z = Cudd_bddIthVar(manager, (i + 10) % 20);
+            
+            DdNode *temp1 = Cudd_bddAnd(manager, x, y);
+            Cudd_Ref(temp1);
+            DdNode *temp2 = Cudd_bddOr(manager, temp1, z);
+            Cudd_Ref(temp2);
+            Cudd_RecursiveDeref(manager, temp1);
+            
+            nodes.push_back(temp2);
+        }
+        
+        // Clean up
+        for (auto node : nodes) {
+            Cudd_RecursiveDeref(manager, node);
+        }
+        
+        Cudd_AutodynDisable(manager);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("Cache clearing during GC", "[cuddTable][cache][gc]") {
+    SECTION("GC with cache clearing") {
+        DdManager *manager = Cudd_Init(10, 0, CUDD_UNIQUE_SLOTS, 32, 0);  // Small cache
+        REQUIRE(manager != nullptr);
+        
+        // Fill cache with operations
+        for (int round = 0; round < 5; round++) {
+            std::vector<DdNode*> results;
+            for (int i = 0; i < 50; i++) {
+                DdNode *x = Cudd_bddIthVar(manager, i % 10);
+                DdNode *y = Cudd_bddIthVar(manager, (i + 1) % 10);
+                DdNode *result = Cudd_bddAnd(manager, x, y);
+                Cudd_Ref(result);
+                results.push_back(result);
+            }
+            
+            // Deref to create dead nodes
+            for (auto r : results) {
+                Cudd_RecursiveDeref(manager, r);
+            }
+            
+            // GC with cache clear
+            cuddGarbageCollect(manager, 1);
+        }
+        
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("Constant table operations comprehensive", "[cuddTable][const][comp]") {
+    SECTION("Create many unique ADD constants") {
+        DdManager *manager = Cudd_Init(5, 0, 16, 16, 0);
+        REQUIRE(manager != nullptr);
+        
+        std::vector<DdNode*> constants;
+        for (int i = 0; i < 500; i++) {
+            DdNode *c = Cudd_addConst(manager, (double)i * 0.00123);
+            Cudd_Ref(c);
+            constants.push_back(c);
+        }
+        
+        // Deref half of them
+        for (int i = 0; i < 250; i++) {
+            Cudd_RecursiveDeref(manager, constants[i]);
+        }
+        
+        // GC to collect dead constants
+        cuddGarbageCollect(manager, 1);
+        
+        // Clean up remaining
+        for (int i = 250; i < 500; i++) {
+            Cudd_RecursiveDeref(manager, constants[i]);
+        }
+        
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("Node allocation under memory pressure", "[cuddTable][alloc][pressure]") {
+    SECTION("Allocation with limited memory") {
+        DdManager *manager = Cudd_Init(10, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Set memory limit
+        Cudd_SetMaxMemory(manager, 50 * 1024 * 1024);  // 50MB limit
+        
+        // Create many nodes
+        std::vector<DdNode*> nodes;
+        for (int i = 0; i < 1000; i++) {
+            DdNode *x = Cudd_bddIthVar(manager, i % 10);
+            DdNode *y = Cudd_bddIthVar(manager, (i + 1) % 10);
+            DdNode *result = Cudd_bddAnd(manager, x, y);
+            if (result == nullptr) break;  // Out of memory
+            Cudd_Ref(result);
+            nodes.push_back(result);
+        }
+        
+        // Clean up
+        for (auto node : nodes) {
+            Cudd_RecursiveDeref(manager, node);
+        }
+        
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("Table operations with timeout", "[cuddTable][timeout2]") {
+    SECTION("Operations with time limit set") {
+        DdManager *manager = Cudd_Init(10, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Set a generous time limit
+        Cudd_SetTimeLimit(manager, 60000);  // 60 seconds
+        Cudd_ResetStartTime(manager);
+        
+        // Create operations
+        std::vector<DdNode*> nodes;
+        for (int i = 0; i < 100; i++) {
+            DdNode *x = Cudd_bddIthVar(manager, i % 10);
+            DdNode *y = Cudd_bddIthVar(manager, (i + 1) % 10);
+            DdNode *result = Cudd_bddAnd(manager, x, y);
+            REQUIRE(result != nullptr);
+            Cudd_Ref(result);
+            nodes.push_back(result);
+        }
+        
+        // Clean up
+        for (auto node : nodes) {
+            Cudd_RecursiveDeref(manager, node);
+        }
+        
+        Cudd_UnsetTimeLimit(manager);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("Hook removal and cleanup", "[cuddTable][hook][cleanup]") {
+    SECTION("Add and remove multiple hooks") {
+        DdManager *manager = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Add hooks
+        REQUIRE(Cudd_AddHook(manager, preGCHookSuccess, CUDD_PRE_GC_HOOK) == 1);
+        REQUIRE(Cudd_AddHook(manager, postGCHookSuccess, CUDD_POST_GC_HOOK) == 1);
+        
+        // Create some work
+        for (int i = 0; i < 50; i++) {
+            DdNode *x = Cudd_bddIthVar(manager, i % 5);
+            DdNode *y = Cudd_bddIthVar(manager, (i + 1) % 5);
+            DdNode *result = Cudd_bddAnd(manager, x, y);
+            Cudd_Ref(result);
+            Cudd_RecursiveDeref(manager, result);
+        }
+        
+        // GC with hooks
+        cuddGarbageCollect(manager, 1);
+        
+        // Remove hooks
+        REQUIRE(Cudd_RemoveHook(manager, preGCHookSuccess, CUDD_PRE_GC_HOOK) == 1);
+        REQUIRE(Cudd_RemoveHook(manager, postGCHookSuccess, CUDD_POST_GC_HOOK) == 1);
+        
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Hooks cleaned up automatically by cuddFreeTable") {
+        DdManager *manager = Cudd_Init(5, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Add various hooks and don't remove them
+        REQUIRE(Cudd_AddHook(manager, preGCHookSuccess, CUDD_PRE_GC_HOOK) == 1);
+        REQUIRE(Cudd_AddHook(manager, postGCHookSuccess, CUDD_POST_GC_HOOK) == 1);
+        REQUIRE(Cudd_AddHook(manager, preGCHookFail, CUDD_PRE_REORDERING_HOOK) == 1);
+        REQUIRE(Cudd_AddHook(manager, postGCHookFail, CUDD_POST_REORDERING_HOOK) == 1);
+        
+        // Quit without removing hooks - cuddFreeTable should clean them up
+        // This tests lines 709-716 in cuddFreeTable
         Cudd_Quit(manager);
     }
 }
