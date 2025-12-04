@@ -15,7 +15,7 @@
 
 // Helper function to create a simple BDD with interacting variables
 static DdNode* createSimpleBdd(DdManager* manager, int numVars) {
-    if (numVars < 2) return nullptr;
+    if (manager == nullptr || numVars < 2) return nullptr;
     
     DdNode* x0 = Cudd_bddIthVar(manager, 0);
     DdNode* x1 = Cudd_bddIthVar(manager, 1);
@@ -28,7 +28,7 @@ static DdNode* createSimpleBdd(DdManager* manager, int numVars) {
 
 // Helper function to create a complex BDD with multiple variable interactions
 static DdNode* createComplexBdd(DdManager* manager, int numVars) {
-    if (numVars < 3) return nullptr;
+    if (manager == nullptr || numVars < 3) return nullptr;
     
     // Create variables
     DdNode* x0 = Cudd_bddIthVar(manager, 0);
@@ -53,7 +53,7 @@ static DdNode* createComplexBdd(DdManager* manager, int numVars) {
 
 // Helper function to create a chain-like BDD with linear interactions
 static DdNode* createChainBdd(DdManager* manager, int numVars) {
-    if (numVars < 2) return nullptr;
+    if (manager == nullptr || numVars < 2) return nullptr;
     
     DdNode* result = Cudd_ReadOne(manager);
     Cudd_Ref(result);
@@ -78,7 +78,7 @@ static DdNode* createChainBdd(DdManager* manager, int numVars) {
 
 // Helper function to create a BDD with XOR pattern for multiple nodes
 static DdNode* createXorBdd(DdManager* manager, int numVars) {
-    if (numVars < 2) return nullptr;
+    if (manager == nullptr || numVars < 2) return nullptr;
     
     DdNode* result = Cudd_bddIthVar(manager, 0);
     Cudd_Ref(result);
