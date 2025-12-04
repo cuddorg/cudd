@@ -238,8 +238,8 @@ cuddExact(
 	    /* For each top bottom variable. */
 	    for (j = level; j >= 0; j--) {
 		/* Skip unused variables. */
-		if (table->subtables[j+lower-1].keys == 1 &&
-		    table->vars[table->invperm[j+lower-1]]->ref == 1) continue;
+		if (table->subtables[j+lower].keys == 1 &&
+		    table->vars[table->invperm[j+lower]]->ref == 1) continue;
 		/* Find cost under this order. */
 		subsetCost = cost + getLevelKeys(table, lower + level);
 		newSubsets = updateEntry(table, order, level, subsetCost,
