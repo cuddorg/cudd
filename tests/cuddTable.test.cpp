@@ -17,6 +17,7 @@
  */
 
 // Global variables for hook testing
+// Note: Tests reset this before use; Catch2 runs tests sequentially
 static bool g_postGCHookCalled = false;
 
 // Global hook functions for GC testing
