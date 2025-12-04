@@ -981,16 +981,14 @@ TEST_CASE("Cudd_bddAndAbstract - Additional edge cases", "[cuddAndAbs]") {
     DdNode *zero = Cudd_Not(one);
     
     SECTION("Test ref==1 path (no cache)") {
-        // Create nodes with ref count 1 (single reference)
+        // Create nodes without extra references to test the non-caching path
+        // When F->ref == 1 and G->ref == 1, results are not cached
         DdNode *x = Cudd_bddNewVar(manager);
         DdNode *y = Cudd_bddNewVar(manager);
-        // Don't ref them to keep ref count low
         
         DdNode *f = Cudd_bddAnd(manager, x, y);
-        // f has ref count 0 initially
         
         DdNode *result = Cudd_bddAndAbstract(manager, f, y, x);
-        // Should work without cache since ref == 1
         REQUIRE(result == y);
     }
     
@@ -1170,9 +1168,9 @@ TEST_CASE("Cudd_bddAndAbstract - Coverage for remaining paths", "[cuddAndAbs]") 
     DdNode *one = Cudd_ReadOne(manager);
     DdNode *zero = Cudd_Not(one);
     
-    SECTION("Test t == Cudd_Not(ge) branch (line 293)") {
-        // To hit line 293, we need t == Cudd_Not(ge) where topcube == top
-        // This triggers: e = cuddBddExistAbstractRecur(manager, fe, Cube);
+    SECTION("Test t == Cudd_Not(ge) branch") {
+        // Test the special case where t equals the complement of ge
+        // This triggers an optimization where e is computed via ExistAbstract
         DdNode *x = Cudd_bddNewVar(manager);
         DdNode *y = Cudd_bddNewVar(manager);
         Cudd_Ref(x);
@@ -1273,7 +1271,8 @@ TEST_CASE("Cudd_bddAndAbstract - Coverage for remaining paths", "[cuddAndAbs]") 
     }
     
     SECTION("Test cube variable skipping with multiple cube vars above top") {
-        // Test line 235: when cube has variables above top of f and g
+        // Test when cube has variables above top of f and g
+        // The while loop skips cube variables until reaching top(f,g)
         DdNode *x = Cudd_bddNewVar(manager);  // index 0
         DdNode *y = Cudd_bddNewVar(manager);  // index 1
         DdNode *z = Cudd_bddNewVar(manager);  // index 2
@@ -1472,13 +1471,12 @@ TEST_CASE("Cudd_bddAndAbstract - More coverage tests", "[cuddAndAbs]") {
     Cudd_Quit(manager);
 }
 
-TEST_CASE("Cudd_bddAndAbstract - Hit line 235 cube loop", "[cuddAndAbs]") {
+TEST_CASE("Cudd_bddAndAbstract - Cube variable skipping loop", "[cuddAndAbs]") {
     DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
     REQUIRE(manager != nullptr);
     
-    // To hit line 235, we need the while loop (line 230) to iterate multiple times
-    // This happens when multiple cube variables are above the top of f and g
-    // but we don't immediately reach cube == one
+    // Test the while loop that skips cube variables above top(f,g)
+    // This loop iterates when multiple cube variables are above the BDD's top variable
     
     SECTION("Multiple cube var skip iterations") {
         // Create 5 variables - a, b, c are in cube (high order), d, e are in f,g (low order)
@@ -1716,8 +1714,8 @@ TEST_CASE("Cudd_bddAndAbstract - Push for 90% coverage", "[cuddAndAbs]") {
         // gt = NOT y, ge = y
         // t = AndAbstract(NOT y, NOT y, Cube') = NOT y (if Cube' = one)
         // t != one, t != fe = y, t != ge = y
-        // Cudd_Not(fe) = NOT y, so t == Cudd_Not(fe) => line 291!
-        // This triggers e = ExistAbstract(ge, Cube) = ExistAbstract(y, one) = y
+        // Cudd_Not(fe) = NOT y, so t == Cudd_Not(fe) triggers special path
+        // This triggers e = ExistAbstract(ge, Cube)
         
         DdNode *result = Cudd_bddAndAbstract(manager, fxy, gxy, x);
         Cudd_Ref(result);
@@ -1865,82 +1863,18 @@ TEST_CASE("Cudd_bddAndAbstract - Push for 90% coverage", "[cuddAndAbs]") {
         Cudd_RecursiveDeref(manager, y);
     }
     
-    SECTION("Try to hit t==e in quantify path (lines 302-303)") {
-        // For t==e in quantify path:
-        // - topcube == top (we're abstracting the top variable)
-        // - t != one, t != fe, t != ge (not early return)
-        // - t != Cudd_Not(fe), t != Cudd_Not(ge) (take else at line 295)
-        // - After computing e = AndAbstract(fe, ge, Cube'), t == e
-        
-        // Create f and g where:
-        // At the quantified variable x level:
-        // ft, gt produce t = z
-        // fe, ge produce e = z
-        // And z != one, z != fe, z != ge, z != Cudd_Not(fe), z != Cudd_Not(ge)
-        
-        DdNode *x = Cudd_bddNewVar(manager);  // index 0, top level
-        DdNode *y = Cudd_bddNewVar(manager);  // index 1
-        DdNode *z = Cudd_bddNewVar(manager);  // index 2
+    SECTION("Complex AndAbstract scenario") {
+        // Test complex BDD structures to exercise various code paths
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        DdNode *z = Cudd_bddNewVar(manager);
+        DdNode *w = Cudd_bddNewVar(manager);
         Cudd_Ref(x);
         Cudd_Ref(y);
         Cudd_Ref(z);
-        
-        // f = ITE(x, z, z) = z (x doesn't affect result)
-        // g = ITE(x, z, z) = z
-        // But these simplify to z, so x isn't at top of result
-        
-        // Let me try:
-        // f = ITE(x, y AND z, y AND z) = y AND z
-        // Same issue - simplifies
-        
-        // To keep x at top but have equal cofactors after abstraction:
-        // f = x AND (y ITE(w, 1, 1)) + NOT x AND (y ITE(w, 1, 1)) = y
-        // This is complex...
-        
-        // Let me try a different approach:
-        // f = (x AND y) OR (NOT x AND y) = y
-        // g = (x AND z) OR (NOT x AND z) = z
-        // cube = x
-        // At x level: ft = y, fe = y, gt = z, ge = z
-        // But f and g simplify to y and z, so x isn't at top
-        
-        // I need f and g where x IS at top but ft == fe won't work
-        // because that means f doesn't depend on x
-        
-        // Actually, for t == e after computation:
-        // t = AndAbstract(ft, gt, Cube')
-        // e = AndAbstract(fe, ge, Cube')
-        // t == e means both recursive calls return the same value
-        
-        // f = x AND y, g = NOT x AND y
-        // cube = x
-        // At x level: ft = y, fe = 0, gt = 0, ge = y
-        // t = AndAbstract(y, 0, Cube') = 0
-        // 0 == zero... checking if that triggers early return at line 282
-        // Actually, the recursive call returns 0 but line 282 checks if t == one
-        // So t = 0 doesn't early return
-        // fe = 0, ge = y
-        // t = 0, fe = 0, so t == fe => early return at line 282
-        
-        // Let me try with non-zero, non-one values:
-        // f = x AND (y OR z), g = NOT x AND (y OR z)
-        // cube = x
-        // ft = y OR z, fe = 0, gt = 0, ge = y OR z
-        // t = AndAbstract(y OR z, 0, one) = 0 (since 0 AND anything = 0)
-        // Same issue, t = 0 = fe
-        
-        // I need ft AND gt != 0 AND fe AND ge != 0 AND both equal after abstraction
-        // f = (x AND y) OR z, g = (NOT x AND y) OR z
-        // cube = x
-        // ft = y OR z, fe = z, gt = z, ge = y OR z
-        // t = AndAbstract(y OR z, z, one) = z (intersection)
-        // fe = z, ge = y OR z
-        // t = z, fe = z, so t == fe => early return at 282!
-        
-        // This is tricky. Let me just add more general tests:
-        DdNode *w = Cudd_bddNewVar(manager);
         Cudd_Ref(w);
         
+        // f = (x AND y) OR z
         DdNode *f = Cudd_bddOr(manager, Cudd_bddAnd(manager, x, y), z);
         Cudd_Ref(f);
         DdNode *g = Cudd_bddOr(manager, Cudd_bddAnd(manager, Cudd_Not(x), y), z);
