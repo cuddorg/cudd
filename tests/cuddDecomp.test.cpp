@@ -3648,3 +3648,1949 @@ TEST_CASE("cuddDecomp - Comprehensive all-method tests for coverage", "[cuddDeco
     
     Cudd_Quit(manager);
 }
+
+/**
+ * Additional tests targeting ZeroCase with Nnv==zero path
+ */
+TEST_CASE("cuddDecomp - ZeroCase Nnv==zero path coverage", "[cuddDecomp][coverage]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("BDD with Nnv==zero structure for ZeroCase") {
+        // Create BDD structure where the Nnv (else child) becomes zero after processing
+        // This triggers the "if (Nv == zero)" path in BuildConjuncts (line 1813)
+        const int nvars = 30;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create f = NOT(x0) AND (complex expression)
+        // where the positive cofactor of x0 is zero
+        DdNode *expr = vars[1];
+        Cudd_Ref(expr);
+        for (int i = 2; i < 15; i++) {
+            DdNode *tmp = Cudd_bddOr(manager, expr, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, expr);
+            expr = tmp;
+        }
+        
+        // f = NOT(x0) AND expr means:
+        // - when x0=1: f=0 (Nv=zero after processing)
+        // - when x0=0: f=expr
+        DdNode *notx0 = Cudd_Not(vars[0]);
+        DdNode *f = Cudd_bddAnd(manager, notx0, expr);
+        Cudd_Ref(f);
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        
+        REQUIRE(result >= 1);
+        REQUIRE(conjuncts != nullptr);
+        
+        for (int i = 0; i < result; i++) {
+            Cudd_RecursiveDeref(manager, conjuncts[i]);
+        }
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, expr);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    SECTION("BDD with Nv==zero and NOT(Nnv==zero) structure") {
+        // Create structure where THEN child is zero but ELSE child is not
+        const int nvars = 25;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create f = x0 AND (big expression)
+        // where the negative cofactor of x0 is zero
+        DdNode *expr = vars[1];
+        Cudd_Ref(expr);
+        for (int i = 2; i < 12; i++) {
+            DdNode *tmp = Cudd_bddAnd(manager, expr, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, expr);
+            expr = tmp;
+        }
+        
+        DdNode *f = Cudd_bddAnd(manager, vars[0], expr);
+        Cudd_Ref(f);
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        
+        REQUIRE(result >= 1);
+        REQUIRE(conjuncts != nullptr);
+        
+        for (int i = 0; i < result; i++) {
+            Cudd_RecursiveDeref(manager, conjuncts[i]);
+        }
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, expr);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    SECTION("Switched structure for ZeroCase coverage") {
+        // Create structure that triggers the switched=1 path in ZeroCase
+        const int nvars = 30;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create two branches with different minterm counts
+        // Heavy branch (many minterms - ORs)
+        DdNode *heavy = vars[1];
+        Cudd_Ref(heavy);
+        for (int i = 2; i < 12; i++) {
+            DdNode *tmp = Cudd_bddOr(manager, heavy, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, heavy);
+            heavy = tmp;
+        }
+        
+        // Light branch (few minterms - ANDs)
+        DdNode *light = vars[12];
+        Cudd_Ref(light);
+        for (int i = 13; i < 20; i++) {
+            DdNode *tmp = Cudd_bddAnd(manager, light, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, light);
+            light = tmp;
+        }
+        
+        // x0 ? heavy : zero structure (negative cofactor is 0)
+        // This should trigger switched=1 when minNv < minNnv
+        DdNode *f = Cudd_bddAnd(manager, vars[0], heavy);
+        Cudd_Ref(f);
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        
+        REQUIRE(result >= 1);
+        REQUIRE(conjuncts != nullptr);
+        
+        for (int i = 0; i < result; i++) {
+            Cudd_RecursiveDeref(manager, conjuncts[i]);
+        }
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, light);
+        Cudd_RecursiveDeref(manager, heavy);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+/**
+ * Tests for g==DD_ONE and h==DD_ONE paths in ZeroCase
+ */
+TEST_CASE("cuddDecomp - ZeroCase factorsNv.g/h == ONE paths", "[cuddDecomp][coverage]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Structure where factorsNv->g becomes ONE") {
+        // Create BDD structure that will produce factors where g=ONE
+        const int nvars = 25;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create a structure: x0 AND (x1 OR x2 OR ... OR x10)
+        // At decomposition point, one factor should be ONE
+        DdNode *orPart = vars[1];
+        Cudd_Ref(orPart);
+        for (int i = 2; i < 10; i++) {
+            DdNode *tmp = Cudd_bddOr(manager, orPart, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, orPart);
+            orPart = tmp;
+        }
+        
+        DdNode *f = Cudd_bddAnd(manager, vars[0], orPart);
+        Cudd_Ref(f);
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        
+        REQUIRE(result >= 1);
+        REQUIRE(conjuncts != nullptr);
+        
+        for (int i = 0; i < result; i++) {
+            Cudd_RecursiveDeref(manager, conjuncts[i]);
+        }
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, orPart);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    SECTION("Structure where factorsNv->h becomes ONE") {
+        const int nvars = 25;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create a structure where h=ONE at decomposition
+        DdNode *andPart = vars[1];
+        Cudd_Ref(andPart);
+        for (int i = 2; i < 8; i++) {
+            DdNode *tmp = Cudd_bddAnd(manager, andPart, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, andPart);
+            andPart = tmp;
+        }
+        
+        // x0 AND andPart - when zero case triggers, h should become ONE
+        DdNode *f = Cudd_bddAnd(manager, vars[0], andPart);
+        Cudd_Ref(f);
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        
+        REQUIRE(result >= 1);
+        REQUIRE(conjuncts != nullptr);
+        
+        for (int i = 0; i < result; i++) {
+            Cudd_RecursiveDeref(manager, conjuncts[i]);
+        }
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, andPart);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+/**
+ * Tests targeting value==3 path in BuildConjuncts (lines 1699-1706)
+ * This requires a node to appear in ghTable with value==3 (both g and h)
+ */
+TEST_CASE("cuddDecomp - BuildConjuncts value==3 ghTable path", "[cuddDecomp][coverage]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Structure to trigger value==3 lookup") {
+        const int nvars = 40;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create a shared subexpression that will be used in both g and h positions
+        DdNode *shared = Cudd_bddAnd(manager, vars[0], vars[1]);
+        Cudd_Ref(shared);
+        
+        // Create multiple structures using shared in ways that will cause it
+        // to be registered as both g and h in ghTable (value=3)
+        DdNode *part1 = Cudd_bddAnd(manager, shared, vars[2]);
+        Cudd_Ref(part1);
+        DdNode *part2 = Cudd_bddAnd(manager, shared, vars[3]);
+        Cudd_Ref(part2);
+        DdNode *part3 = Cudd_bddOr(manager, shared, vars[4]);
+        Cudd_Ref(part3);
+        
+        // Combine in ways that cause the shared node to appear multiple times
+        DdNode *combined1 = Cudd_bddAnd(manager, part1, part2);
+        Cudd_Ref(combined1);
+        DdNode *combined2 = Cudd_bddAnd(manager, combined1, part3);
+        Cudd_Ref(combined2);
+        
+        // Add more complexity to push past decomposition threshold
+        DdNode *f = combined2;
+        Cudd_Ref(f);
+        for (int i = 5; i < 25; i++) {
+            DdNode *tmp = Cudd_bddAnd(manager, f, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        
+        REQUIRE(result >= 1);
+        REQUIRE(conjuncts != nullptr);
+        
+        for (int i = 0; i < result; i++) {
+            Cudd_RecursiveDeref(manager, conjuncts[i]);
+        }
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, combined2);
+        Cudd_RecursiveDeref(manager, combined1);
+        Cudd_RecursiveDeref(manager, part3);
+        Cudd_RecursiveDeref(manager, part2);
+        Cudd_RecursiveDeref(manager, part1);
+        Cudd_RecursiveDeref(manager, shared);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    SECTION("Multiple decompositions on same BDD") {
+        // Run decomposition multiple times to hit different random paths
+        const int nvars = 35;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create a complex structure
+        DdNode *layers[7];
+        for (int l = 0; l < 7; l++) {
+            int base = l * 5;
+            DdNode *t = Cudd_bddAnd(manager, vars[base], vars[base+1]);
+            Cudd_Ref(t);
+            DdNode *t2 = Cudd_bddOr(manager, t, vars[base+2]);
+            Cudd_Ref(t2);
+            layers[l] = Cudd_bddAnd(manager, t2, vars[base+3]);
+            Cudd_Ref(layers[l]);
+            Cudd_RecursiveDeref(manager, t2);
+            Cudd_RecursiveDeref(manager, t);
+        }
+        
+        DdNode *f = layers[0];
+        Cudd_Ref(f);
+        for (int l = 1; l < 7; l++) {
+            DdNode *tmp = Cudd_bddAnd(manager, f, layers[l]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        // Run decomposition multiple times
+        for (int iter = 0; iter < 5; iter++) {
+            DdNode **conjuncts = nullptr;
+            int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+            
+            REQUIRE(result >= 1);
+            REQUIRE(conjuncts != nullptr);
+            
+            for (int i = 0; i < result; i++) {
+                Cudd_RecursiveDeref(manager, conjuncts[i]);
+            }
+            FREE(conjuncts);
+        }
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int l = 0; l < 7; l++) {
+            Cudd_RecursiveDeref(manager, layers[l]);
+        }
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+/**
+ * Tests targeting the Gv/Gnv == NOT(DD_ONE) paths in ZeroCase
+ * These trigger special handling for "variable below" cases
+ */
+TEST_CASE("cuddDecomp - ZeroCase child-is-variable paths", "[cuddDecomp][coverage]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Structure with Gv == NOT(ONE) - child is complemented constant") {
+        const int nvars = 30;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create structure: x0 AND NOT(x1) AND (more structure)
+        // This creates BDD where one child of x0 leads to NOT(ONE)=ZERO
+        DdNode *notx1 = Cudd_Not(vars[1]);
+        DdNode *f = Cudd_bddAnd(manager, vars[0], notx1);
+        Cudd_Ref(f);
+        
+        // Add more structure
+        for (int i = 2; i < 15; i++) {
+            DdNode *tmp = Cudd_bddAnd(manager, f, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        
+        REQUIRE(result >= 1);
+        REQUIRE(conjuncts != nullptr);
+        
+        for (int i = 0; i < result; i++) {
+            Cudd_RecursiveDeref(manager, conjuncts[i]);
+        }
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    SECTION("Structure with Hv == NOT(ONE) path") {
+        const int nvars = 30;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create complex structure
+        DdNode *or1 = Cudd_bddOr(manager, vars[1], vars[2]);
+        Cudd_Ref(or1);
+        DdNode *or2 = Cudd_bddOr(manager, vars[3], vars[4]);
+        Cudd_Ref(or2);
+        
+        // x0 AND (or1 OR or2) type structure
+        DdNode *ors = Cudd_bddOr(manager, or1, or2);
+        Cudd_Ref(ors);
+        DdNode *f = Cudd_bddAnd(manager, vars[0], ors);
+        Cudd_Ref(f);
+        
+        // Add more depth
+        for (int i = 5; i < 20; i++) {
+            DdNode *tmp;
+            if (i % 2 == 0) {
+                tmp = Cudd_bddAnd(manager, f, vars[i]);
+            } else {
+                tmp = Cudd_bddOr(manager, f, vars[i]);
+            }
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        
+        REQUIRE(result >= 1);
+        REQUIRE(conjuncts != nullptr);
+        
+        for (int i = 0; i < result; i++) {
+            Cudd_RecursiveDeref(manager, conjuncts[i]);
+        }
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, ors);
+        Cudd_RecursiveDeref(manager, or2);
+        Cudd_RecursiveDeref(manager, or1);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+/**
+ * Tests targeting the CheckInTables various pairValue branches
+ */
+TEST_CASE("cuddDecomp - CheckInTables pairValue paths", "[cuddDecomp][coverage]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Complex BDD to trigger various pairValue combinations") {
+        const int nvars = 50;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create structure with many shared subexpressions
+        DdNode *shared[8];
+        for (int s = 0; s < 8; s++) {
+            int base = s * 6;
+            shared[s] = Cudd_bddAnd(manager, vars[base], vars[base+1]);
+            Cudd_Ref(shared[s]);
+            DdNode *tmp = Cudd_bddOr(manager, shared[s], vars[base+2]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, shared[s]);
+            shared[s] = tmp;
+        }
+        
+        // Cross-reference shared subexpressions
+        DdNode *cross[4];
+        for (int c = 0; c < 4; c++) {
+            cross[c] = Cudd_bddAnd(manager, shared[c], shared[c+4]);
+            Cudd_Ref(cross[c]);
+        }
+        
+        // Combine cross references
+        DdNode *f = cross[0];
+        Cudd_Ref(f);
+        for (int c = 1; c < 4; c++) {
+            DdNode *tmp = Cudd_bddAnd(manager, f, cross[c]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        
+        REQUIRE(result >= 1);
+        REQUIRE(conjuncts != nullptr);
+        
+        for (int i = 0; i < result; i++) {
+            Cudd_RecursiveDeref(manager, conjuncts[i]);
+        }
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int c = 0; c < 4; c++) {
+            Cudd_RecursiveDeref(manager, cross[c]);
+        }
+        for (int s = 0; s < 8; s++) {
+            Cudd_RecursiveDeref(manager, shared[s]);
+        }
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    SECTION("BDD with high-reference shared nodes for PickOnePair") {
+        const int nvars = 45;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create a shared node with high reference count
+        DdNode *shared = Cudd_bddAnd(manager, vars[0], vars[1]);
+        Cudd_Ref(shared);
+        
+        // Reference multiple times
+        for (int i = 0; i < 10; i++) {
+            Cudd_Ref(shared);
+        }
+        
+        // Build complex structure using shared many times
+        DdNode *branches[6];
+        for (int b = 0; b < 6; b++) {
+            int base = 2 + b * 7;
+            DdNode *t = Cudd_bddAnd(manager, shared, vars[base]);
+            Cudd_Ref(t);
+            DdNode *t2 = Cudd_bddOr(manager, t, vars[base+1]);
+            Cudd_Ref(t2);
+            branches[b] = Cudd_bddAnd(manager, t2, vars[base+2]);
+            Cudd_Ref(branches[b]);
+            Cudd_RecursiveDeref(manager, t2);
+            Cudd_RecursiveDeref(manager, t);
+        }
+        
+        DdNode *f = branches[0];
+        Cudd_Ref(f);
+        for (int b = 1; b < 6; b++) {
+            DdNode *tmp = Cudd_bddAnd(manager, f, branches[b]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        
+        REQUIRE(result >= 1);
+        REQUIRE(conjuncts != nullptr);
+        
+        for (int i = 0; i < result; i++) {
+            Cudd_RecursiveDeref(manager, conjuncts[i]);
+        }
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int b = 0; b < 6; b++) {
+            Cudd_RecursiveDeref(manager, branches[b]);
+        }
+        for (int i = 0; i < 10; i++) {
+            Cudd_RecursiveDeref(manager, shared);
+        }
+        Cudd_RecursiveDeref(manager, shared);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+/**
+ * Additional tests for PairInTables return values
+ */
+TEST_CASE("cuddDecomp - PairInTables various return paths", "[cuddDecomp][coverage]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Structures to trigger different pair lookup scenarios") {
+        const int nvars = 55;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create multiple layers with various sharing patterns
+        DdNode *layer1[5];
+        for (int l = 0; l < 5; l++) {
+            int base = l * 10;
+            DdNode *a = Cudd_bddAnd(manager, vars[base], vars[base+1]);
+            Cudd_Ref(a);
+            DdNode *b = Cudd_bddOr(manager, vars[base+2], vars[base+3]);
+            Cudd_Ref(b);
+            layer1[l] = Cudd_bddAnd(manager, a, b);
+            Cudd_Ref(layer1[l]);
+            Cudd_RecursiveDeref(manager, a);
+            Cudd_RecursiveDeref(manager, b);
+        }
+        
+        // Create cross-references
+        DdNode *cross1 = Cudd_bddAnd(manager, layer1[0], layer1[1]);
+        Cudd_Ref(cross1);
+        DdNode *cross2 = Cudd_bddAnd(manager, layer1[2], layer1[3]);
+        Cudd_Ref(cross2);
+        DdNode *cross3 = Cudd_bddOr(manager, cross1, layer1[4]);
+        Cudd_Ref(cross3);
+        
+        DdNode *f = Cudd_bddAnd(manager, cross2, cross3);
+        Cudd_Ref(f);
+        
+        // Run multiple decomposition methods
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        REQUIRE(result >= 1);
+        for (int i = 0; i < result; i++) Cudd_RecursiveDeref(manager, conjuncts[i]);
+        FREE(conjuncts);
+        
+        result = Cudd_bddApproxConjDecomp(manager, f, &conjuncts);
+        REQUIRE(result >= 1);
+        for (int i = 0; i < result; i++) Cudd_RecursiveDeref(manager, conjuncts[i]);
+        FREE(conjuncts);
+        
+        result = Cudd_bddIterConjDecomp(manager, f, &conjuncts);
+        REQUIRE(result >= 1);
+        for (int i = 0; i < result; i++) Cudd_RecursiveDeref(manager, conjuncts[i]);
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, cross3);
+        Cudd_RecursiveDeref(manager, cross2);
+        Cudd_RecursiveDeref(manager, cross1);
+        for (int l = 0; l < 5; l++) {
+            Cudd_RecursiveDeref(manager, layer1[l]);
+        }
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+/**
+ * Tests for distance < approxDistance path in cuddConjunctsAux
+ * (lines 1998-2010)
+ */
+TEST_CASE("cuddDecomp - cuddConjunctsAux distance < approxDistance path", "[cuddDecomp][coverage]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Small BDD where distance < DEPTH") {
+        // DEPTH is 5, so create BDD with depth < 5
+        DdNode *x = Cudd_bddNewVar(manager);
+        DdNode *y = Cudd_bddNewVar(manager);
+        Cudd_Ref(x);
+        Cudd_Ref(y);
+        
+        // Simple AND - very shallow
+        DdNode *f = Cudd_bddAnd(manager, x, y);
+        Cudd_Ref(f);
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        
+        // Should return early with (f, 1)
+        REQUIRE(result >= 1);
+        REQUIRE(conjuncts != nullptr);
+        
+        for (int i = 0; i < result; i++) {
+            Cudd_RecursiveDeref(manager, conjuncts[i]);
+        }
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, x);
+        Cudd_RecursiveDeref(manager, y);
+    }
+    
+    SECTION("BDD with exactly DEPTH=5 distance") {
+        // Create BDD with depth approximately equal to DEPTH constant
+        const int nvars = 8;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Chain of ANDs creates specific depth
+        DdNode *f = vars[0];
+        Cudd_Ref(f);
+        for (int i = 1; i < 5; i++) {
+            DdNode *tmp = Cudd_bddAnd(manager, f, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        
+        REQUIRE(result >= 1);
+        REQUIRE(conjuncts != nullptr);
+        
+        for (int i = 0; i < result; i++) {
+            Cudd_RecursiveDeref(manager, conjuncts[i]);
+        }
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+/**
+ * Tests for complemented node handling in various functions
+ */
+TEST_CASE("cuddDecomp - Complemented node handling", "[cuddDecomp][coverage]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Complemented input to GenConjDecomp") {
+        const int nvars = 20;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create complex BDD
+        DdNode *f = vars[0];
+        Cudd_Ref(f);
+        for (int i = 1; i < 15; i++) {
+            DdNode *tmp;
+            if (i % 2 == 0) {
+                tmp = Cudd_bddAnd(manager, f, vars[i]);
+            } else {
+                tmp = Cudd_bddOr(manager, f, vars[i]);
+            }
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        // Test with complemented input
+        DdNode *notf = Cudd_Not(f);
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, notf, &conjuncts);
+        
+        REQUIRE(result >= 1);
+        REQUIRE(conjuncts != nullptr);
+        
+        for (int i = 0; i < result; i++) {
+            Cudd_RecursiveDeref(manager, conjuncts[i]);
+        }
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    SECTION("Complemented edges in BDD structure") {
+        const int nvars = 25;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Build with complemented edges
+        DdNode *notx0 = Cudd_Not(vars[0]);
+        DdNode *notx1 = Cudd_Not(vars[1]);
+        DdNode *a = Cudd_bddAnd(manager, notx0, vars[2]);
+        Cudd_Ref(a);
+        DdNode *b = Cudd_bddOr(manager, notx1, vars[3]);
+        Cudd_Ref(b);
+        DdNode *f = Cudd_bddAnd(manager, a, b);
+        Cudd_Ref(f);
+        
+        // Add more with complements
+        for (int i = 4; i < 18; i++) {
+            DdNode *tmp;
+            if (i % 3 == 0) {
+                tmp = Cudd_bddAnd(manager, f, Cudd_Not(vars[i]));
+            } else {
+                tmp = Cudd_bddAnd(manager, f, vars[i]);
+            }
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        
+        REQUIRE(result >= 1);
+        REQUIRE(conjuncts != nullptr);
+        
+        for (int i = 0; i < result; i++) {
+            Cudd_RecursiveDeref(manager, conjuncts[i]);
+        }
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, b);
+        Cudd_RecursiveDeref(manager, a);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+/**
+ * These tests are specifically designed to trigger the remaining uncovered paths
+ * in the PairInTables and CheckInTables functions.
+ */
+TEST_CASE("cuddDecomp - Targeted tests for internal table lookup paths", "[cuddDecomp][coverage]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Very large complex BDD for all paths") {
+        // Create an extremely complex BDD to increase the probability
+        // of hitting rare table lookup paths
+        const int nvars = 80;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create many shared subexpressions
+        DdNode *shared[20];
+        for (int s = 0; s < 20; s++) {
+            int base = s * 4;
+            DdNode *t1 = Cudd_bddAnd(manager, vars[base], vars[base+1]);
+            Cudd_Ref(t1);
+            DdNode *t2 = Cudd_bddOr(manager, t1, vars[base+2]);
+            Cudd_Ref(t2);
+            shared[s] = Cudd_bddAnd(manager, t2, vars[base+3]);
+            Cudd_Ref(shared[s]);
+            Cudd_RecursiveDeref(manager, t2);
+            Cudd_RecursiveDeref(manager, t1);
+        }
+        
+        // Create cross-references (shared used in multiple places)
+        DdNode *cross[10];
+        for (int c = 0; c < 10; c++) {
+            cross[c] = Cudd_bddAnd(manager, shared[c], shared[c+10]);
+            Cudd_Ref(cross[c]);
+        }
+        
+        // Build a deeply nested structure
+        DdNode *level1 = Cudd_bddAnd(manager, cross[0], cross[1]);
+        Cudd_Ref(level1);
+        DdNode *level2 = Cudd_bddOr(manager, cross[2], cross[3]);
+        Cudd_Ref(level2);
+        DdNode *level3 = Cudd_bddAnd(manager, cross[4], cross[5]);
+        Cudd_Ref(level3);
+        DdNode *level4 = Cudd_bddOr(manager, cross[6], cross[7]);
+        Cudd_Ref(level4);
+        
+        DdNode *combo1 = Cudd_bddAnd(manager, level1, level2);
+        Cudd_Ref(combo1);
+        DdNode *combo2 = Cudd_bddAnd(manager, level3, level4);
+        Cudd_Ref(combo2);
+        DdNode *f = Cudd_bddAnd(manager, combo1, combo2);
+        Cudd_Ref(f);
+        
+        // Also AND in remaining crosses
+        for (int c = 8; c < 10; c++) {
+            DdNode *tmp = Cudd_bddAnd(manager, f, cross[c]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        
+        REQUIRE(result >= 1);
+        REQUIRE(conjuncts != nullptr);
+        
+        for (int i = 0; i < result; i++) {
+            Cudd_RecursiveDeref(manager, conjuncts[i]);
+        }
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, combo2);
+        Cudd_RecursiveDeref(manager, combo1);
+        Cudd_RecursiveDeref(manager, level4);
+        Cudd_RecursiveDeref(manager, level3);
+        Cudd_RecursiveDeref(manager, level2);
+        Cudd_RecursiveDeref(manager, level1);
+        for (int c = 0; c < 10; c++) {
+            Cudd_RecursiveDeref(manager, cross[c]);
+        }
+        for (int s = 0; s < 20; s++) {
+            Cudd_RecursiveDeref(manager, shared[s]);
+        }
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    SECTION("Run decomposition multiple times with random seed variations") {
+        // Run decomposition many times to hit different random paths
+        // (lastTimeG alternation depends on Cudd_Random)
+        const int nvars = 40;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create complex function
+        DdNode *parts[8];
+        for (int p = 0; p < 8; p++) {
+            int base = p * 5;
+            DdNode *t = Cudd_bddAnd(manager, vars[base], vars[base+1]);
+            Cudd_Ref(t);
+            DdNode *t2 = Cudd_bddOr(manager, t, vars[base+2]);
+            Cudd_Ref(t2);
+            parts[p] = Cudd_bddAnd(manager, t2, vars[base+3]);
+            Cudd_Ref(parts[p]);
+            Cudd_RecursiveDeref(manager, t2);
+            Cudd_RecursiveDeref(manager, t);
+        }
+        
+        DdNode *f = parts[0];
+        Cudd_Ref(f);
+        for (int p = 1; p < 8; p++) {
+            DdNode *tmp = Cudd_bddAnd(manager, f, parts[p]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        // Run decomposition many times
+        for (int iter = 0; iter < 20; iter++) {
+            DdNode **conjuncts = nullptr;
+            int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+            
+            REQUIRE(result >= 1);
+            REQUIRE(conjuncts != nullptr);
+            
+            for (int i = 0; i < result; i++) {
+                Cudd_RecursiveDeref(manager, conjuncts[i]);
+            }
+            FREE(conjuncts);
+        }
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int p = 0; p < 8; p++) {
+            Cudd_RecursiveDeref(manager, parts[p]);
+        }
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+/**
+ * Test with functions that have specific cofactor patterns
+ */
+TEST_CASE("cuddDecomp - Specific cofactor patterns", "[cuddDecomp][coverage]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Function with all possible cofactor combinations") {
+        const int nvars = 50;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create function with many different structural patterns
+        // ITE structures, shared subgraphs, complemented edges
+        
+        // Pattern 1: ITE(x, y AND z, w)
+        DdNode *yz = Cudd_bddAnd(manager, vars[1], vars[2]);
+        Cudd_Ref(yz);
+        DdNode *ite1 = Cudd_bddIte(manager, vars[0], yz, vars[3]);
+        Cudd_Ref(ite1);
+        
+        // Pattern 2: ITE(x, NOT y, z)
+        DdNode *noty = Cudd_Not(vars[5]);
+        DdNode *ite2 = Cudd_bddIte(manager, vars[4], noty, vars[6]);
+        Cudd_Ref(ite2);
+        
+        // Pattern 3: Shared usage
+        DdNode *shared = Cudd_bddAnd(manager, vars[7], vars[8]);
+        Cudd_Ref(shared);
+        DdNode *use1 = Cudd_bddAnd(manager, shared, vars[9]);
+        Cudd_Ref(use1);
+        DdNode *use2 = Cudd_bddOr(manager, shared, vars[10]);
+        Cudd_Ref(use2);
+        
+        // Combine everything
+        DdNode *c1 = Cudd_bddAnd(manager, ite1, ite2);
+        Cudd_Ref(c1);
+        DdNode *c2 = Cudd_bddAnd(manager, use1, use2);
+        Cudd_Ref(c2);
+        DdNode *f = Cudd_bddAnd(manager, c1, c2);
+        Cudd_Ref(f);
+        
+        // Add more variables
+        for (int i = 11; i < 30; i++) {
+            DdNode *tmp;
+            if (i % 4 == 0) {
+                tmp = Cudd_bddAnd(manager, f, vars[i]);
+            } else if (i % 4 == 1) {
+                tmp = Cudd_bddOr(manager, f, vars[i]);
+            } else if (i % 4 == 2) {
+                tmp = Cudd_bddAnd(manager, f, Cudd_Not(vars[i]));
+            } else {
+                tmp = Cudd_bddOr(manager, f, Cudd_Not(vars[i]));
+            }
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        
+        REQUIRE(result >= 1);
+        REQUIRE(conjuncts != nullptr);
+        
+        for (int i = 0; i < result; i++) {
+            Cudd_RecursiveDeref(manager, conjuncts[i]);
+        }
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, c2);
+        Cudd_RecursiveDeref(manager, c1);
+        Cudd_RecursiveDeref(manager, use2);
+        Cudd_RecursiveDeref(manager, use1);
+        Cudd_RecursiveDeref(manager, shared);
+        Cudd_RecursiveDeref(manager, ite2);
+        Cudd_RecursiveDeref(manager, ite1);
+        Cudd_RecursiveDeref(manager, yz);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+/**
+ * Tests with very specific structure to trigger BuildConjuncts paths
+ */
+TEST_CASE("cuddDecomp - BuildConjuncts specific paths", "[cuddDecomp][coverage]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Structure with Nnv == zero triggering ZeroCase") {
+        // Create BDD where one child leads to zero
+        const int nvars = 35;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create: (x0 AND (big expression)) creates zero on x0=0 side
+        DdNode *bigExpr = vars[1];
+        Cudd_Ref(bigExpr);
+        for (int i = 2; i < 20; i++) {
+            DdNode *tmp = Cudd_bddOr(manager, bigExpr, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, bigExpr);
+            bigExpr = tmp;
+        }
+        
+        // x0 AND bigExpr - when x0=0, result is 0
+        DdNode *f = Cudd_bddAnd(manager, vars[0], bigExpr);
+        Cudd_Ref(f);
+        
+        // Add more depth
+        for (int i = 20; i < 30; i++) {
+            DdNode *tmp = Cudd_bddAnd(manager, f, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        
+        REQUIRE(result >= 1);
+        REQUIRE(conjuncts != nullptr);
+        
+        for (int i = 0; i < result; i++) {
+            Cudd_RecursiveDeref(manager, conjuncts[i]);
+        }
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, bigExpr);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    SECTION("Structure with Nv == zero triggering alternate ZeroCase") {
+        const int nvars = 35;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create: (NOT x0 AND (big expression)) creates zero on x0=1 side
+        DdNode *bigExpr = vars[1];
+        Cudd_Ref(bigExpr);
+        for (int i = 2; i < 20; i++) {
+            DdNode *tmp = Cudd_bddOr(manager, bigExpr, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, bigExpr);
+            bigExpr = tmp;
+        }
+        
+        // NOT x0 AND bigExpr - when x0=1, result is 0
+        DdNode *notx0 = Cudd_Not(vars[0]);
+        DdNode *f = Cudd_bddAnd(manager, notx0, bigExpr);
+        Cudd_Ref(f);
+        
+        // Add more depth
+        for (int i = 20; i < 30; i++) {
+            DdNode *tmp = Cudd_bddAnd(manager, f, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        
+        REQUIRE(result >= 1);
+        REQUIRE(conjuncts != nullptr);
+        
+        for (int i = 0; i < result; i++) {
+            Cudd_RecursiveDeref(manager, conjuncts[i]);
+        }
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, bigExpr);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    SECTION("Structure to trigger switched path in BuildConjuncts") {
+        const int nvars = 40;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create asymmetric cofactors where minNv < minNnv
+        // Heavy (many minterms) on negative side
+        DdNode *heavy = vars[1];
+        Cudd_Ref(heavy);
+        for (int i = 2; i < 15; i++) {
+            DdNode *tmp = Cudd_bddOr(manager, heavy, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, heavy);
+            heavy = tmp;
+        }
+        
+        // Light (few minterms) on positive side
+        DdNode *light = vars[15];
+        Cudd_Ref(light);
+        for (int i = 16; i < 25; i++) {
+            DdNode *tmp = Cudd_bddAnd(manager, light, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, light);
+            light = tmp;
+        }
+        
+        // ITE: x0 ? light : heavy
+        // When minNv (light) < minNnv (heavy), switched=1
+        DdNode *f = Cudd_bddIte(manager, vars[0], light, heavy);
+        Cudd_Ref(f);
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        
+        REQUIRE(result >= 1);
+        REQUIRE(conjuncts != nullptr);
+        
+        for (int i = 0; i < result; i++) {
+            Cudd_RecursiveDeref(manager, conjuncts[i]);
+        }
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, light);
+        Cudd_RecursiveDeref(manager, heavy);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+/**
+ * Test all decomposition types with various BDD patterns
+ */
+TEST_CASE("cuddDecomp - All decomposition types with various BDDs", "[cuddDecomp][coverage]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Comprehensive test with all methods") {
+        const int nvars = 45;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create several different BDD types
+        // Type 1: Pure AND chain
+        DdNode *andChain = vars[0];
+        Cudd_Ref(andChain);
+        for (int i = 1; i < 10; i++) {
+            DdNode *tmp = Cudd_bddAnd(manager, andChain, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, andChain);
+            andChain = tmp;
+        }
+        
+        // Type 2: Pure OR chain
+        DdNode *orChain = vars[10];
+        Cudd_Ref(orChain);
+        for (int i = 11; i < 20; i++) {
+            DdNode *tmp = Cudd_bddOr(manager, orChain, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, orChain);
+            orChain = tmp;
+        }
+        
+        // Type 3: Mixed
+        DdNode *mixed = vars[20];
+        Cudd_Ref(mixed);
+        for (int i = 21; i < 30; i++) {
+            DdNode *tmp;
+            if (i % 2 == 0) {
+                tmp = Cudd_bddAnd(manager, mixed, vars[i]);
+            } else {
+                tmp = Cudd_bddOr(manager, mixed, vars[i]);
+            }
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, mixed);
+            mixed = tmp;
+        }
+        
+        // Type 4: XOR-like
+        DdNode *xorLike = Cudd_bddXor(manager, vars[30], vars[31]);
+        Cudd_Ref(xorLike);
+        for (int i = 32; i < 40; i += 2) {
+            DdNode *xorPart = Cudd_bddXor(manager, vars[i], vars[i+1]);
+            Cudd_Ref(xorPart);
+            DdNode *tmp = Cudd_bddAnd(manager, xorLike, xorPart);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, xorPart);
+            Cudd_RecursiveDeref(manager, xorLike);
+            xorLike = tmp;
+        }
+        
+        // Test all methods on each type
+        DdNode *bdds[] = {andChain, orChain, mixed, xorLike};
+        for (int b = 0; b < 4; b++) {
+            DdNode *f = bdds[b];
+            DdNode **conjuncts = nullptr;
+            DdNode **disjuncts = nullptr;
+            
+            int r1 = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+            REQUIRE(r1 >= 1);
+            for (int i = 0; i < r1; i++) Cudd_RecursiveDeref(manager, conjuncts[i]);
+            FREE(conjuncts);
+            
+            int r2 = Cudd_bddGenDisjDecomp(manager, f, &disjuncts);
+            REQUIRE(r2 >= 1);
+            for (int i = 0; i < r2; i++) Cudd_RecursiveDeref(manager, disjuncts[i]);
+            FREE(disjuncts);
+            
+            int r3 = Cudd_bddApproxConjDecomp(manager, f, &conjuncts);
+            REQUIRE(r3 >= 1);
+            for (int i = 0; i < r3; i++) Cudd_RecursiveDeref(manager, conjuncts[i]);
+            FREE(conjuncts);
+            
+            int r4 = Cudd_bddApproxDisjDecomp(manager, f, &disjuncts);
+            REQUIRE(r4 >= 1);
+            for (int i = 0; i < r4; i++) Cudd_RecursiveDeref(manager, disjuncts[i]);
+            FREE(disjuncts);
+            
+            int r5 = Cudd_bddIterConjDecomp(manager, f, &conjuncts);
+            REQUIRE(r5 >= 1);
+            for (int i = 0; i < r5; i++) Cudd_RecursiveDeref(manager, conjuncts[i]);
+            FREE(conjuncts);
+            
+            int r6 = Cudd_bddIterDisjDecomp(manager, f, &disjuncts);
+            REQUIRE(r6 >= 1);
+            for (int i = 0; i < r6; i++) Cudd_RecursiveDeref(manager, disjuncts[i]);
+            FREE(disjuncts);
+            
+            int r7 = Cudd_bddVarConjDecomp(manager, f, &conjuncts);
+            REQUIRE(r7 >= 1);
+            for (int i = 0; i < r7; i++) Cudd_RecursiveDeref(manager, conjuncts[i]);
+            FREE(conjuncts);
+            
+            int r8 = Cudd_bddVarDisjDecomp(manager, f, &disjuncts);
+            REQUIRE(r8 >= 1);
+            for (int i = 0; i < r8; i++) Cudd_RecursiveDeref(manager, disjuncts[i]);
+            FREE(disjuncts);
+        }
+        
+        Cudd_RecursiveDeref(manager, xorLike);
+        Cudd_RecursiveDeref(manager, mixed);
+        Cudd_RecursiveDeref(manager, orChain);
+        Cudd_RecursiveDeref(manager, andChain);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+/**
+ * Additional targeted tests for the remaining uncovered paths
+ * These attempt to trigger rare table lookup combinations in PickOnePair
+ */
+TEST_CASE("cuddDecomp - Exhaustive PickOnePair path coverage", "[cuddDecomp][coverage]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Massive BDD with maximum sharing to trigger rare paths") {
+        // Create extremely large BDD with maximum sharing to increase
+        // probability of hitting rare table lookup combinations
+        const int nvars = 100;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create many shared subexpressions at different levels
+        DdNode *base[25];
+        for (int b = 0; b < 25; b++) {
+            int idx = b * 4;
+            base[b] = Cudd_bddAnd(manager, vars[idx], vars[idx+1]);
+            Cudd_Ref(base[b]);
+            DdNode *t = Cudd_bddOr(manager, base[b], vars[idx+2]);
+            Cudd_Ref(t);
+            Cudd_RecursiveDeref(manager, base[b]);
+            base[b] = t;
+            t = Cudd_bddAnd(manager, base[b], vars[idx+3]);
+            Cudd_Ref(t);
+            Cudd_RecursiveDeref(manager, base[b]);
+            base[b] = t;
+        }
+        
+        // Create cross-references at level 2
+        DdNode *mid[12];
+        for (int m = 0; m < 12; m++) {
+            mid[m] = Cudd_bddAnd(manager, base[m], base[m+12]);
+            Cudd_Ref(mid[m]);
+            if (m < 11) {
+                DdNode *t = Cudd_bddOr(manager, mid[m], base[m+1]);
+                Cudd_Ref(t);
+                Cudd_RecursiveDeref(manager, mid[m]);
+                mid[m] = t;
+            }
+        }
+        
+        // Create cross-references at level 3
+        DdNode *top[6];
+        for (int t = 0; t < 6; t++) {
+            top[t] = Cudd_bddAnd(manager, mid[t], mid[t+6]);
+            Cudd_Ref(top[t]);
+        }
+        
+        // Final combination
+        DdNode *f = top[0];
+        Cudd_Ref(f);
+        for (int t = 1; t < 6; t++) {
+            DdNode *tmp = Cudd_bddAnd(manager, f, top[t]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        // Run multiple decompositions
+        for (int iter = 0; iter < 10; iter++) {
+            DdNode **conjuncts = nullptr;
+            int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+            REQUIRE(result >= 1);
+            for (int i = 0; i < result; i++) Cudd_RecursiveDeref(manager, conjuncts[i]);
+            FREE(conjuncts);
+        }
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int t = 0; t < 6; t++) {
+            Cudd_RecursiveDeref(manager, top[t]);
+        }
+        for (int m = 0; m < 12; m++) {
+            Cudd_RecursiveDeref(manager, mid[m]);
+        }
+        for (int b = 0; b < 25; b++) {
+            Cudd_RecursiveDeref(manager, base[b]);
+        }
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    SECTION("BDDs with maximum complemented edges") {
+        const int nvars = 60;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create structure with many complemented edges
+        DdNode *f = vars[0];
+        Cudd_Ref(f);
+        for (int i = 1; i < 40; i++) {
+            DdNode *tmp;
+            if (i % 3 == 0) {
+                tmp = Cudd_bddAnd(manager, f, Cudd_Not(vars[i]));
+            } else if (i % 3 == 1) {
+                tmp = Cudd_bddOr(manager, f, vars[i]);
+            } else {
+                tmp = Cudd_bddAnd(manager, Cudd_Not(f), vars[i]);
+                Cudd_Ref(tmp);
+                DdNode *t2 = Cudd_bddOr(manager, tmp, f);
+                Cudd_Ref(t2);
+                Cudd_RecursiveDeref(manager, tmp);
+                tmp = t2;
+            }
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        REQUIRE(result >= 1);
+        for (int i = 0; i < result; i++) Cudd_RecursiveDeref(manager, conjuncts[i]);
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    SECTION("Mux/ITE based structure") {
+        const int nvars = 70;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create nested MUX structure
+        DdNode *ites[20];
+        for (int m = 0; m < 20; m++) {
+            int idx = m * 3;
+            ites[m] = Cudd_bddIte(manager, vars[idx], vars[idx+1], vars[idx+2]);
+            Cudd_Ref(ites[m]);
+        }
+        
+        // Combine ITEs
+        DdNode *combo[10];
+        for (int c = 0; c < 10; c++) {
+            combo[c] = Cudd_bddAnd(manager, ites[c], ites[c+10]);
+            Cudd_Ref(combo[c]);
+        }
+        
+        DdNode *f = combo[0];
+        Cudd_Ref(f);
+        for (int c = 1; c < 10; c++) {
+            DdNode *tmp = Cudd_bddAnd(manager, f, combo[c]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        // Add more variables
+        for (int i = 60; i < 70; i++) {
+            DdNode *tmp = Cudd_bddAnd(manager, f, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        REQUIRE(result >= 1);
+        for (int i = 0; i < result; i++) Cudd_RecursiveDeref(manager, conjuncts[i]);
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int c = 0; c < 10; c++) {
+            Cudd_RecursiveDeref(manager, combo[c]);
+        }
+        for (int m = 0; m < 20; m++) {
+            Cudd_RecursiveDeref(manager, ites[m]);
+        }
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+/**
+ * Tests with specific structure to trigger G_CR, H_CR paths in PairInTables
+ */
+TEST_CASE("cuddDecomp - G_CR H_CR table lookup paths", "[cuddDecomp][coverage]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Structure designed to trigger G_CR path") {
+        // G_CR occurs when g is in table with valueG & 2 (registered as 'h')
+        // This requires g to have been previously registered as an h-factor
+        const int nvars = 50;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create a shared subexpression that will be encountered multiple times
+        DdNode *shared1 = Cudd_bddAnd(manager, vars[0], vars[1]);
+        Cudd_Ref(shared1);
+        DdNode *shared2 = Cudd_bddOr(manager, vars[2], vars[3]);
+        Cudd_Ref(shared2);
+        
+        // Build structures that use shared in 'h' position first, then 'g' position
+        DdNode *t1 = Cudd_bddAnd(manager, vars[4], shared1);  // shared1 is h here
+        Cudd_Ref(t1);
+        DdNode *t2 = Cudd_bddAnd(manager, shared1, vars[5]);  // shared1 is g here
+        Cudd_Ref(t2);
+        DdNode *t3 = Cudd_bddOr(manager, shared2, vars[6]);
+        Cudd_Ref(t3);
+        
+        // Combine
+        DdNode *c1 = Cudd_bddAnd(manager, t1, t2);
+        Cudd_Ref(c1);
+        DdNode *c2 = Cudd_bddAnd(manager, c1, t3);
+        Cudd_Ref(c2);
+        
+        // Add more structure
+        DdNode *f = c2;
+        Cudd_Ref(f);
+        for (int i = 7; i < 30; i++) {
+            DdNode *tmp = Cudd_bddAnd(manager, f, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        REQUIRE(result >= 1);
+        for (int i = 0; i < result; i++) Cudd_RecursiveDeref(manager, conjuncts[i]);
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, c2);
+        Cudd_RecursiveDeref(manager, c1);
+        Cudd_RecursiveDeref(manager, t3);
+        Cudd_RecursiveDeref(manager, t2);
+        Cudd_RecursiveDeref(manager, t1);
+        Cudd_RecursiveDeref(manager, shared2);
+        Cudd_RecursiveDeref(manager, shared1);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+/**
+ * Stress test with many different BDD structures
+ */
+TEST_CASE("cuddDecomp - Stress test with many BDD variations", "[cuddDecomp][coverage]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Generate and decompose many random-like structures") {
+        const int nvars = 40;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create 10 different BDD structures and decompose each
+        for (int pattern = 0; pattern < 10; pattern++) {
+            DdNode *f = vars[0];
+            Cudd_Ref(f);
+            
+            for (int i = 1; i < 30; i++) {
+                DdNode *tmp;
+                int op = (i + pattern) % 5;
+                switch (op) {
+                    case 0:
+                        tmp = Cudd_bddAnd(manager, f, vars[i]);
+                        break;
+                    case 1:
+                        tmp = Cudd_bddOr(manager, f, vars[i]);
+                        break;
+                    case 2:
+                        tmp = Cudd_bddAnd(manager, f, Cudd_Not(vars[i]));
+                        break;
+                    case 3:
+                        tmp = Cudd_bddOr(manager, Cudd_Not(f), vars[i]);
+                        break;
+                    default:
+                        tmp = Cudd_bddXor(manager, f, vars[i]);
+                        break;
+                }
+                Cudd_Ref(tmp);
+                Cudd_RecursiveDeref(manager, f);
+                f = tmp;
+            }
+            
+            DdNode **conjuncts = nullptr;
+            int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+            REQUIRE(result >= 1);
+            for (int i = 0; i < result; i++) Cudd_RecursiveDeref(manager, conjuncts[i]);
+            FREE(conjuncts);
+            
+            Cudd_RecursiveDeref(manager, f);
+        }
+        
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+/**
+ * Additional tests targeting specific uncovered paths
+ */
+TEST_CASE("cuddDecomp - Additional path coverage tests", "[cuddDecomp][coverage]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("BDD with Nv==zero at deep recursion point") {
+        // Create BDD structure where Nv (THEN child) becomes zero during recursion
+        // but Nnv (ELSE child) is not zero - triggers lines 1813-1818
+        const int nvars = 60;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create: NOT(x0) AND (complex expression)
+        // At the top level, when x0=1, result is 0 (Nv=zero)
+        // When x0=0, result is (complex expression) (Nnv=not zero)
+        DdNode *complexExpr = vars[1];
+        Cudd_Ref(complexExpr);
+        for (int i = 2; i < 30; i++) {
+            DdNode *tmp;
+            if (i % 2 == 0) {
+                tmp = Cudd_bddOr(manager, complexExpr, vars[i]);
+            } else {
+                tmp = Cudd_bddAnd(manager, complexExpr, vars[i]);
+            }
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, complexExpr);
+            complexExpr = tmp;
+        }
+        
+        // NOT(x0) AND complexExpr
+        DdNode *notx0 = Cudd_Not(vars[0]);
+        DdNode *f = Cudd_bddAnd(manager, notx0, complexExpr);
+        Cudd_Ref(f);
+        
+        // Add more structure at deeper levels with similar pattern
+        for (int i = 30; i < 45; i++) {
+            DdNode *tmp = Cudd_bddAnd(manager, f, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        REQUIRE(result >= 1);
+        for (int i = 0; i < result; i++) Cudd_RecursiveDeref(manager, conjuncts[i]);
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, complexExpr);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    SECTION("Multiple Nv==zero patterns at different levels") {
+        const int nvars = 60;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create nested NOT(x) AND ... patterns
+        // Level 1: NOT(x0) AND (expr1)
+        // Level 2: NOT(x5) AND (expr2) inside expr1
+        DdNode *inner = vars[6];
+        Cudd_Ref(inner);
+        for (int i = 7; i < 20; i++) {
+            DdNode *tmp = Cudd_bddOr(manager, inner, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, inner);
+            inner = tmp;
+        }
+        
+        // NOT(x5) AND inner
+        DdNode *notx5 = Cudd_Not(vars[5]);
+        DdNode *middle = Cudd_bddAnd(manager, notx5, inner);
+        Cudd_Ref(middle);
+        
+        // Add more
+        for (int i = 1; i < 5; i++) {
+            DdNode *tmp = Cudd_bddOr(manager, middle, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, middle);
+            middle = tmp;
+        }
+        
+        // NOT(x0) AND middle
+        DdNode *notx0 = Cudd_Not(vars[0]);
+        DdNode *f = Cudd_bddAnd(manager, notx0, middle);
+        Cudd_Ref(f);
+        
+        // Add depth
+        for (int i = 20; i < 40; i++) {
+            DdNode *tmp = Cudd_bddAnd(manager, f, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        REQUIRE(result >= 1);
+        for (int i = 0; i < result; i++) Cudd_RecursiveDeref(manager, conjuncts[i]);
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, middle);
+        Cudd_RecursiveDeref(manager, inner);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    SECTION("Structure to trigger value==3 in ghTable") {
+        // value==3 means node was registered as both g and h
+        // This happens when the same node appears in different decomposition positions
+        const int nvars = 80;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create shared nodes that will be used multiple times
+        DdNode *shared1 = Cudd_bddAnd(manager, vars[0], vars[1]);
+        Cudd_Ref(shared1);
+        DdNode *shared2 = Cudd_bddOr(manager, vars[2], vars[3]);
+        Cudd_Ref(shared2);
+        DdNode *shared3 = Cudd_bddAnd(manager, vars[4], vars[5]);
+        Cudd_Ref(shared3);
+        
+        // Use shared nodes in many different combinations
+        DdNode *combo1 = Cudd_bddAnd(manager, shared1, shared2);
+        Cudd_Ref(combo1);
+        DdNode *combo2 = Cudd_bddOr(manager, shared2, shared3);
+        Cudd_Ref(combo2);
+        DdNode *combo3 = Cudd_bddAnd(manager, shared1, shared3);
+        Cudd_Ref(combo3);
+        
+        // Cross-reference
+        DdNode *cross1 = Cudd_bddAnd(manager, combo1, combo2);
+        Cudd_Ref(cross1);
+        DdNode *cross2 = Cudd_bddOr(manager, combo2, combo3);
+        Cudd_Ref(cross2);
+        
+        DdNode *f = Cudd_bddAnd(manager, cross1, cross2);
+        Cudd_Ref(f);
+        
+        // Add many more variables
+        for (int i = 6; i < 50; i++) {
+            DdNode *tmp = Cudd_bddAnd(manager, f, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        // Run decomposition many times
+        for (int iter = 0; iter < 15; iter++) {
+            DdNode **conjuncts = nullptr;
+            int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+            REQUIRE(result >= 1);
+            for (int i = 0; i < result; i++) Cudd_RecursiveDeref(manager, conjuncts[i]);
+            FREE(conjuncts);
+        }
+        
+        Cudd_RecursiveDeref(manager, f);
+        Cudd_RecursiveDeref(manager, cross2);
+        Cudd_RecursiveDeref(manager, cross1);
+        Cudd_RecursiveDeref(manager, combo3);
+        Cudd_RecursiveDeref(manager, combo2);
+        Cudd_RecursiveDeref(manager, combo1);
+        Cudd_RecursiveDeref(manager, shared3);
+        Cudd_RecursiveDeref(manager, shared2);
+        Cudd_RecursiveDeref(manager, shared1);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+    }
+    
+    Cudd_Quit(manager);
+}
+
+/**
+ * Test with timeout handler to trigger line 486
+ */
+static void dummyTimeoutHandler(DdManager *dd, void *arg) {
+    (void)dd;
+    (void)arg;
+    // Do nothing, just to cover the branch
+}
+
+TEST_CASE("cuddDecomp - Timeout handler coverage", "[cuddDecomp][coverage]") {
+    DdManager *manager = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+    
+    SECTION("Set timeout handler and run decomposition") {
+        // Set a timeout handler
+        Cudd_RegisterTimeoutHandler(manager, dummyTimeoutHandler, NULL);
+        
+        const int nvars = 30;
+        DdNode *vars[nvars];
+        for (int i = 0; i < nvars; i++) {
+            vars[i] = Cudd_bddNewVar(manager);
+            Cudd_Ref(vars[i]);
+        }
+        
+        DdNode *f = vars[0];
+        Cudd_Ref(f);
+        for (int i = 1; i < 20; i++) {
+            DdNode *tmp = Cudd_bddAnd(manager, f, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, f);
+            f = tmp;
+        }
+        
+        DdNode **conjuncts = nullptr;
+        int result = Cudd_bddGenConjDecomp(manager, f, &conjuncts);
+        
+        // Should succeed (timeout not reached with small BDD)
+        REQUIRE(result >= 1);
+        for (int i = 0; i < result; i++) Cudd_RecursiveDeref(manager, conjuncts[i]);
+        FREE(conjuncts);
+        
+        Cudd_RecursiveDeref(manager, f);
+        for (int i = 0; i < nvars; i++) {
+            Cudd_RecursiveDeref(manager, vars[i]);
+        }
+        
+        // Clear handler
+        Cudd_RegisterTimeoutHandler(manager, NULL, NULL);
+    }
+    
+    Cudd_Quit(manager);
+}
