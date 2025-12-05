@@ -1086,3 +1086,188 @@ TEST_CASE("cuddZddPort - Cudd_zddPortToBdd with multiple sparse levels", "[cuddZ
     Cudd_RecursiveDerefZdd(manager, raw_z6);
     Cudd_Quit(manager);
 }
+
+// ============================================================================
+// TESTS FOR ERROR HANDLING PATHS (attempting to trigger memory allocation failures)
+// ============================================================================
+
+TEST_CASE("cuddZddPort - Cudd_zddPortFromBdd with memory constraints", "[cuddZddPort]") {
+    // Try to trigger memory allocation failures by setting strict memory limits
+    DdManager* manager = Cudd_Init(16, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    int status = Cudd_zddVarsFromBddVars(manager, 1);
+    REQUIRE(status == 1);
+
+    // Set a restrictive memory limit
+    Cudd_SetMaxMemory(manager, 512 * 1024); // 512KB limit
+
+    // Create BDD variables and build a complex BDD
+    DdNode* bdd = Cudd_ReadOne(manager);
+    Cudd_Ref(bdd);
+
+    for (int i = 0; i < 12; i++) {
+        DdNode* var = Cudd_bddIthVar(manager, i);
+        if (var == nullptr) break;
+        
+        DdNode* tmp = Cudd_bddOr(manager, bdd, var);
+        if (tmp != nullptr) {
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, bdd);
+            bdd = tmp;
+        }
+    }
+
+    // Try to convert - might succeed or fail due to memory constraints
+    DdNode* zddResult = Cudd_zddPortFromBdd(manager, bdd);
+    if (zddResult != nullptr) {
+        Cudd_Ref(zddResult);
+        Cudd_RecursiveDerefZdd(manager, zddResult);
+    }
+
+    Cudd_RecursiveDeref(manager, bdd);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("cuddZddPort - Cudd_zddPortToBdd with memory constraints", "[cuddZddPort]") {
+    // Try to trigger memory allocation failures by setting strict memory limits
+    DdManager* manager = Cudd_Init(16, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    int status = Cudd_zddVarsFromBddVars(manager, 1);
+    REQUIRE(status == 1);
+
+    // Set a restrictive memory limit
+    Cudd_SetMaxMemory(manager, 512 * 1024); // 512KB limit
+
+    // Create a complex ZDD
+    DdNode* zdd = Cudd_ReadZddOne(manager, 0);
+    Cudd_Ref(zdd);
+
+    for (int i = 0; i < 12; i++) {
+        DdNode* var = Cudd_zddIthVar(manager, i);
+        if (var == nullptr) break;
+        Cudd_Ref(var);
+        
+        DdNode* tmp = Cudd_zddUnion(manager, zdd, var);
+        if (tmp != nullptr) {
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDerefZdd(manager, zdd);
+            zdd = tmp;
+        }
+        Cudd_RecursiveDerefZdd(manager, var);
+    }
+
+    // Try to convert - might succeed or fail due to memory constraints
+    DdNode* bddResult = Cudd_zddPortToBdd(manager, zdd);
+    if (bddResult != nullptr) {
+        Cudd_Ref(bddResult);
+        Cudd_RecursiveDeref(manager, bddResult);
+    }
+
+    Cudd_RecursiveDerefZdd(manager, zdd);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("cuddZddPort - Cudd_zddPortFromBdd with very large BDD", "[cuddZddPort]") {
+    // Create a very large BDD to exercise cache and memory paths
+    DdManager* manager = Cudd_Init(20, 20, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    int status = Cudd_zddVarsFromBddVars(manager, 1);
+    REQUIRE(status == 1);
+
+    // Build a complex BDD with many variables
+    DdNode* x0 = Cudd_bddIthVar(manager, 0);
+    DdNode* x1 = Cudd_bddIthVar(manager, 1);
+    DdNode* x2 = Cudd_bddIthVar(manager, 2);
+    DdNode* x3 = Cudd_bddIthVar(manager, 3);
+    DdNode* x4 = Cudd_bddIthVar(manager, 4);
+    DdNode* x5 = Cudd_bddIthVar(manager, 5);
+    DdNode* x6 = Cudd_bddIthVar(manager, 6);
+    DdNode* x7 = Cudd_bddIthVar(manager, 7);
+
+    // Build complex expression: (x0 & x1) | (x2 & x3) | (x4 & x5) | (x6 & x7)
+    DdNode* and1 = Cudd_bddAnd(manager, x0, x1);
+    Cudd_Ref(and1);
+    DdNode* and2 = Cudd_bddAnd(manager, x2, x3);
+    Cudd_Ref(and2);
+    DdNode* and3 = Cudd_bddAnd(manager, x4, x5);
+    Cudd_Ref(and3);
+    DdNode* and4 = Cudd_bddAnd(manager, x6, x7);
+    Cudd_Ref(and4);
+
+    DdNode* or1 = Cudd_bddOr(manager, and1, and2);
+    Cudd_Ref(or1);
+    DdNode* or2 = Cudd_bddOr(manager, and3, and4);
+    Cudd_Ref(or2);
+    DdNode* bdd = Cudd_bddOr(manager, or1, or2);
+    Cudd_Ref(bdd);
+
+    // Convert to ZDD
+    DdNode* zddResult = Cudd_zddPortFromBdd(manager, bdd);
+    REQUIRE(zddResult != nullptr);
+    Cudd_Ref(zddResult);
+
+    // Convert back to BDD
+    DdNode* bddBack = Cudd_zddPortToBdd(manager, zddResult);
+    REQUIRE(bddBack != nullptr);
+    Cudd_Ref(bddBack);
+    REQUIRE(bddBack == bdd);
+
+    Cudd_RecursiveDeref(manager, bddBack);
+    Cudd_RecursiveDerefZdd(manager, zddResult);
+    Cudd_RecursiveDeref(manager, bdd);
+    Cudd_RecursiveDeref(manager, or2);
+    Cudd_RecursiveDeref(manager, or1);
+    Cudd_RecursiveDeref(manager, and4);
+    Cudd_RecursiveDeref(manager, and3);
+    Cudd_RecursiveDeref(manager, and2);
+    Cudd_RecursiveDeref(manager, and1);
+    Cudd_Quit(manager);
+}
+
+TEST_CASE("cuddZddPort - Cudd_zddPortToBdd with very large sparse ZDD", "[cuddZddPort]") {
+    // Create a very large sparse ZDD to exercise all paths
+    DdManager* manager = Cudd_Init(16, 32, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(manager != nullptr);
+
+    int status = Cudd_zddVarsFromBddVars(manager, 1);
+    REQUIRE(status == 1);
+
+    DdNode* zddOne = DD_ONE(manager);
+    DdNode* zddZero = DD_ZERO(manager);
+
+    // Create a complex sparse ZDD structure with multiple paths
+    // Node at level 14
+    DdNode* z14 = cuddUniqueInterZdd(manager, 14, zddOne, zddZero);
+    REQUIRE(z14 != nullptr);
+    Cudd_Ref(z14);
+
+    // Node at level 10 with z14 as then child
+    DdNode* z10 = cuddUniqueInterZdd(manager, 10, z14, zddZero);
+    REQUIRE(z10 != nullptr);
+    Cudd_Ref(z10);
+
+    // Node at level 5 with z10 as then child
+    DdNode* z5 = cuddUniqueInterZdd(manager, 5, z10, zddZero);
+    REQUIRE(z5 != nullptr);
+    Cudd_Ref(z5);
+
+    // Node at level 2 with z5 as then child
+    DdNode* z2 = cuddUniqueInterZdd(manager, 2, z5, zddZero);
+    REQUIRE(z2 != nullptr);
+    Cudd_Ref(z2);
+
+    // Convert to BDD - this will exercise many level > depth paths
+    DdNode* bddResult = Cudd_zddPortToBdd(manager, z2);
+    REQUIRE(bddResult != nullptr);
+    Cudd_Ref(bddResult);
+
+    Cudd_RecursiveDeref(manager, bddResult);
+    Cudd_RecursiveDerefZdd(manager, z2);
+    Cudd_RecursiveDerefZdd(manager, z5);
+    Cudd_RecursiveDerefZdd(manager, z10);
+    Cudd_RecursiveDerefZdd(manager, z14);
+    Cudd_Quit(manager);
+}
