@@ -453,7 +453,7 @@ TEST_CASE("Cudd_DelayedDerefBdd - Death row dequeue", "[cuddRef]") {
         
         // DelayedDeref n2 - death row slot 0 has n1, so this should:
         // 1. Find N = n1 (not NULL)
-        // 2. Execute the dequeue loop (lines 274-294)
+        // 2. Execute the dequeue loop in Cudd_DelayedDerefBdd
         // 3. Put n2 into death row
         Cudd_DelayedDerefBdd(dd, n2);
         
@@ -508,7 +508,7 @@ TEST_CASE("Cudd_DelayedDerefBdd - Death row dequeue", "[cuddRef]") {
     
     SECTION("Test ref > 1 path in death row dequeue") {
         // Create nodes that share children to test the ref > 1 path
-        // in the death row dequeue loop (line 291: cuddSatDec(N->ref))
+        // in the death row dequeue loop (cuddSatDec branch)
         DdNode *v0 = Cudd_bddIthVar(dd, 0);
         DdNode *v1 = Cudd_bddIthVar(dd, 1);
         DdNode *v2 = Cudd_bddIthVar(dd, 2);
@@ -530,7 +530,7 @@ TEST_CASE("Cudd_DelayedDerefBdd - Death row dequeue", "[cuddRef]") {
         Cudd_Ref(unique);
         
         // This should dequeue composed1, and when it traverses composed1,
-        // it should find that base has ref > 1, exercising line 291
+        // it should find that base has ref > 1, exercising the cuddSatDec path
         Cudd_DelayedDerefBdd(dd, unique);
         
         // Clean up base
