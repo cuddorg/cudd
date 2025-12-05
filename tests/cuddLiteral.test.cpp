@@ -127,7 +127,7 @@ TEST_CASE("Cudd_bddLiteralSetIntersection - Different top variables (topf < topg
         DdNode *notX = Cudd_Not(x);
         
         // f = !x, g = y - topf < topg, move down on f with complement handling
-        // Lines 171-180 with comple = 1 case
+        // Lines 171-180: exercises complement flag handling (f != F case)
         DdNode *result = Cudd_bddLiteralSetIntersection(manager, notX, y);
         REQUIRE(result != nullptr);
         Cudd_Ref(result);
@@ -165,7 +165,7 @@ TEST_CASE("Cudd_bddLiteralSetIntersection - Different top variables (topg < topf
         DdNode *notX = Cudd_Not(x);
         
         // f = y, g = !x - topg < topf, move down on g with complement handling
-        // Lines 181-191 with comple = 1 for g
+        // Lines 181-191: exercises complement flag handling (g != G case)
         DdNode *result = Cudd_bddLiteralSetIntersection(manager, y, notX);
         REQUIRE(result != nullptr);
         Cudd_Ref(result);
@@ -797,12 +797,12 @@ TEST_CASE("Cudd_bddLiteralSetIntersection - Edge cases for else branches", "[cud
     Cudd_Ref(z);
     
     SECTION("Test fc == zero path (line 175-178)") {
-        // This tests the branch where cuddT(F) after complement is zero
-        // and we need to take the else branch
+        // In BDD cubes, a complemented variable !x is represented by the node
+        // following the else branch (cuddE). When we check cuddT(F) and it leads
+        // to zero after complement handling, we follow the else branch instead.
         DdNode *notX = Cudd_Not(x);
         
-        // When we have !x in the cube, the then-branch leads to zero
-        // so we follow the else branch
+        // Cubes with !x exercise the f == zero path that takes cuddE(F)
         DdNode *cube1 = Cudd_bddAnd(manager, notX, y);
         Cudd_Ref(cube1);
         DdNode *cube2 = Cudd_bddAnd(manager, notX, z);
