@@ -3295,3 +3295,249 @@ TEST_CASE("cuddSubsetHB - Complement handling in BuildSubsetBdd", "[cuddSubsetHB
     
     Cudd_Quit(dd);
 }
+
+TEST_CASE("cuddSubsetHB - NULL input handling", "[cuddSubsetHB]") {
+    DdManager *dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    SECTION("NULL input to Cudd_SubsetHeavyBranch") {
+        // This should trigger the NULL check on line 295
+        DdNode *result = Cudd_SubsetHeavyBranch(dd, NULL, 2, 10);
+        REQUIRE(result == NULL);
+        
+        // Verify the error code was set
+        int errCode = Cudd_ReadErrorCode(dd);
+        REQUIRE(errCode == CUDD_INVALID_ARG);
+        
+        // Clear the error
+        Cudd_ClearErrorCode(dd);
+    }
+    
+    // Note: Cudd_SupersetHeavyBranch cannot be tested with NULL input
+    // because it calls Cudd_Not(f) before the NULL check in cuddSubsetHeavyBranch
+    
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddSubsetHB - Additional constant paths coverage", "[cuddSubsetHB]") {
+    DdManager *dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    SECTION("BDD where Nv is constant one in SubsetCountNodesAux") {
+        // Create ITE(x0, 1, x1 AND x2)
+        DdNode *x0 = Cudd_bddIthVar(dd, 0);
+        DdNode *x1 = Cudd_bddIthVar(dd, 1);
+        DdNode *x2 = Cudd_bddIthVar(dd, 2);
+        DdNode *one = Cudd_ReadOne(dd);
+        
+        DdNode *else_part = Cudd_bddAnd(dd, x1, x2);
+        Cudd_Ref(else_part);
+        
+        DdNode *f = Cudd_bddIte(dd, x0, one, else_part);
+        Cudd_Ref(f);
+        Cudd_RecursiveDeref(dd, else_part);
+        
+        DdNode *subset = Cudd_SubsetHeavyBranch(dd, f, 3, 3);
+        REQUIRE(subset != nullptr);
+        Cudd_Ref(subset);
+        
+        REQUIRE(Cudd_bddLeq(dd, subset, f) == 1);
+        
+        Cudd_RecursiveDeref(dd, subset);
+        Cudd_RecursiveDeref(dd, f);
+    }
+    
+    SECTION("BDD where Nnv is constant one in SubsetCountNodesAux") {
+        // Create ITE(x0, x1 AND x2, 1)
+        DdNode *x0 = Cudd_bddIthVar(dd, 0);
+        DdNode *x1 = Cudd_bddIthVar(dd, 1);
+        DdNode *x2 = Cudd_bddIthVar(dd, 2);
+        DdNode *one = Cudd_ReadOne(dd);
+        
+        DdNode *then_part = Cudd_bddAnd(dd, x1, x2);
+        Cudd_Ref(then_part);
+        
+        DdNode *f = Cudd_bddIte(dd, x0, then_part, one);
+        Cudd_Ref(f);
+        Cudd_RecursiveDeref(dd, then_part);
+        
+        DdNode *subset = Cudd_SubsetHeavyBranch(dd, f, 3, 3);
+        REQUIRE(subset != nullptr);
+        Cudd_Ref(subset);
+        
+        REQUIRE(Cudd_bddLeq(dd, subset, f) == 1);
+        
+        Cudd_RecursiveDeref(dd, subset);
+        Cudd_RecursiveDeref(dd, f);
+    }
+    
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddSubsetHB - Force approxTable insertion for minNv < minNnv case", "[cuddSubsetHB]") {
+    DdManager *dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    SECTION("BDD with minNv strictly less than minNnv") {
+        // Create structure where THEN branch has strictly fewer minterms
+        DdNode *x0 = Cudd_bddIthVar(dd, 0);
+        DdNode *x1 = Cudd_bddIthVar(dd, 1);
+        DdNode *x2 = Cudd_bddIthVar(dd, 2);
+        DdNode *x3 = Cudd_bddIthVar(dd, 3);
+        DdNode *x4 = Cudd_bddIthVar(dd, 4);
+        
+        // THEN: x1 AND x2 AND x3 AND x4 (very few minterms)
+        DdNode *then_br = Cudd_bddAnd(dd, x1, x2);
+        Cudd_Ref(then_br);
+        DdNode *tmp = Cudd_bddAnd(dd, then_br, x3);
+        Cudd_Ref(tmp);
+        Cudd_RecursiveDeref(dd, then_br);
+        then_br = tmp;
+        tmp = Cudd_bddAnd(dd, then_br, x4);
+        Cudd_Ref(tmp);
+        Cudd_RecursiveDeref(dd, then_br);
+        then_br = tmp;
+        
+        // ELSE: x1 OR x2 (many minterms)
+        DdNode *else_br = Cudd_bddOr(dd, x1, x2);
+        Cudd_Ref(else_br);
+        
+        // ITE(x0, then_br, else_br)
+        DdNode *f = Cudd_bddIte(dd, x0, then_br, else_br);
+        Cudd_Ref(f);
+        
+        Cudd_RecursiveDeref(dd, then_br);
+        Cudd_RecursiveDeref(dd, else_br);
+        
+        // Force subsetting
+        DdNode *subset = Cudd_SubsetHeavyBranch(dd, f, 5, 2);
+        REQUIRE(subset != nullptr);
+        Cudd_Ref(subset);
+        
+        REQUIRE(Cudd_bddLeq(dd, subset, f) == 1);
+        
+        Cudd_RecursiveDeref(dd, subset);
+        Cudd_RecursiveDeref(dd, f);
+    }
+    
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddSubsetHB - Exercise all branch selection paths", "[cuddSubsetHB]") {
+    DdManager *dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    SECTION("Nested structure forcing multiple subsetting decisions") {
+        DdNode *x0 = Cudd_bddIthVar(dd, 0);
+        DdNode *x1 = Cudd_bddIthVar(dd, 1);
+        DdNode *x2 = Cudd_bddIthVar(dd, 2);
+        DdNode *x3 = Cudd_bddIthVar(dd, 3);
+        DdNode *x4 = Cudd_bddIthVar(dd, 4);
+        DdNode *x5 = Cudd_bddIthVar(dd, 5);
+        DdNode *x6 = Cudd_bddIthVar(dd, 6);
+        DdNode *x7 = Cudd_bddIthVar(dd, 7);
+        
+        // Create a tree structure with varying minterm weights at each level
+        // Level 1: x0 selector
+        // Level 2: x1, x2 selectors
+        // Level 3: x3, x4, x5, x6 selectors
+        
+        DdNode *leaf1 = Cudd_bddAnd(dd, x7, Cudd_bddIthVar(dd, 8));
+        Cudd_Ref(leaf1);
+        DdNode *leaf2 = Cudd_bddOr(dd, x7, Cudd_bddIthVar(dd, 8));
+        Cudd_Ref(leaf2);
+        DdNode *leaf3 = x7;
+        Cudd_Ref(leaf3);
+        DdNode *leaf4 = Cudd_Not(x7);
+        Cudd_Ref(leaf4);
+        
+        DdNode *mid1 = Cudd_bddIte(dd, x3, leaf1, leaf2);
+        Cudd_Ref(mid1);
+        DdNode *mid2 = Cudd_bddIte(dd, x4, leaf3, leaf4);
+        Cudd_Ref(mid2);
+        DdNode *mid3 = Cudd_bddIte(dd, x5, leaf1, leaf3);
+        Cudd_Ref(mid3);
+        DdNode *mid4 = Cudd_bddIte(dd, x6, leaf2, leaf4);
+        Cudd_Ref(mid4);
+        
+        DdNode *top1 = Cudd_bddIte(dd, x1, mid1, mid2);
+        Cudd_Ref(top1);
+        DdNode *top2 = Cudd_bddIte(dd, x2, mid3, mid4);
+        Cudd_Ref(top2);
+        
+        DdNode *f = Cudd_bddIte(dd, x0, top1, top2);
+        Cudd_Ref(f);
+        
+        Cudd_RecursiveDeref(dd, leaf1);
+        Cudd_RecursiveDeref(dd, leaf2);
+        Cudd_RecursiveDeref(dd, leaf3);
+        Cudd_RecursiveDeref(dd, leaf4);
+        Cudd_RecursiveDeref(dd, mid1);
+        Cudd_RecursiveDeref(dd, mid2);
+        Cudd_RecursiveDeref(dd, mid3);
+        Cudd_RecursiveDeref(dd, mid4);
+        Cudd_RecursiveDeref(dd, top1);
+        Cudd_RecursiveDeref(dd, top2);
+        
+        // Aggressive subsetting
+        DdNode *subset = Cudd_SubsetHeavyBranch(dd, f, 9, 4);
+        REQUIRE(subset != nullptr);
+        Cudd_Ref(subset);
+        
+        REQUIRE(Cudd_bddLeq(dd, subset, f) == 1);
+        
+        Cudd_RecursiveDeref(dd, subset);
+        Cudd_RecursiveDeref(dd, f);
+    }
+    
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddSubsetHB - Force storeTable and approxTable lookup success paths", "[cuddSubsetHB]") {
+    DdManager *dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    SECTION("Structure with node reuse requiring storeTable lookup") {
+        // Create a BDD where the same substructure appears multiple times
+        DdNode *x0 = Cudd_bddIthVar(dd, 0);
+        DdNode *x1 = Cudd_bddIthVar(dd, 1);
+        DdNode *x2 = Cudd_bddIthVar(dd, 2);
+        DdNode *x3 = Cudd_bddIthVar(dd, 3);
+        DdNode *x4 = Cudd_bddIthVar(dd, 4);
+        DdNode *x5 = Cudd_bddIthVar(dd, 5);
+        
+        // Common substructure
+        DdNode *common = Cudd_bddAnd(dd, x4, x5);
+        Cudd_Ref(common);
+        
+        // Use common in both heavy and light branches
+        DdNode *heavy = Cudd_bddOr(dd, common, x1);
+        Cudd_Ref(heavy);
+        DdNode *light = Cudd_bddAnd(dd, common, x2);
+        Cudd_Ref(light);
+        
+        // Top level: ITE(x0, heavy, light) where heavy > light in minterms
+        DdNode *mid = Cudd_bddIte(dd, x0, heavy, light);
+        Cudd_Ref(mid);
+        
+        // Another layer
+        DdNode *f = Cudd_bddIte(dd, x3, mid, common);
+        Cudd_Ref(f);
+        
+        Cudd_RecursiveDeref(dd, common);
+        Cudd_RecursiveDeref(dd, heavy);
+        Cudd_RecursiveDeref(dd, light);
+        Cudd_RecursiveDeref(dd, mid);
+        
+        DdNode *subset = Cudd_SubsetHeavyBranch(dd, f, 6, 4);
+        REQUIRE(subset != nullptr);
+        Cudd_Ref(subset);
+        
+        REQUIRE(Cudd_bddLeq(dd, subset, f) == 1);
+        
+        Cudd_RecursiveDeref(dd, subset);
+        Cudd_RecursiveDeref(dd, f);
+    }
+    
+    Cudd_Quit(dd);
+}
