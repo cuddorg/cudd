@@ -2403,3 +2403,175 @@ TEST_CASE("cuddWindow - BACD/BADC triggering tests", "[cuddWindow]") {
         Cudd_Quit(manager);
     }
 }
+
+// ============================================================================
+// Final targeted tests for specific permutation outcomes
+// ============================================================================
+
+TEST_CASE("cuddWindow - Final coverage push tests", "[cuddWindow]") {
+    SECTION("Many BDD variants to trigger BACD in ddPermuteWindow4") {
+        // The key is to create BDDs where swapping the first pair (w,x) reduces size
+        for (int variant = 0; variant < 30; variant++) {
+            DdManager* manager = Cudd_Init(10, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+            REQUIRE(manager != nullptr);
+
+            DdNode* result = Cudd_ReadOne(manager);
+            Cudd_Ref(result);
+
+            // Create different interaction patterns
+            // Emphasize x1 interactions but not x0
+            for (int i = 0; i < 8; i++) {
+                int v1 = 1;  // Always x1
+                int v2 = (i + variant) % 8 + 2;  // Some variable > 1
+                
+                DdNode* xv1 = Cudd_bddIthVar(manager, v1);
+                DdNode* xv2 = Cudd_bddIthVar(manager, v2);
+                DdNode* clause;
+                
+                if (variant % 3 == 0) {
+                    clause = Cudd_bddAnd(manager, xv1, xv2);
+                } else if (variant % 3 == 1) {
+                    clause = Cudd_bddOr(manager, xv1, xv2);
+                } else {
+                    clause = Cudd_bddXor(manager, xv1, xv2);
+                }
+                Cudd_Ref(clause);
+
+                DdNode* newResult = Cudd_bddAnd(manager, result, clause);
+                Cudd_Ref(newResult);
+
+                Cudd_RecursiveDeref(manager, clause);
+                Cudd_RecursiveDeref(manager, result);
+                result = newResult;
+            }
+
+            int reorderResult = Cudd_ReduceHeap(manager, CUDD_REORDER_WINDOW4_CONV, 0);
+            REQUIRE(reorderResult == 1);
+
+            Cudd_RecursiveDeref(manager, result);
+            Cudd_Quit(manager);
+        }
+    }
+
+    SECTION("BDD patterns targeting BADC outcome") {
+        // BADC = code 13, requires both first and last pair swaps to help
+        for (int variant = 0; variant < 20; variant++) {
+            DdManager* manager = Cudd_Init(12, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+            REQUIRE(manager != nullptr);
+
+            DdNode* result = Cudd_ReadOne(manager);
+            Cudd_Ref(result);
+
+            // Create pattern emphasizing positions 1 and 3 (B and D in ABCD)
+            for (int group = 0; group < 3; group++) {
+                int base = group * 4;
+                DdNode* xB = Cudd_bddIthVar(manager, base + 1);
+                DdNode* xD = Cudd_bddIthVar(manager, base + 3);
+                DdNode* xE = Cudd_bddIthVar(manager, (base + 5) % 12);
+                
+                DdNode* t1 = Cudd_bddAnd(manager, xB, xD);
+                Cudd_Ref(t1);
+                
+                DdNode* clause;
+                if (variant % 2 == 0) {
+                    clause = Cudd_bddOr(manager, t1, xE);
+                } else {
+                    clause = Cudd_bddXor(manager, t1, xE);
+                }
+                Cudd_Ref(clause);
+                Cudd_RecursiveDeref(manager, t1);
+
+                DdNode* newResult = Cudd_bddAnd(manager, result, clause);
+                Cudd_Ref(newResult);
+
+                Cudd_RecursiveDeref(manager, clause);
+                Cudd_RecursiveDeref(manager, result);
+                result = newResult;
+            }
+
+            int reorderResult = Cudd_ReduceHeap(manager, CUDD_REORDER_WINDOW4_CONV, 0);
+            REQUIRE(reorderResult == 1);
+
+            Cudd_RecursiveDeref(manager, result);
+            Cudd_Quit(manager);
+        }
+    }
+
+    SECTION("Extensive Window4 testing with permuted BDD creation") {
+        // Create BDDs in different orders to get different initial orderings
+        for (int order = 0; order < 6; order++) {
+            DdManager* manager = Cudd_Init(10, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+            REQUIRE(manager != nullptr);
+
+            DdNode* result = Cudd_ReadOne(manager);
+            Cudd_Ref(result);
+
+            // Create BDD with variables accessed in different orders
+            int varOrder[6] = {0, 1, 2, 3, 4, 5};
+            // Simple permutation based on order
+            for (int i = 0; i < order && i < 5; i++) {
+                int tmp = varOrder[i];
+                varOrder[i] = varOrder[i+1];
+                varOrder[i+1] = tmp;
+            }
+
+            for (int i = 0; i < 5; i++) {
+                DdNode* xi = Cudd_bddIthVar(manager, varOrder[i]);
+                DdNode* xj = Cudd_bddIthVar(manager, varOrder[(i+2) % 6]);
+                DdNode* clause = Cudd_bddXor(manager, xi, xj);
+                Cudd_Ref(clause);
+
+                DdNode* newResult = Cudd_bddAnd(manager, result, clause);
+                Cudd_Ref(newResult);
+
+                Cudd_RecursiveDeref(manager, clause);
+                Cudd_RecursiveDeref(manager, result);
+                result = newResult;
+            }
+
+            int reorderResult = Cudd_ReduceHeap(manager, CUDD_REORDER_WINDOW4, 0);
+            REQUIRE(reorderResult == 1);
+
+            // Also test convergence
+            reorderResult = Cudd_ReduceHeap(manager, CUDD_REORDER_WINDOW4_CONV, 0);
+            REQUIRE(reorderResult == 1);
+
+            Cudd_RecursiveDeref(manager, result);
+            Cudd_Quit(manager);
+        }
+    }
+
+    SECTION("Large-scale Window4Conv stress test") {
+        DdManager* manager = Cudd_Init(20, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+
+        DdNode* result = Cudd_ReadOne(manager);
+        Cudd_Ref(result);
+
+        // Create very complex BDD
+        for (int i = 0; i < 18; i++) {
+            for (int offset = 1; offset <= 3; offset++) {
+                DdNode* xi = Cudd_bddIthVar(manager, i);
+                DdNode* xj = Cudd_bddIthVar(manager, i + offset);
+                DdNode* clause = Cudd_bddXor(manager, xi, xj);
+                Cudd_Ref(clause);
+
+                DdNode* newResult = Cudd_bddAnd(manager, result, clause);
+                Cudd_Ref(newResult);
+
+                Cudd_RecursiveDeref(manager, clause);
+                Cudd_RecursiveDeref(manager, result);
+                result = newResult;
+            }
+        }
+
+        // Multiple convergence passes
+        for (int pass = 0; pass < 15; pass++) {
+            int reorderResult = Cudd_ReduceHeap(manager, CUDD_REORDER_WINDOW4_CONV, 0);
+            REQUIRE(reorderResult == 1);
+        }
+
+        Cudd_RecursiveDeref(manager, result);
+        Cudd_Quit(manager);
+    }
+}
