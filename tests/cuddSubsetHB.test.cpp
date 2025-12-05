@@ -3314,7 +3314,8 @@ TEST_CASE("cuddSubsetHB - NULL input handling", "[cuddSubsetHB]") {
     }
     
     // Note: Cudd_SupersetHeavyBranch cannot be tested with NULL input
-    // because it calls Cudd_Not(f) before the NULL check in cuddSubsetHeavyBranch
+    // because it dereferences f via Cudd_Not(f) before the NULL check in
+    // cuddSubsetHeavyBranch is reached, causing a segmentation fault
     
     Cudd_Quit(dd);
 }
