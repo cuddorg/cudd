@@ -1,0 +1,44 @@
+# Build directories
+build/
+install/
+out/
+bin/
+lib/
+.cache/
+
+# CMake-generated files and folders
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+CTestTestfile.cmake
+install_manifest.txt
+compile_commands.json
+CMakeLists.txt.user
+Testing/
+
+# Compilation database
+compile_commands.json
+
+# OS or editor-specific files (optional, but recommended)
+*.swp
+*.swo
+*.bak
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
+
+# Optional: Ignore all top-level build/ variants
+[Bb]uild*/
+
+# CodeQL build directory
+_codeql_build_dir/
+_codeql_detected_source_root
+
+# Code coverage files
+*.gcov
+*.gcda
+*.gcno
+coverage*.info
+coverage_html/
