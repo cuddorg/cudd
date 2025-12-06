@@ -3,7 +3,6 @@
 // Include CUDD headers
 #include "cudd/cudd.h"
 #include "cuddInt.h"
-#include "util.h"
 
 /**
  * @brief Test file for cuddZddMisc.c
