@@ -994,3 +994,321 @@ TEST_CASE("cuddZddIsop - Edge cases for cuddBddIsop", "[cuddZddIsop]") {
         Cudd_Quit(manager);
     }
 }
+
+// ============================================================================
+// ADDITIONAL TESTS FOR HIGHER COVERAGE
+// ============================================================================
+
+TEST_CASE("cuddZddIsop - top_l != v branch coverage", "[cuddZddIsop]") {
+    SECTION("L is constant, U is variable (top_l > top_u)") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        DdNode* zero = Cudd_ReadLogicZero(manager);
+        Cudd_Ref(zero);
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        Cudd_Ref(x0);
+        
+        // L = zero (constant), U = x0 (variable) - triggers top_l > top_u
+        DdNode* zdd_I = nullptr;
+        DdNode* isop = Cudd_zddIsop(manager, zero, x0, &zdd_I);
+        REQUIRE(isop != nullptr);
+        Cudd_Ref(isop);
+        Cudd_Ref(zdd_I);
+        
+        Cudd_RecursiveDeref(manager, isop);
+        Cudd_RecursiveDerefZdd(manager, zdd_I);
+        Cudd_RecursiveDeref(manager, zero);
+        Cudd_RecursiveDeref(manager, x0);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("L depends on x1, U depends on x0 (top_l > top_u)") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        DdNode* x1 = Cudd_bddIthVar(manager, 1);
+        
+        // L = x1 (higher index), U = x0 OR x1 (lower index at top)
+        DdNode* L = Cudd_bddAnd(manager, x0, x1);
+        Cudd_Ref(L);
+        DdNode* one = Cudd_ReadOne(manager);
+        Cudd_Ref(one);
+        
+        DdNode* zdd_I = nullptr;
+        DdNode* isop = Cudd_zddIsop(manager, L, one, &zdd_I);
+        REQUIRE(isop != nullptr);
+        Cudd_Ref(isop);
+        Cudd_Ref(zdd_I);
+        
+        Cudd_RecursiveDeref(manager, isop);
+        Cudd_RecursiveDerefZdd(manager, zdd_I);
+        Cudd_RecursiveDeref(manager, L);
+        Cudd_RecursiveDeref(manager, one);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddIsop - cuddBddIsop top_l != v branch", "[cuddZddIsop]") {
+    SECTION("bddIsop L constant, U variable") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zero = Cudd_ReadLogicZero(manager);
+        Cudd_Ref(zero);
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        Cudd_Ref(x0);
+        
+        DdNode* isop = Cudd_bddIsop(manager, zero, x0);
+        REQUIRE(isop != nullptr);
+        Cudd_Ref(isop);
+        
+        Cudd_RecursiveDeref(manager, isop);
+        Cudd_RecursiveDeref(manager, zero);
+        Cudd_RecursiveDeref(manager, x0);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("bddIsop with different variable levels in L and U") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        DdNode* x1 = Cudd_bddIthVar(manager, 1);
+        
+        // L depends only on x1 (not x0)
+        DdNode* L = x1;
+        Cudd_Ref(L);
+        // U depends on both x0 and x1
+        DdNode* U = Cudd_bddOr(manager, x0, x1);
+        Cudd_Ref(U);
+        
+        DdNode* isop = Cudd_bddIsop(manager, L, U);
+        REQUIRE(isop != nullptr);
+        Cudd_Ref(isop);
+        
+        Cudd_RecursiveDeref(manager, isop);
+        Cudd_RecursiveDeref(manager, L);
+        Cudd_RecursiveDeref(manager, U);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddIsop - More complex function tests", "[cuddZddIsop]") {
+    SECTION("ISOP with NAND function") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        DdNode* x1 = Cudd_bddIthVar(manager, 1);
+        DdNode* bdd = Cudd_bddNand(manager, x0, x1);
+        Cudd_Ref(bdd);
+        
+        DdNode* zdd_I = nullptr;
+        DdNode* isop = Cudd_zddIsop(manager, bdd, bdd, &zdd_I);
+        REQUIRE(isop != nullptr);
+        REQUIRE(zdd_I != nullptr);
+        Cudd_Ref(isop);
+        Cudd_Ref(zdd_I);
+        
+        DdNode* recovered = Cudd_MakeBddFromZddCover(manager, zdd_I);
+        REQUIRE(recovered != nullptr);
+        Cudd_Ref(recovered);
+        
+        Cudd_RecursiveDeref(manager, recovered);
+        Cudd_RecursiveDeref(manager, isop);
+        Cudd_RecursiveDerefZdd(manager, zdd_I);
+        Cudd_RecursiveDeref(manager, bdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("ISOP with NOR function") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        DdNode* x1 = Cudd_bddIthVar(manager, 1);
+        DdNode* bdd = Cudd_bddNor(manager, x0, x1);
+        Cudd_Ref(bdd);
+        
+        DdNode* zdd_I = nullptr;
+        DdNode* isop = Cudd_zddIsop(manager, bdd, bdd, &zdd_I);
+        REQUIRE(isop != nullptr);
+        REQUIRE(zdd_I != nullptr);
+        Cudd_Ref(isop);
+        Cudd_Ref(zdd_I);
+        
+        DdNode* recovered = Cudd_MakeBddFromZddCover(manager, zdd_I);
+        REQUIRE(recovered != nullptr);
+        Cudd_Ref(recovered);
+        
+        Cudd_RecursiveDeref(manager, recovered);
+        Cudd_RecursiveDeref(manager, isop);
+        Cudd_RecursiveDerefZdd(manager, zdd_I);
+        Cudd_RecursiveDeref(manager, bdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("ISOP with XNOR function") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        DdNode* x1 = Cudd_bddIthVar(manager, 1);
+        DdNode* bdd = Cudd_bddXnor(manager, x0, x1);
+        Cudd_Ref(bdd);
+        
+        DdNode* zdd_I = nullptr;
+        DdNode* isop = Cudd_zddIsop(manager, bdd, bdd, &zdd_I);
+        REQUIRE(isop != nullptr);
+        REQUIRE(zdd_I != nullptr);
+        Cudd_Ref(isop);
+        Cudd_Ref(zdd_I);
+        
+        DdNode* recovered = Cudd_MakeBddFromZddCover(manager, zdd_I);
+        REQUIRE(recovered != nullptr);
+        Cudd_Ref(recovered);
+        
+        Cudd_RecursiveDeref(manager, recovered);
+        Cudd_RecursiveDeref(manager, isop);
+        Cudd_RecursiveDerefZdd(manager, zdd_I);
+        Cudd_RecursiveDeref(manager, bdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("ISOP with ITE function") {
+        DdManager* manager = Cudd_Init(6, 12, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        DdNode* x1 = Cudd_bddIthVar(manager, 1);
+        DdNode* x2 = Cudd_bddIthVar(manager, 2);
+        DdNode* bdd = Cudd_bddIte(manager, x0, x1, x2);
+        Cudd_Ref(bdd);
+        
+        DdNode* zdd_I = nullptr;
+        DdNode* isop = Cudd_zddIsop(manager, bdd, bdd, &zdd_I);
+        REQUIRE(isop != nullptr);
+        REQUIRE(zdd_I != nullptr);
+        Cudd_Ref(isop);
+        Cudd_Ref(zdd_I);
+        
+        DdNode* recovered = Cudd_MakeBddFromZddCover(manager, zdd_I);
+        REQUIRE(recovered != nullptr);
+        Cudd_Ref(recovered);
+        
+        Cudd_RecursiveDeref(manager, recovered);
+        Cudd_RecursiveDeref(manager, isop);
+        Cudd_RecursiveDerefZdd(manager, zdd_I);
+        Cudd_RecursiveDeref(manager, bdd);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddIsop - Wide interval tests", "[cuddZddIsop]") {
+    SECTION("Wide interval with multiple solutions") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        DdNode* x1 = Cudd_bddIthVar(manager, 1);
+        
+        // Very narrow L (just x0 AND x1)
+        DdNode* L = Cudd_bddAnd(manager, x0, x1);
+        Cudd_Ref(L);
+        
+        // Very wide U (tautology)
+        DdNode* U = Cudd_ReadOne(manager);
+        Cudd_Ref(U);
+        
+        DdNode* zdd_I = nullptr;
+        DdNode* isop = Cudd_zddIsop(manager, L, U, &zdd_I);
+        REQUIRE(isop != nullptr);
+        REQUIRE(zdd_I != nullptr);
+        Cudd_Ref(isop);
+        Cudd_Ref(zdd_I);
+        
+        // Check isop is in interval
+        int check1 = Cudd_bddLeq(manager, L, isop);
+        int check2 = Cudd_bddLeq(manager, isop, U);
+        REQUIRE(check1 == 1);
+        REQUIRE(check2 == 1);
+        
+        Cudd_RecursiveDeref(manager, isop);
+        Cudd_RecursiveDerefZdd(manager, zdd_I);
+        Cudd_RecursiveDeref(manager, L);
+        Cudd_RecursiveDeref(manager, U);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddIsop - Four variable tests", "[cuddZddIsop]") {
+    SECTION("Complex 4-variable function") {
+        DdManager* manager = Cudd_Init(8, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        DdNode* x1 = Cudd_bddIthVar(manager, 1);
+        DdNode* x2 = Cudd_bddIthVar(manager, 2);
+        DdNode* x3 = Cudd_bddIthVar(manager, 3);
+        
+        // f = (x0 AND x1) OR (x2 AND x3) OR (x0 AND x2)
+        DdNode* t1 = Cudd_bddAnd(manager, x0, x1);
+        Cudd_Ref(t1);
+        DdNode* t2 = Cudd_bddAnd(manager, x2, x3);
+        Cudd_Ref(t2);
+        DdNode* t3 = Cudd_bddAnd(manager, x0, x2);
+        Cudd_Ref(t3);
+        DdNode* temp = Cudd_bddOr(manager, t1, t2);
+        Cudd_Ref(temp);
+        DdNode* bdd = Cudd_bddOr(manager, temp, t3);
+        Cudd_Ref(bdd);
+        
+        DdNode* zdd_I = nullptr;
+        DdNode* isop = Cudd_zddIsop(manager, bdd, bdd, &zdd_I);
+        REQUIRE(isop != nullptr);
+        REQUIRE(zdd_I != nullptr);
+        Cudd_Ref(isop);
+        Cudd_Ref(zdd_I);
+        
+        DdNode* recovered = Cudd_MakeBddFromZddCover(manager, zdd_I);
+        REQUIRE(recovered != nullptr);
+        Cudd_Ref(recovered);
+        REQUIRE(recovered == bdd);
+        
+        Cudd_RecursiveDeref(manager, recovered);
+        Cudd_RecursiveDeref(manager, isop);
+        Cudd_RecursiveDerefZdd(manager, zdd_I);
+        Cudd_RecursiveDeref(manager, bdd);
+        Cudd_RecursiveDeref(manager, temp);
+        Cudd_RecursiveDeref(manager, t1);
+        Cudd_RecursiveDeref(manager, t2);
+        Cudd_RecursiveDeref(manager, t3);
+        Cudd_Quit(manager);
+    }
+}
