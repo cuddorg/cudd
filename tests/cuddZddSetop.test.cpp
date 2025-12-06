@@ -60,8 +60,8 @@ TEST_CASE("cuddZddSetop - Cudd_zddIte basic tests", "[cuddZddSetop]") {
         DdNode* result = Cudd_zddIte(dd, one, z0, z1);
         REQUIRE(result != nullptr);
         Cudd_Ref(result);
-        // ITE with tautology f returns g, result should be z0 
-        // but DD_ONE for ZDD may not be at top level, so just verify not null
+        // Note: DD_ONE(dd) is the ZDD base (universe), which may not be a tautology
+        // at this variable level, so ITE may not simplify to just z0
         
         Cudd_RecursiveDerefZdd(dd, result);
         Cudd_RecursiveDerefZdd(dd, z1);
@@ -1088,7 +1088,8 @@ TEST_CASE("cuddZddSetop - Constants and special cases", "[cuddZddSetop]") {
         REQUIRE(ite1 == one);
         
         DdNode* ite2 = Cudd_zddIte(dd, one, z0, zero);
-        // ITE with tautology f returns g, but DD_ONE may not be tautology at this level
+        // Note: DD_ONE is the ZDD universe/base, not necessarily a tautology at this level
+        // Result is valid but may not simplify to just z0
         REQUIRE(ite2 != nullptr);
         
         // Union with constants
