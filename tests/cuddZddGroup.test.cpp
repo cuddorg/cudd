@@ -1076,3 +1076,520 @@ TEST_CASE("cuddZddGroup - Additional reordering scenarios", "[cuddZddGroup]") {
         Cudd_Quit(manager);
     }
 }
+
+TEST_CASE("cuddZddGroup - Coverage for special edge cases", "[cuddZddGroup]") {
+    SECTION("Group beyond existing ZDD variables") {
+        DdManager* manager = Cudd_Init(0, 20, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create only 5 variables
+        for (int i = 0; i < 5; i++) {
+            DdNode* z = Cudd_zddIthVar(manager, i);
+            REQUIRE(z != nullptr);
+            Cudd_Ref(z);
+            Cudd_RecursiveDerefZdd(manager, z);
+        }
+        
+        DdNode* zdd = createSimpleZdd(manager, 5);
+        REQUIRE(zdd != nullptr);
+        
+        // Create a group starting beyond existing variables
+        // This tests the case where treenode->low >= table->sizeZ
+        MtrNode* group = Cudd_MakeZddTreeNode(manager, 10, 5, MTR_DEFAULT);
+        REQUIRE(group != nullptr);
+        
+        // This should trigger the early return in zddFindNodeHiLo
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_FreeZddTree(manager);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Parent group with partially existing child groups") {
+        DdManager* manager = Cudd_Init(0, 20, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create only 10 variables
+        for (int i = 0; i < 10; i++) {
+            DdNode* z = Cudd_zddIthVar(manager, i);
+            REQUIRE(z != nullptr);
+            Cudd_Ref(z);
+            Cudd_RecursiveDerefZdd(manager, z);
+        }
+        
+        DdNode* zdd = createLargeZdd(manager, 10);
+        REQUIRE(zdd != nullptr);
+        
+        // Create parent group that extends beyond existing variables
+        MtrNode* parent = Cudd_MakeZddTreeNode(manager, 0, 20, MTR_DEFAULT);
+        REQUIRE(parent != nullptr);
+        
+        // Create child groups where some straddle the sizeZ boundary
+        // This tests the case in zddFindNodeHiLo with auxnode != NULL
+        MtrNode* child1 = Cudd_MakeZddTreeNode(manager, 0, 5, MTR_DEFAULT);
+        MtrNode* child2 = Cudd_MakeZddTreeNode(manager, 5, 5, MTR_DEFAULT);
+        MtrNode* child3 = Cudd_MakeZddTreeNode(manager, 10, 5, MTR_DEFAULT);  // Beyond sizeZ
+        MtrNode* child4 = Cudd_MakeZddTreeNode(manager, 15, 5, MTR_DEFAULT);  // Beyond sizeZ
+        REQUIRE(child1 != nullptr);
+        REQUIRE(child2 != nullptr);
+        REQUIRE(child3 != nullptr);
+        REQUIRE(child4 != nullptr);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_FreeZddTree(manager);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Parent group with child straddling sizeZ") {
+        DdManager* manager = Cudd_Init(0, 12, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create 6 variables
+        for (int i = 0; i < 6; i++) {
+            DdNode* z = Cudd_zddIthVar(manager, i);
+            REQUIRE(z != nullptr);
+            Cudd_Ref(z);
+            Cudd_RecursiveDerefZdd(manager, z);
+        }
+        
+        DdNode* zdd = createSimpleZdd(manager, 6);
+        REQUIRE(zdd != nullptr);
+        
+        // Create parent
+        MtrNode* parent = Cudd_MakeZddTreeNode(manager, 0, 12, MTR_DEFAULT);
+        REQUIRE(parent != nullptr);
+        
+        // Create a child that starts below sizeZ but extends beyond it
+        // This tests: thisUpper >= table->sizeZ && thisLower < table->sizeZ
+        MtrNode* child1 = Cudd_MakeZddTreeNode(manager, 0, 4, MTR_DEFAULT);
+        MtrNode* child2 = Cudd_MakeZddTreeNode(manager, 4, 8, MTR_DEFAULT);  // Starts at 4, ends at 11
+        REQUIRE(child1 != nullptr);
+        REQUIRE(child2 != nullptr);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_FreeZddTree(manager);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Multiple children with one straddling - iterate through while loop") {
+        DdManager* manager = Cudd_Init(0, 20, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create only 8 variables
+        for (int i = 0; i < 8; i++) {
+            DdNode* z = Cudd_zddIthVar(manager, i);
+            REQUIRE(z != nullptr);
+            Cudd_Ref(z);
+            Cudd_RecursiveDerefZdd(manager, z);
+        }
+        
+        DdNode* zdd = createSimpleZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        // Create parent that extends beyond sizeZ
+        MtrNode* parent = Cudd_MakeZddTreeNode(manager, 0, 20, MTR_DEFAULT);
+        REQUIRE(parent != nullptr);
+        
+        // Create multiple children where the while loop needs to iterate
+        // This will test the auxnode = auxnode->younger line (537)
+        MtrNode* child1 = Cudd_MakeZddTreeNode(manager, 0, 4, MTR_DEFAULT);  // Fully inside
+        MtrNode* child2 = Cudd_MakeZddTreeNode(manager, 4, 6, MTR_DEFAULT);  // Straddles: starts at 4, ends at 9
+        MtrNode* child3 = Cudd_MakeZddTreeNode(manager, 10, 5, MTR_DEFAULT); // Beyond sizeZ
+        MtrNode* child4 = Cudd_MakeZddTreeNode(manager, 15, 5, MTR_DEFAULT); // Beyond sizeZ
+        REQUIRE(child1 != nullptr);
+        REQUIRE(child2 != nullptr);
+        REQUIRE(child3 != nullptr);
+        REQUIRE(child4 != nullptr);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_FreeZddTree(manager);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Terminal node in partially existing group") {
+        DdManager* manager = Cudd_Init(0, 12, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create only 6 variables
+        for (int i = 0; i < 6; i++) {
+            DdNode* z = Cudd_zddIthVar(manager, i);
+            REQUIRE(z != nullptr);
+            Cudd_Ref(z);
+            Cudd_RecursiveDerefZdd(manager, z);
+        }
+        
+        DdNode* zdd = createSimpleZdd(manager, 6);
+        REQUIRE(zdd != nullptr);
+        
+        // Create a terminal node (no children) that extends beyond sizeZ
+        // This tests the auxnode == NULL case in the partially existing group code
+        MtrNode* group = Cudd_MakeZddTreeNode(manager, 0, 12, MTR_DEFAULT);
+        REQUIRE(group != nullptr);
+        // Don't create any child groups - this makes it terminal
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_FreeZddTree(manager);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Convergence scenarios for sift converge") {
+        DdManager* manager = Cudd_Init(0, 10, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create a smaller ZDD that will converge quickly
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        DdNode* z1 = Cudd_zddIthVar(manager, 1);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z0);
+        Cudd_Ref(z1);
+        Cudd_Ref(z2);
+        
+        DdNode* zdd = Cudd_zddUnion(manager, z0, z1);
+        Cudd_Ref(zdd);
+        DdNode* temp = Cudd_zddUnion(manager, zdd, z2);
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        zdd = temp;
+        Cudd_Ref(zdd);
+        
+        // Create groups
+        MtrNode* group = Cudd_MakeZddTreeNode(manager, 0, 3, MTR_DEFAULT);
+        REQUIRE(group != nullptr);
+        
+        // SIFT_CONVERGE should stop when size doesn't improve
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_SIFT_CONVERGE, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z1);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_FreeZddTree(manager);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Linear converge scenario") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createSimpleZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        MtrNode* group = Cudd_MakeZddTreeNode(manager, 0, 8, MTR_DEFAULT);
+        REQUIRE(group != nullptr);
+        
+        // LINEAR_CONVERGE should test convergence loop
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR_CONVERGE, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_FreeZddTree(manager);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Test with all reordering methods on same ZDD") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createComplexZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        MtrNode* group = Cudd_MakeZddTreeNode(manager, 0, 8, MTR_DEFAULT);
+        REQUIRE(group != nullptr);
+        
+        // Try each reordering method to maximize coverage
+        Cudd_zddReduceHeap(manager, CUDD_REORDER_RANDOM, 0);
+        Cudd_zddReduceHeap(manager, CUDD_REORDER_RANDOM_PIVOT, 0);
+        Cudd_zddReduceHeap(manager, CUDD_REORDER_SIFT, 0);
+        Cudd_zddReduceHeap(manager, CUDD_REORDER_SIFT_CONVERGE, 0);
+        Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT, 0);
+        Cudd_zddReduceHeap(manager, CUDD_REORDER_SYMM_SIFT_CONV, 0);
+        Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
+        Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR_CONVERGE, 0);
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_FreeZddTree(manager);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Very large ZDD for convergence testing") {
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create a larger ZDD using the helper
+        DdNode* result = createLargeZdd(manager, 16);
+        REQUIRE(result != nullptr);
+        
+        // Create groups
+        MtrNode* group1 = Cudd_MakeZddTreeNode(manager, 0, 8, MTR_DEFAULT);
+        MtrNode* group2 = Cudd_MakeZddTreeNode(manager, 8, 8, MTR_DEFAULT);
+        REQUIRE(group1 != nullptr);
+        REQUIRE(group2 != nullptr);
+        
+        // Test convergence
+        int res = Cudd_zddReduceHeap(manager, CUDD_REORDER_GROUP_SIFT_CONV, 0);
+        REQUIRE(res >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_FreeZddTree(manager);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Maximum size group to test boundaries") {
+        DdManager* manager = Cudd_Init(0, 100, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create many variables
+        for (int i = 0; i < 50; i++) {
+            DdNode* z = Cudd_zddIthVar(manager, i);
+            REQUIRE(z != nullptr);
+            Cudd_Ref(z);
+            Cudd_RecursiveDerefZdd(manager, z);
+        }
+        
+        DdNode* zdd = createLargeZdd(manager, 50);
+        REQUIRE(zdd != nullptr);
+        
+        // Create a large group
+        MtrNode* group = Cudd_MakeZddTreeNode(manager, 0, 50, MTR_DEFAULT);
+        REQUIRE(group != nullptr);
+        
+        // Limit iterations to keep test fast
+        manager->siftMaxVar = 5;
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
+        REQUIRE(result >= 0);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_FreeZddTree(manager);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Test different paths in group sifting aux") {
+        DdManager* manager = Cudd_Init(0, 12, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createLargeZdd(manager, 12);
+        REQUIRE(zdd != nullptr);
+        
+        // Create groups with specific configurations to exercise different code paths
+        // This will test the various branches in zddGroupSiftingAux
+        MtrNode* group1 = Cudd_MakeZddTreeNode(manager, 0, 3, MTR_DEFAULT);
+        MtrNode* group2 = Cudd_MakeZddTreeNode(manager, 3, 3, MTR_DEFAULT);
+        MtrNode* group3 = Cudd_MakeZddTreeNode(manager, 6, 3, MTR_DEFAULT);
+        MtrNode* group4 = Cudd_MakeZddTreeNode(manager, 9, 3, MTR_DEFAULT);
+        REQUIRE(group1 != nullptr);
+        REQUIRE(group2 != nullptr);
+        REQUIRE(group3 != nullptr);
+        REQUIRE(group4 != nullptr);
+        
+        // Multiple passes to exercise different sifting directions
+        for (int i = 0; i < 3; i++) {
+            int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
+            REQUIRE(result >= 1);
+        }
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_FreeZddTree(manager);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Test reordering with all fixed groups") {
+        DdManager* manager = Cudd_Init(0, 9, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createComplexZdd(manager, 9);
+        REQUIRE(zdd != nullptr);
+        
+        // Create all fixed groups - this tests the fixed group handling path
+        MtrNode* group1 = Cudd_MakeZddTreeNode(manager, 0, 3, MTR_FIXED);
+        MtrNode* group2 = Cudd_MakeZddTreeNode(manager, 3, 3, MTR_FIXED);
+        MtrNode* group3 = Cudd_MakeZddTreeNode(manager, 6, 3, MTR_FIXED);
+        REQUIRE(group1 != nullptr);
+        REQUIRE(group2 != nullptr);
+        REQUIRE(group3 != nullptr);
+        
+        // With all fixed groups, reordering should still work but not reorder within groups
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_FreeZddTree(manager);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Asymmetric groups for testing different sifting directions") {
+        DdManager* manager = Cudd_Init(0, 15, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* zdd = createLargeZdd(manager, 15);
+        REQUIRE(zdd != nullptr);
+        
+        // Create asymmetric groups to exercise the "up first vs down first" logic
+        MtrNode* small1 = Cudd_MakeZddTreeNode(manager, 0, 2, MTR_DEFAULT);
+        MtrNode* large = Cudd_MakeZddTreeNode(manager, 2, 8, MTR_DEFAULT);
+        MtrNode* small2 = Cudd_MakeZddTreeNode(manager, 10, 2, MTR_DEFAULT);
+        MtrNode* medium = Cudd_MakeZddTreeNode(manager, 12, 3, MTR_DEFAULT);
+        REQUIRE(small1 != nullptr);
+        REQUIRE(large != nullptr);
+        REQUIRE(small2 != nullptr);
+        REQUIRE(medium != nullptr);
+        
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_FreeZddTree(manager);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Test with very simple ZDD to reach convergence early") {
+        DdManager* manager = Cudd_Init(0, 4, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create minimal ZDD - just two variables
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        DdNode* z1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(z0);
+        Cudd_Ref(z1);
+        
+        DdNode* zdd = Cudd_zddUnion(manager, z0, z1);
+        Cudd_Ref(zdd);
+        
+        MtrNode* group = Cudd_MakeZddTreeNode(manager, 0, 2, MTR_DEFAULT);
+        REQUIRE(group != nullptr);
+        
+        // With such a simple ZDD, convergence methods should exit early
+        int result1 = Cudd_zddReduceHeap(manager, CUDD_REORDER_SIFT_CONVERGE, 0);
+        REQUIRE(result1 >= 1);
+        
+        int result2 = Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR_CONVERGE, 0);
+        REQUIRE(result2 >= 1);
+        
+        int result3 = Cudd_zddReduceHeap(manager, CUDD_REORDER_GROUP_SIFT_CONV, 0);
+        REQUIRE(result3 >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z1);
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_FreeZddTree(manager);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Groups at boundaries of manager size") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create variables up to the limit
+        for (int i = 0; i < 8; i++) {
+            DdNode* z = Cudd_zddIthVar(manager, i);
+            REQUIRE(z != nullptr);
+            Cudd_Ref(z);
+            Cudd_RecursiveDerefZdd(manager, z);
+        }
+        
+        DdNode* zdd = createComplexZdd(manager, 8);
+        REQUIRE(zdd != nullptr);
+        
+        // Create a group that goes right up to the boundary
+        MtrNode* group = Cudd_MakeZddTreeNode(manager, 0, 8, MTR_DEFAULT);
+        REQUIRE(group != nullptr);
+        
+        // This tests boundary conditions in the reordering code
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_FreeZddTree(manager);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Extensive testing of all code paths with multiple reordering passes") {
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create a complex ZDD structure
+        DdNode* zdd = createLargeZdd(manager, 16);
+        REQUIRE(zdd != nullptr);
+        
+        // Create a hierarchical group structure
+        MtrNode* root = Cudd_MakeZddTreeNode(manager, 0, 16, MTR_DEFAULT);
+        REQUIRE(root != nullptr);
+        
+        MtrNode* g1 = Cudd_MakeZddTreeNode(manager, 0, 4, MTR_DEFAULT);
+        MtrNode* g2 = Cudd_MakeZddTreeNode(manager, 4, 4, MTR_DEFAULT);
+        MtrNode* g3 = Cudd_MakeZddTreeNode(manager, 8, 4, MTR_DEFAULT);
+        MtrNode* g4 = Cudd_MakeZddTreeNode(manager, 12, 4, MTR_DEFAULT);
+        REQUIRE(g1 != nullptr);
+        REQUIRE(g2 != nullptr);
+        REQUIRE(g3 != nullptr);
+        REQUIRE(g4 != nullptr);
+        
+        // Sub-groups
+        MtrNode* sg1 = Cudd_MakeZddTreeNode(manager, 0, 2, MTR_DEFAULT);
+        MtrNode* sg2 = Cudd_MakeZddTreeNode(manager, 2, 2, MTR_DEFAULT);
+        MtrNode* sg3 = Cudd_MakeZddTreeNode(manager, 4, 2, MTR_DEFAULT);
+        MtrNode* sg4 = Cudd_MakeZddTreeNode(manager, 6, 2, MTR_DEFAULT);
+        REQUIRE(sg1 != nullptr);
+        REQUIRE(sg2 != nullptr);
+        REQUIRE(sg3 != nullptr);
+        REQUIRE(sg4 != nullptr);
+        
+        // Run multiple reordering methods to maximize coverage
+        Cudd_zddReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
+        Cudd_zddReduceHeap(manager, CUDD_REORDER_SIFT, 0);
+        Cudd_zddReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
+        Cudd_zddReduceHeap(manager, CUDD_REORDER_LINEAR, 0);
+        Cudd_zddReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
+        
+        // Try convergence methods
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_GROUP_SIFT_CONV, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_FreeZddTree(manager);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Test with single element in reordering range") {
+        DdManager* manager = Cudd_Init(0, 4, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        for (int i = 0; i < 4; i++) {
+            DdNode* z = Cudd_zddIthVar(manager, i);
+            REQUIRE(z != nullptr);
+            Cudd_Ref(z);
+            Cudd_RecursiveDerefZdd(manager, z);
+        }
+        
+        DdNode* zdd = createSimpleZdd(manager, 4);
+        REQUIRE(zdd != nullptr);
+        
+        // Create a group with just one element - tests edge case
+        MtrNode* group = Cudd_MakeZddTreeNode(manager, 1, 1, MTR_DEFAULT);
+        REQUIRE(group != nullptr);
+        
+        // This should test the x == xHigh return path (line 755)
+        int result = Cudd_zddReduceHeap(manager, CUDD_REORDER_GROUP_SIFT, 0);
+        REQUIRE(result >= 1);
+        
+        Cudd_RecursiveDerefZdd(manager, zdd);
+        Cudd_FreeZddTree(manager);
+        Cudd_Quit(manager);
+    }
+}
