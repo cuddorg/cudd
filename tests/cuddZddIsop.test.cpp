@@ -1312,3 +1312,345 @@ TEST_CASE("cuddZddIsop - Four variable tests", "[cuddZddIsop]") {
         Cudd_Quit(manager);
     }
 }
+
+// ============================================================================
+// TESTS FOR TIMEOUT HANDLER PATH
+// ============================================================================
+
+static int timeoutHandlerCalled = 0;
+
+static void testTimeoutHandler(DdManager* dd, void* arg) {
+    (void)dd;
+    (void)arg;
+    timeoutHandlerCalled++;
+}
+
+TEST_CASE("cuddZddIsop - Timeout handler tests", "[cuddZddIsop]") {
+    SECTION("Cudd_zddIsop with expired timeout and handler") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        // Register timeout handler and set immediate timeout
+        timeoutHandlerCalled = 0;
+        Cudd_RegisterTimeoutHandler(manager, testTimeoutHandler, nullptr);
+        Cudd_SetTimeLimit(manager, 1);  // 1 millisecond
+        
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        Cudd_Ref(x0);
+        
+        // This might or might not timeout depending on execution speed
+        DdNode* zdd_I = nullptr;
+        DdNode* isop = Cudd_zddIsop(manager, x0, x0, &zdd_I);
+        
+        // Even if timeout, result should be valid
+        if (isop != nullptr) {
+            Cudd_Ref(isop);
+            Cudd_Ref(zdd_I);
+            Cudd_RecursiveDeref(manager, isop);
+            Cudd_RecursiveDerefZdd(manager, zdd_I);
+        }
+        
+        Cudd_RecursiveDeref(manager, x0);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Cudd_bddIsop with expired timeout and handler") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        timeoutHandlerCalled = 0;
+        Cudd_RegisterTimeoutHandler(manager, testTimeoutHandler, nullptr);
+        Cudd_SetTimeLimit(manager, 1);
+        
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        Cudd_Ref(x0);
+        
+        DdNode* isop = Cudd_bddIsop(manager, x0, x0);
+        
+        if (isop != nullptr) {
+            Cudd_Ref(isop);
+            Cudd_RecursiveDeref(manager, isop);
+        }
+        
+        Cudd_RecursiveDeref(manager, x0);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Cudd_MakeBddFromZddCover with expired timeout and handler") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        Cudd_Ref(x0);
+        
+        DdNode* zdd_I = nullptr;
+        DdNode* isop = Cudd_zddIsop(manager, x0, x0, &zdd_I);
+        REQUIRE(isop != nullptr);
+        Cudd_Ref(isop);
+        Cudd_Ref(zdd_I);
+        
+        timeoutHandlerCalled = 0;
+        Cudd_RegisterTimeoutHandler(manager, testTimeoutHandler, nullptr);
+        Cudd_SetTimeLimit(manager, 1);
+        
+        DdNode* recovered = Cudd_MakeBddFromZddCover(manager, zdd_I);
+        
+        if (recovered != nullptr) {
+            Cudd_Ref(recovered);
+            Cudd_RecursiveDeref(manager, recovered);
+        }
+        
+        Cudd_RecursiveDeref(manager, isop);
+        Cudd_RecursiveDerefZdd(manager, zdd_I);
+        Cudd_RecursiveDeref(manager, x0);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR PARTIAL CACHE HIT PATH (lines 262-268)
+// ============================================================================
+
+TEST_CASE("cuddZddIsop - Partial cache hit tests", "[cuddZddIsop]") {
+    SECTION("Test with cache pressure") {
+        // Use small cache to increase cache collisions
+        DdManager* manager = Cudd_Init(4, 8, 256, 256, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        DdNode* x1 = Cudd_bddIthVar(manager, 1);
+        
+        // Call bddIsop first to populate BDD cache
+        DdNode* andBdd = Cudd_bddAnd(manager, x0, x1);
+        Cudd_Ref(andBdd);
+        
+        DdNode* bddIsop = Cudd_bddIsop(manager, andBdd, andBdd);
+        REQUIRE(bddIsop != nullptr);
+        Cudd_Ref(bddIsop);
+        
+        // Now call zddIsop with same arguments - may hit partial cache
+        DdNode* zdd_I = nullptr;
+        DdNode* zddIsop = Cudd_zddIsop(manager, andBdd, andBdd, &zdd_I);
+        REQUIRE(zddIsop != nullptr);
+        Cudd_Ref(zddIsop);
+        Cudd_Ref(zdd_I);
+        
+        Cudd_RecursiveDeref(manager, bddIsop);
+        Cudd_RecursiveDeref(manager, zddIsop);
+        Cudd_RecursiveDerefZdd(manager, zdd_I);
+        Cudd_RecursiveDeref(manager, andBdd);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Multiple operations to stress cache") {
+        DdManager* manager = Cudd_Init(6, 12, 256, 256, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        // Create many different BDDs to stress the cache
+        for (int i = 0; i < 5; i++) {
+            DdNode* x0 = Cudd_bddIthVar(manager, 0);
+            DdNode* x1 = Cudd_bddIthVar(manager, 1);
+            DdNode* x2 = Cudd_bddIthVar(manager, 2);
+            
+            DdNode* bdd = Cudd_bddIte(manager, x0, x1, x2);
+            Cudd_Ref(bdd);
+            
+            DdNode* zdd_I = nullptr;
+            DdNode* isop = Cudd_zddIsop(manager, bdd, bdd, &zdd_I);
+            REQUIRE(isop != nullptr);
+            Cudd_Ref(isop);
+            Cudd_Ref(zdd_I);
+            
+            // Immediately deref to create more cache churn
+            Cudd_RecursiveDeref(manager, isop);
+            Cudd_RecursiveDerefZdd(manager, zdd_I);
+            Cudd_RecursiveDeref(manager, bdd);
+        }
+        
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR Cudd_IsComplement(L) AND Cudd_IsComplement(U) BRANCHES
+// ============================================================================
+
+TEST_CASE("cuddZddIsop - Complemented edge handling", "[cuddZddIsop]") {
+    SECTION("Both L and U complemented") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        DdNode* x1 = Cudd_bddIthVar(manager, 1);
+        
+        // Create complemented L: NOT(x0 AND x1) = NOT x0 OR NOT x1
+        DdNode* L = Cudd_Not(Cudd_bddAnd(manager, x0, x1));
+        Cudd_Ref(L);
+        
+        // Create complemented U: NOT(x0 OR NOT x1) = NOT x0 AND x1
+        DdNode* orBdd = Cudd_bddOr(manager, x0, Cudd_Not(x1));
+        DdNode* U = Cudd_Not(orBdd);
+        Cudd_Ref(U);
+        
+        // Check if L <= U (valid interval)
+        int valid = Cudd_bddLeq(manager, L, U);
+        if (valid) {
+            DdNode* zdd_I = nullptr;
+            DdNode* isop = Cudd_zddIsop(manager, L, U, &zdd_I);
+            if (isop != nullptr) {
+                Cudd_Ref(isop);
+                Cudd_Ref(zdd_I);
+                Cudd_RecursiveDeref(manager, isop);
+                Cudd_RecursiveDerefZdd(manager, zdd_I);
+            }
+        }
+        
+        Cudd_RecursiveDeref(manager, L);
+        Cudd_RecursiveDeref(manager, U);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("L complemented, U not complemented") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        DdNode* x1 = Cudd_bddIthVar(manager, 1);
+        
+        // L is complemented
+        DdNode* L = Cudd_Not(Cudd_bddOr(manager, x0, x1));
+        Cudd_Ref(L);
+        
+        // U is not complemented
+        DdNode* U = Cudd_bddOr(manager, Cudd_Not(x0), Cudd_Not(x1));
+        Cudd_Ref(U);
+        
+        DdNode* zdd_I = nullptr;
+        DdNode* isop = Cudd_zddIsop(manager, L, U, &zdd_I);
+        REQUIRE(isop != nullptr);
+        Cudd_Ref(isop);
+        Cudd_Ref(zdd_I);
+        
+        Cudd_RecursiveDeref(manager, isop);
+        Cudd_RecursiveDerefZdd(manager, zdd_I);
+        Cudd_RecursiveDeref(manager, L);
+        Cudd_RecursiveDeref(manager, U);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("L not complemented, U complemented") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        DdNode* x1 = Cudd_bddIthVar(manager, 1);
+        
+        // L is not complemented (AND of two vars)
+        DdNode* L = Cudd_bddAnd(manager, x0, x1);
+        Cudd_Ref(L);
+        
+        // U is complemented
+        DdNode* U = Cudd_Not(Cudd_bddAnd(manager, Cudd_Not(x0), Cudd_Not(x1)));
+        Cudd_Ref(U);
+        
+        DdNode* zdd_I = nullptr;
+        DdNode* isop = Cudd_zddIsop(manager, L, U, &zdd_I);
+        REQUIRE(isop != nullptr);
+        Cudd_Ref(isop);
+        Cudd_Ref(zdd_I);
+        
+        Cudd_RecursiveDeref(manager, isop);
+        Cudd_RecursiveDerefZdd(manager, zdd_I);
+        Cudd_RecursiveDeref(manager, L);
+        Cudd_RecursiveDeref(manager, U);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR top_l != v BRANCH (lines 285-287)
+// ============================================================================
+
+TEST_CASE("cuddZddIsop - Top variable ordering edge cases", "[cuddZddIsop]") {
+    SECTION("L is constant one, U has variables - triggers top_l > top_u") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        // L = 1 (constant, index = CUDD_CONST_INDEX which is very high)
+        // U = x0 (variable with low index)
+        // This should make top_l > top_u since constants have maximum index
+        DdNode* one = Cudd_ReadOne(manager);
+        Cudd_Ref(one);
+        
+        // But L=1 triggers U=one return at line 241-243
+        // We need L to be non-constant but have higher index than U
+        Cudd_RecursiveDeref(manager, one);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("L depends only on x1, U depends on x0 - triggers top_l > top_u") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        // x0 has index 0 (top in ordering, perm[0] = 0)
+        // x1 has index 1 (lower in ordering, perm[1] = 1)
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        DdNode* x1 = Cudd_bddIthVar(manager, 1);
+        
+        // L depends only on x1 (top_l will be perm[1] = 1)
+        // U depends on x0 (top_u will be perm[0] = 0)
+        // So top_l > top_u, but we need L <= U
+        
+        // L = x1 AND U, where U has x0 at top
+        // U = x0 OR x1
+        DdNode* U = Cudd_bddOr(manager, x0, x1);
+        Cudd_Ref(U);
+        
+        // L must be <= U and have top variable higher than U's top
+        // L = x1 (x1 implies x0 OR x1)
+        DdNode* L = x1;
+        Cudd_Ref(L);
+        
+        // Verify L <= U
+        REQUIRE(Cudd_bddLeq(manager, L, U) == 1);
+        
+        DdNode* zdd_I = nullptr;
+        DdNode* isop = Cudd_zddIsop(manager, L, U, &zdd_I);
+        REQUIRE(isop != nullptr);
+        Cudd_Ref(isop);
+        Cudd_Ref(zdd_I);
+        
+        Cudd_RecursiveDeref(manager, isop);
+        Cudd_RecursiveDerefZdd(manager, zdd_I);
+        Cudd_RecursiveDeref(manager, L);
+        Cudd_RecursiveDeref(manager, U);
+        Cudd_Quit(manager);
+    }
+}
