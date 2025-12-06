@@ -3542,3 +3542,80 @@ TEST_CASE("cuddSubsetHB - Force storeTable and approxTable lookup success paths"
     
     Cudd_Quit(dd);
 }
+
+TEST_CASE("cuddSubsetHB - Large BDD to trigger page allocation", "[cuddSubsetHB][slow]") {
+    // This test creates a large BDD to increase page usage and trigger
+    // more of the resize paths. The BDD is built using a technique that
+    // creates many unique nodes - using an "adder circuit" style pattern.
+    
+    DdManager *dd = Cudd_Init(0, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    SECTION("Large adder-style BDD for page coverage") {
+        // Build an adder-like structure which creates many unique nodes
+        // Each carry bit depends on all previous inputs
+        int numBits = 16;
+        
+        DdNode *carry = Cudd_ReadLogicZero(dd);
+        Cudd_Ref(carry);
+        
+        DdNode *sum = Cudd_ReadLogicZero(dd);
+        Cudd_Ref(sum);
+        
+        for (int i = 0; i < numBits; i++) {
+            DdNode *a = Cudd_bddIthVar(dd, i * 2);
+            DdNode *b = Cudd_bddIthVar(dd, i * 2 + 1);
+            
+            // Sum bit = a XOR b XOR carry
+            DdNode *axorb = Cudd_bddXor(dd, a, b);
+            Cudd_Ref(axorb);
+            DdNode *sumBit = Cudd_bddXor(dd, axorb, carry);
+            Cudd_Ref(sumBit);
+            
+            // Accumulate sum bits into one BDD
+            DdNode *weightedSum = Cudd_bddAnd(dd, sumBit, Cudd_bddIthVar(dd, 100 + i));
+            Cudd_Ref(weightedSum);
+            DdNode *newSum = Cudd_bddOr(dd, sum, weightedSum);
+            Cudd_Ref(newSum);
+            Cudd_RecursiveDeref(dd, weightedSum);
+            Cudd_RecursiveDeref(dd, sum);
+            sum = newSum;
+            
+            // New carry = (a AND b) OR (carry AND (a XOR b))
+            DdNode *aandb = Cudd_bddAnd(dd, a, b);
+            Cudd_Ref(aandb);
+            DdNode *carryAndXor = Cudd_bddAnd(dd, carry, axorb);
+            Cudd_Ref(carryAndXor);
+            DdNode *newCarry = Cudd_bddOr(dd, aandb, carryAndXor);
+            Cudd_Ref(newCarry);
+            
+            Cudd_RecursiveDeref(dd, axorb);
+            Cudd_RecursiveDeref(dd, sumBit);
+            Cudd_RecursiveDeref(dd, aandb);
+            Cudd_RecursiveDeref(dd, carryAndXor);
+            Cudd_RecursiveDeref(dd, carry);
+            carry = newCarry;
+        }
+        
+        // Combine sum and carry into final function
+        DdNode *f = Cudd_bddOr(dd, sum, carry);
+        Cudd_Ref(f);
+        Cudd_RecursiveDeref(dd, sum);
+        Cudd_RecursiveDeref(dd, carry);
+        
+        int origSize = Cudd_DagSize(f);
+        REQUIRE(origSize > 50);  // Should have reasonable complexity
+        
+        // Run subset
+        DdNode *subset = Cudd_SubsetHeavyBranch(dd, f, 120, origSize / 2);
+        REQUIRE(subset != nullptr);
+        Cudd_Ref(subset);
+        
+        REQUIRE(Cudd_bddLeq(dd, subset, f) == 1);
+        
+        Cudd_RecursiveDeref(dd, subset);
+        Cudd_RecursiveDeref(dd, f);
+    }
+    
+    Cudd_Quit(dd);
+}
