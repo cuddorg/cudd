@@ -968,7 +968,7 @@ zddGroupSiftingDown(
 
 
     /* Initialize R */
-    limitSize = size = table->keysZ;
+    limitSize = table->keysZ;
     y = cuddZddNextHigh(table,x);
     while (y <= xHigh) {
 	/* Find bottom of y group. */
