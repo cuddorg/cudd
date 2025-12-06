@@ -2,7 +2,7 @@
 
 // Include CUDD headers
 #include "cudd/cudd.h"
-#include "cuddInt.h"
+#include "cuddInt.h"  // Required to test internal interaction matrix functions
 #include "util.h"
 
 /**
@@ -11,6 +11,10 @@
  * This file contains comprehensive tests for the cuddInteract module
  * to achieve 90%+ code coverage and ensure correct functionality
  * of interaction matrix operations.
+ * 
+ * Note: cuddInt.h is included to test internal functions (cuddInitInteract,
+ * cuddSetInteract, cuddTestInteract) which are not exposed in the public API
+ * but are critical for BDD variable reordering and optimization.
  */
 
 TEST_CASE("cuddInitInteract - Initialize interaction matrix", "[cuddInteract]") {
