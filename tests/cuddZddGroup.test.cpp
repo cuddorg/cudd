@@ -105,7 +105,8 @@ static DdNode* createLargeZdd(DdManager* manager, int numVars) {
     Cudd_Ref(result);
     
     // Create a ZDD with multiple combinations
-    for (int i = 0; i < numVars - 2; i++) {
+    // Loop up to numVars - 3 to ensure i+2 stays within bounds [0, numVars-1]
+    for (int i = 0; i < numVars - 2 && i + 2 < numVars; i++) {
         DdNode* var1 = Cudd_zddIthVar(manager, i);
         DdNode* var2 = Cudd_zddIthVar(manager, i + 1);
         DdNode* var3 = Cudd_zddIthVar(manager, i + 2);
@@ -681,7 +682,7 @@ TEST_CASE("cuddZddGroup - Tree sifting without predefined tree", "[cuddZddGroup]
 
 TEST_CASE("cuddZddGroup - Complex group configurations", "[cuddZddGroup]") {
     SECTION("Groups with varying sizes") {
-        DdManager* manager = Cudd_Init(0, 15, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
         DdNode* zdd = createLargeZdd(manager, 15);
@@ -807,7 +808,7 @@ TEST_CASE("cuddZddGroup - Edge cases and boundary conditions", "[cuddZddGroup]")
     }
     
     SECTION("Group sifting with small ZDD") {
-        DdManager* manager = Cudd_Init(0, 3, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
         DdNode* zdd = createSimpleZdd(manager, 3);
@@ -1410,7 +1411,7 @@ TEST_CASE("cuddZddGroup - Coverage for special edge cases", "[cuddZddGroup]") {
     }
     
     SECTION("Test reordering with all fixed groups") {
-        DdManager* manager = Cudd_Init(0, 9, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        DdManager* manager = Cudd_Init(0, 10, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
         DdNode* zdd = createComplexZdd(manager, 9);
@@ -1434,7 +1435,7 @@ TEST_CASE("cuddZddGroup - Coverage for special edge cases", "[cuddZddGroup]") {
     }
     
     SECTION("Asymmetric groups for testing different sifting directions") {
-        DdManager* manager = Cudd_Init(0, 15, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
         DdNode* zdd = createLargeZdd(manager, 15);
