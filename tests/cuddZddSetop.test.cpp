@@ -1186,3 +1186,386 @@ TEST_CASE("cuddZddSetop - Multiple variable levels", "[cuddZddSetop]") {
     
     Cudd_Quit(dd);
 }
+
+// ============================================================================
+// ADDITIONAL TESTS FOR BETTER COVERAGE
+// ============================================================================
+
+TEST_CASE("cuddZddSetop - DiffConst with constants", "[cuddZddSetop]") {
+    DdManager* dd = Cudd_Init(4, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    int init_result = Cudd_zddVarsFromBddVars(dd, 2);
+    REQUIRE(init_result == 1);
+    
+    DdNode* empty = DD_ZERO(dd);
+    DdNode* one = DD_ONE(dd);
+    
+    SECTION("DiffConst with constant P index handling") {
+        DdNode* z0 = Cudd_zddIthVar(dd, 0);
+        Cudd_Ref(z0);
+        
+        // When P is constant, use P->index
+        DdNode* result = Cudd_zddDiffConst(dd, one, z0);
+        REQUIRE(result != nullptr);
+        
+        Cudd_RecursiveDerefZdd(dd, z0);
+    }
+    
+    SECTION("DiffConst with constant Q index handling") {
+        DdNode* z0 = Cudd_zddIthVar(dd, 0);
+        Cudd_Ref(z0);
+        
+        // When Q is constant, use Q->index
+        DdNode* result = Cudd_zddDiffConst(dd, z0, one);
+        REQUIRE(result != nullptr);
+        
+        Cudd_RecursiveDerefZdd(dd, z0);
+    }
+    
+    SECTION("DiffConst with both constants") {
+        // Both P and Q are constants
+        DdNode* result = Cudd_zddDiffConst(dd, one, one);
+        REQUIRE(result != nullptr);
+        REQUIRE(result == empty);
+    }
+    
+    SECTION("DiffConst subset property check") {
+        DdNode* z0 = Cudd_zddIthVar(dd, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(dd, 1);
+        Cudd_Ref(z1);
+        
+        // Create superset and subset
+        DdNode* superset = Cudd_zddUnion(dd, z0, z1);
+        Cudd_Ref(superset);
+        
+        // Test if z0 is subset of superset (should return empty)
+        DdNode* result = Cudd_zddDiffConst(dd, z0, superset);
+        REQUIRE(result != nullptr);
+        REQUIRE(result == empty);
+        
+        Cudd_RecursiveDerefZdd(dd, superset);
+        Cudd_RecursiveDerefZdd(dd, z1);
+        Cudd_RecursiveDerefZdd(dd, z0);
+    }
+    
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddZddSetop - ITE edge cases for deep branches", "[cuddZddSetop]") {
+    DdManager* dd = Cudd_Init(8, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    int init_result = Cudd_zddVarsFromBddVars(dd, 2);
+    REQUIRE(init_result == 1);
+    
+    SECTION("ITE where topg > v and toph > v") {
+        DdNode* z0 = Cudd_zddIthVar(dd, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(dd, 1);
+        Cudd_Ref(z1);
+        DdNode* z3 = Cudd_zddIthVar(dd, 3);
+        Cudd_Ref(z3);
+        DdNode* z4 = Cudd_zddIthVar(dd, 4);
+        Cudd_Ref(z4);
+        
+        // f at low level, g and h at higher levels
+        DdNode* result = Cudd_zddIte(dd, z0, z3, z4);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(dd, result);
+        Cudd_RecursiveDerefZdd(dd, z4);
+        Cudd_RecursiveDerefZdd(dd, z3);
+        Cudd_RecursiveDerefZdd(dd, z1);
+        Cudd_RecursiveDerefZdd(dd, z0);
+    }
+    
+    SECTION("ITE where topg > v and toph <= v") {
+        DdNode* z0 = Cudd_zddIthVar(dd, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(dd, 1);
+        Cudd_Ref(z1);
+        DdNode* z3 = Cudd_zddIthVar(dd, 3);
+        Cudd_Ref(z3);
+        
+        // Create union for h at same level as v
+        DdNode* h = Cudd_zddUnion(dd, z0, z1);
+        Cudd_Ref(h);
+        
+        DdNode* result = Cudd_zddIte(dd, z1, z3, h);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(dd, result);
+        Cudd_RecursiveDerefZdd(dd, h);
+        Cudd_RecursiveDerefZdd(dd, z3);
+        Cudd_RecursiveDerefZdd(dd, z1);
+        Cudd_RecursiveDerefZdd(dd, z0);
+    }
+    
+    SECTION("ITE where topg <= v and toph > v") {
+        DdNode* z0 = Cudd_zddIthVar(dd, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(dd, 1);
+        Cudd_Ref(z1);
+        DdNode* z3 = Cudd_zddIthVar(dd, 3);
+        Cudd_Ref(z3);
+        
+        // Create union for g at same level as v
+        DdNode* g = Cudd_zddUnion(dd, z0, z1);
+        Cudd_Ref(g);
+        
+        DdNode* result = Cudd_zddIte(dd, z1, g, z3);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(dd, result);
+        Cudd_RecursiveDerefZdd(dd, g);
+        Cudd_RecursiveDerefZdd(dd, z3);
+        Cudd_RecursiveDerefZdd(dd, z1);
+        Cudd_RecursiveDerefZdd(dd, z0);
+    }
+    
+    SECTION("ITE where topg <= v and toph <= v") {
+        DdNode* z0 = Cudd_zddIthVar(dd, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(dd, 1);
+        Cudd_Ref(z1);
+        DdNode* z2 = Cudd_zddIthVar(dd, 2);
+        Cudd_Ref(z2);
+        
+        // Both g and h at same or lower level than v
+        DdNode* g = Cudd_zddUnion(dd, z0, z1);
+        Cudd_Ref(g);
+        DdNode* h = Cudd_zddUnion(dd, z1, z2);
+        Cudd_Ref(h);
+        
+        DdNode* result = Cudd_zddIte(dd, z1, g, h);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(dd, result);
+        Cudd_RecursiveDerefZdd(dd, h);
+        Cudd_RecursiveDerefZdd(dd, g);
+        Cudd_RecursiveDerefZdd(dd, z2);
+        Cudd_RecursiveDerefZdd(dd, z1);
+        Cudd_RecursiveDerefZdd(dd, z0);
+    }
+    
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddZddSetop - Stress test for all operations", "[cuddZddSetop]") {
+    DdManager* dd = Cudd_Init(8, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    int init_result = Cudd_zddVarsFromBddVars(dd, 2);
+    REQUIRE(init_result == 1);
+    
+    SECTION("Large combination of operations") {
+        DdNode* z0 = Cudd_zddIthVar(dd, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(dd, 1);
+        Cudd_Ref(z1);
+        DdNode* z2 = Cudd_zddIthVar(dd, 2);
+        Cudd_Ref(z2);
+        DdNode* z3 = Cudd_zddIthVar(dd, 3);
+        Cudd_Ref(z3);
+        DdNode* z4 = Cudd_zddIthVar(dd, 4);
+        Cudd_Ref(z4);
+        
+        // Build complex ZDD structure
+        DdNode* u1 = Cudd_zddUnion(dd, z0, z1);
+        Cudd_Ref(u1);
+        DdNode* u2 = Cudd_zddUnion(dd, z2, z3);
+        Cudd_Ref(u2);
+        DdNode* u3 = Cudd_zddUnion(dd, u1, z4);
+        Cudd_Ref(u3);
+        
+        DdNode* i1 = Cudd_zddIntersect(dd, u1, u2);
+        Cudd_Ref(i1);
+        DdNode* i2 = Cudd_zddIntersect(dd, u3, u2);
+        Cudd_Ref(i2);
+        
+        DdNode* d1 = Cudd_zddDiff(dd, u3, i2);
+        Cudd_Ref(d1);
+        
+        DdNode* ite1 = Cudd_zddIte(dd, z0, d1, i1);
+        Cudd_Ref(ite1);
+        
+        DdNode* s1 = Cudd_zddSubset1(dd, ite1, 1);
+        Cudd_Ref(s1);
+        DdNode* s0 = Cudd_zddSubset0(dd, ite1, 1);
+        Cudd_Ref(s0);
+        
+        DdNode* c1 = Cudd_zddChange(dd, ite1, 2);
+        REQUIRE(c1 != nullptr);
+        Cudd_Ref(c1);
+        
+        // Verify all operations succeeded
+        REQUIRE(u1 != nullptr);
+        REQUIRE(u2 != nullptr);
+        REQUIRE(u3 != nullptr);
+        REQUIRE(i1 != nullptr);
+        REQUIRE(i2 != nullptr);
+        REQUIRE(d1 != nullptr);
+        REQUIRE(ite1 != nullptr);
+        REQUIRE(s1 != nullptr);
+        REQUIRE(s0 != nullptr);
+        
+        Cudd_RecursiveDerefZdd(dd, c1);
+        Cudd_RecursiveDerefZdd(dd, s0);
+        Cudd_RecursiveDerefZdd(dd, s1);
+        Cudd_RecursiveDerefZdd(dd, ite1);
+        Cudd_RecursiveDerefZdd(dd, d1);
+        Cudd_RecursiveDerefZdd(dd, i2);
+        Cudd_RecursiveDerefZdd(dd, i1);
+        Cudd_RecursiveDerefZdd(dd, u3);
+        Cudd_RecursiveDerefZdd(dd, u2);
+        Cudd_RecursiveDerefZdd(dd, u1);
+        Cudd_RecursiveDerefZdd(dd, z4);
+        Cudd_RecursiveDerefZdd(dd, z3);
+        Cudd_RecursiveDerefZdd(dd, z2);
+        Cudd_RecursiveDerefZdd(dd, z1);
+        Cudd_RecursiveDerefZdd(dd, z0);
+    }
+    
+    Cudd_Quit(dd);
+}
+
+// ============================================================================
+// TARGETED TESTS FOR REMAINING COVERAGE
+// ============================================================================
+
+TEST_CASE("cuddZddSetop - Operations with constant nodes", "[cuddZddSetop]") {
+    DdManager* dd = Cudd_Init(4, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    int init_result = Cudd_zddVarsFromBddVars(dd, 2);
+    REQUIRE(init_result == 1);
+    
+    DdNode* one = DD_ONE(dd);
+    DdNode* zero = DD_ZERO(dd);
+    
+    SECTION("Intersect with constant P") {
+        DdNode* z0 = Cudd_zddIthVar(dd, 0);
+        Cudd_Ref(z0);
+        
+        // P is constant - exercises p_top = P->index branch
+        DdNode* result = Cudd_zddIntersect(dd, one, z0);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(dd, result);
+        Cudd_RecursiveDerefZdd(dd, z0);
+    }
+    
+    SECTION("Intersect with constant Q") {
+        DdNode* z0 = Cudd_zddIthVar(dd, 0);
+        Cudd_Ref(z0);
+        
+        // Q is constant - exercises q_top = Q->index branch
+        DdNode* result = Cudd_zddIntersect(dd, z0, one);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(dd, result);
+        Cudd_RecursiveDerefZdd(dd, z0);
+    }
+    
+    SECTION("Intersect when p_top < q_top with constants") {
+        DdNode* z0 = Cudd_zddIthVar(dd, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(dd, 1);
+        Cudd_Ref(z1);
+        
+        // Make p_top < q_top case
+        DdNode* result = Cudd_zddIntersect(dd, z0, z1);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(dd, result);
+        Cudd_RecursiveDerefZdd(dd, z1);
+        Cudd_RecursiveDerefZdd(dd, z0);
+    }
+    
+    SECTION("Intersect when p_top > q_top with constants") {
+        DdNode* z0 = Cudd_zddIthVar(dd, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(dd, 1);
+        Cudd_Ref(z1);
+        
+        // Make p_top > q_top case
+        DdNode* result = Cudd_zddIntersect(dd, z1, z0);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(dd, result);
+        Cudd_RecursiveDerefZdd(dd, z1);
+        Cudd_RecursiveDerefZdd(dd, z0);
+    }
+    
+    SECTION("Diff with constant P") {
+        DdNode* z0 = Cudd_zddIthVar(dd, 0);
+        Cudd_Ref(z0);
+        
+        // P is constant - exercises p_top = P->index branch
+        DdNode* result = Cudd_zddDiff(dd, one, z0);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(dd, result);
+        Cudd_RecursiveDerefZdd(dd, z0);
+    }
+    
+    SECTION("Diff with constant Q") {
+        DdNode* z0 = Cudd_zddIthVar(dd, 0);
+        Cudd_Ref(z0);
+        
+        // Q is constant - exercises q_top = Q->index branch
+        DdNode* result = Cudd_zddDiff(dd, z0, one);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(dd, result);
+        Cudd_RecursiveDerefZdd(dd, z0);
+    }
+    
+    Cudd_Quit(dd);
+}
+
+TEST_CASE("cuddZddSetop - DiffConst cache test", "[cuddZddSetop]") {
+    DdManager* dd = Cudd_Init(4, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+    REQUIRE(dd != nullptr);
+    
+    int init_result = Cudd_zddVarsFromBddVars(dd, 2);
+    REQUIRE(init_result == 1);
+    
+    SECTION("DiffConst cache hit with subset case") {
+        DdNode* z0 = Cudd_zddIthVar(dd, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(dd, 1);
+        Cudd_Ref(z1);
+        
+        DdNode* superset = Cudd_zddUnion(dd, z0, z1);
+        Cudd_Ref(superset);
+        
+        // First call - fills cache
+        DdNode* result1 = Cudd_zddDiffConst(dd, z0, superset);
+        // Result is empty since z0 is subset of superset
+        
+        // Second call - should hit cache (line 237)
+        DdNode* result2 = Cudd_zddDiffConst(dd, z0, superset);
+        // Both should return empty
+        REQUIRE(result1 == result2);
+        REQUIRE(result1 == DD_ZERO(dd));
+        
+        Cudd_RecursiveDerefZdd(dd, superset);
+        Cudd_RecursiveDerefZdd(dd, z1);
+        Cudd_RecursiveDerefZdd(dd, z0);
+    }
+    
+    Cudd_Quit(dd);
+}
