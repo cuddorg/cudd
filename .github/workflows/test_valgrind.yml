@@ -1,0 +1,145 @@
+name: Valgrind Test
+
+on:
+  pull_request:
+    branches:
+      - main
+      - 4.0.0
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.event_name }}-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  valgrind-test:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        valgrind_tool: ['memcheck', 'helgrind', 'drd']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build catch2 valgrind
+
+      - name: Check Valgrind version
+        run: |
+          valgrind --version
+          echo "Valgrind tool: ${{ matrix.valgrind_tool }}"
+
+      - name: Configure with Debug build
+        run: |
+          cmake -S . -B /tmp/build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="-g -O0" \
+            -DCMAKE_CXX_FLAGS="-g -O0" \
+            -DCUDD_BUILD_TESTS=ON \
+            -DCUDD_BUILD_SHARED_LIBS=OFF \
+            -DCUDD_BUILD_WITH_STATS=ON
+
+      - name: Build
+        run: cmake --build /tmp/build
+
+      - name: Create Valgrind suppressions file
+        run: |
+          cat > /tmp/valgrind.supp << 'EOF'
+          # Suppress known false positives in system libraries
+          {
+             glibc_malloc
+             Memcheck:Leak
+             fun:malloc
+             ...
+             obj:/lib/x86_64-linux-gnu/libc.so.6
+          }
+          {
+             glibc_calloc
+             Memcheck:Leak
+             fun:calloc
+             ...
+             obj:/lib/x86_64-linux-gnu/libc.so.6
+          }
+          {
+             glibc_realloc
+             Memcheck:Leak
+             fun:realloc
+             ...
+             obj:/lib/x86_64-linux-gnu/libc.so.6
+          }
+          EOF
+
+      - name: Test with Valgrind (memcheck)
+        if: matrix.valgrind_tool == 'memcheck'
+        run: |
+          cd /tmp/build
+          # Configure CTest to use Valgrind
+          cat > DartConfiguration.tcl.tmp << 'EOF'
+          MemoryCheckCommand: /usr/bin/valgrind
+          MemoryCheckCommandOptions: --tool=memcheck --leak-check=full --show-leak-kinds=all --track-origins=yes --verbose --error-exitcode=1 --suppressions=/tmp/valgrind.supp
+          MemoryCheckSuppressionFile: /tmp/valgrind.supp
+          EOF
+          
+          # Append to existing DartConfiguration.tcl or create if it doesn't exist
+          if [ -f DartConfiguration.tcl ]; then
+            cat DartConfiguration.tcl.tmp >> DartConfiguration.tcl
+          else
+            cat DartConfiguration.tcl.tmp > DartConfiguration.tcl
+          fi
+          
+          # Verify valgrind path
+          which valgrind
+          
+          # Run memory check
+          ctest --test-dir . --output-on-failure -T memcheck
+
+      - name: Test with Valgrind (helgrind - thread error detection)
+        if: matrix.valgrind_tool == 'helgrind'
+        run: |
+          cd /tmp/build
+          # Run tests individually with helgrind to detect race conditions
+          for test in $(ctest --test-dir . --show-only=json-v1 | jq -r '.tests[].name'); do
+            echo "Running test $test with helgrind..."
+            timeout 300 valgrind --tool=helgrind --verbose --error-exitcode=1 \
+              --suppressions=/tmp/valgrind.supp \
+              ctest --test-dir . -R "^$test$" --output-on-failure || true
+          done
+
+      - name: Test with Valgrind (drd - data race detection)
+        if: matrix.valgrind_tool == 'drd'
+        run: |
+          cd /tmp/build
+          # Run tests individually with drd to detect data races
+          for test in $(ctest --test-dir . --show-only=json-v1 | jq -r '.tests[].name'); do
+            echo "Running test $test with drd..."
+            timeout 300 valgrind --tool=drd --verbose --error-exitcode=1 \
+              --suppressions=/tmp/valgrind.supp \
+              ctest --test-dir . -R "^$test$" --output-on-failure || true
+          done
+
+      - name: Upload Valgrind results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: valgrind-results-${{ matrix.build_shared_libs }}-${{ matrix.valgrind_tool }}
+          path: |
+            /tmp/build/Testing/Temporary/MemoryChecker.*.log
+            /tmp/build/Testing/Temporary/LastTest.log
+            /tmp/build/Testing/Temporary/LastTestsFailed.log
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Valgrind Test Summary"
+          echo "- Build type: Debug"
+          echo "- Valgrind tool: ${{ matrix.valgrind_tool }}"
+          if [ -f "/tmp/build/Testing/Temporary/LastTestsFailed.log" ]; then
+            echo "❌ Some tests failed"
+            cat /tmp/build/Testing/Temporary/LastTestsFailed.log
+          else
+            echo "✅ All tests passed"
+          fi
