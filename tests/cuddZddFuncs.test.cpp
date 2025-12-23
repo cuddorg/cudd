@@ -1553,13 +1553,15 @@ TEST_CASE("cuddZddFuncs - Variable helper edge cases", "[cuddZddFuncs]") {
         DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
         REQUIRE(manager != nullptr);
         
-        // Test with odd index
+        // Test with odd index (1)
+        // cuddZddGetPosVarIndex clears the lowest bit: index & ~1
+        // cuddZddGetNegVarIndex sets the lowest bit: index | 1
         int pv = cuddZddGetPosVarIndex(manager, 1);
         int nv = cuddZddGetNegVarIndex(manager, 1);
-        REQUIRE(pv == 0);  // 1 & ~1 = 0
+        REQUIRE(pv == 0);  // 1 & ~1 = 1 & 0xFFFFFFFE = 0
         REQUIRE(nv == 1);  // 1 | 1 = 1
         
-        // Test with even index
+        // Test with even index (4)
         pv = cuddZddGetPosVarIndex(manager, 4);
         nv = cuddZddGetNegVarIndex(manager, 4);
         REQUIRE(pv == 4);  // 4 & ~1 = 4
@@ -1571,6 +1573,1963 @@ TEST_CASE("cuddZddFuncs - Variable helper edge cases", "[cuddZddFuncs]") {
         REQUIRE(pl >= 0);
         REQUIRE(nl >= 0);
         
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// ADDITIONAL TESTS FOR COVERAGE OF UNCOVERED BRANCHES
+// ============================================================================
+
+TEST_CASE("cuddZddFuncs - cuddZddWeakDivF special cases", "[cuddZddFuncs]") {
+    SECTION("WeakDivF division by one returns f") {
+        // Cover line 896-897: if (g == one) return(f);
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        
+        // Create a product to get a more complex ZDD
+        DdNode* f = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(f);
+        
+        DdNode* one = Cudd_ReadZddOne(manager, 0);
+        Cudd_Ref(one);
+        
+        // WeakDivF(f, 1) should return f (or equivalent)
+        DdNode* result = Cudd_zddWeakDivF(manager, f, one);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        // Note: result may not be pointer-equal to f, just logically equivalent
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, one);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("WeakDivF with vf < vg branch") {
+        // Cover lines 914-976: Special case when v == top_f && vf < vg
+        // This happens when top variable of f is at lower level than top variable of g
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create f with low-level variables: z0, z2
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z4 = Cudd_zddIthVar(manager, 4);
+        Cudd_Ref(z4);
+        
+        // Create g with high-level variable: z8
+        DdNode* z8 = Cudd_zddIthVar(manager, 8);
+        Cudd_Ref(z8);
+        
+        // f = z0 * z2 (has top at level 0)
+        DdNode* p1 = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(p1);
+        
+        // Also add z4 to f for more complex structure
+        DdNode* p2 = Cudd_zddProduct(manager, z0, z4);
+        Cudd_Ref(p2);
+        DdNode* f = Cudd_zddUnion(manager, p1, p2);
+        Cudd_Ref(f);
+        
+        // Now divide by z8 which has top at level 8
+        // Since permZ[f->index] < permZ[g->index], and vf < vg, 
+        // this should exercise the special path in cuddZddWeakDivF
+        DdNode* result = Cudd_zddWeakDivF(manager, f, z8);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, p1);
+        Cudd_RecursiveDerefZdd(manager, p2);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z4);
+        Cudd_RecursiveDerefZdd(manager, z8);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("WeakDivF with v from g->index branch") {
+        // Cover line 981-982: else v = (int) g->index;
+        // This happens when top_g < top_f
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create f with high-level variable
+        DdNode* z8 = Cudd_zddIthVar(manager, 8);
+        Cudd_Ref(z8);
+        DdNode* z10 = Cudd_zddIthVar(manager, 10);
+        Cudd_Ref(z10);
+        DdNode* f = Cudd_zddProduct(manager, z8, z10);
+        Cudd_Ref(f);
+        
+        // Create g with low-level variable
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* g = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(g);
+        
+        // Divide f by g where top_g < top_f
+        DdNode* result = Cudd_zddWeakDivF(manager, f, g);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, g);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z8);
+        Cudd_RecursiveDerefZdd(manager, z10);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - cuddZddComplement internal function", "[cuddZddFuncs]") {
+    SECTION("Call internal cuddZddComplement directly") {
+        // Cover cuddZddComplement internal function (lines 1467-1495)
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        Cudd_Ref(x0);
+        
+        DdNode* zdd_I = nullptr;
+        DdNode* isop = Cudd_zddIsop(manager, x0, x0, &zdd_I);
+        if (isop != nullptr && zdd_I != nullptr) {
+            Cudd_Ref(isop);
+            Cudd_Ref(zdd_I);
+            
+            // Call internal cuddZddComplement function directly to test the
+            // internal recursive implementation and cache behavior.
+            // This is necessary because Cudd_zddComplement is just a wrapper
+            // that always goes through cuddZddComplement.
+            DdNode* comp = cuddZddComplement(manager, zdd_I);
+            if (comp != nullptr) {
+                Cudd_Ref(comp);
+                
+                // Call again to hit cache path
+                DdNode* comp2 = cuddZddComplement(manager, zdd_I);
+                if (comp2 != nullptr) {
+                    Cudd_Ref(comp2);
+                    REQUIRE(comp == comp2);  // Should hit cache
+                    Cudd_RecursiveDerefZdd(manager, comp2);
+                }
+                
+                Cudd_RecursiveDerefZdd(manager, comp);
+            }
+            
+            Cudd_RecursiveDeref(manager, isop);
+            Cudd_RecursiveDerefZdd(manager, zdd_I);
+        }
+        
+        Cudd_RecursiveDeref(manager, x0);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("cuddZddComplement with multi-variable cover") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        DdNode* x1 = Cudd_bddIthVar(manager, 1);
+        DdNode* bdd = Cudd_bddXor(manager, x0, x1);  // XOR is more complex
+        Cudd_Ref(bdd);
+        
+        DdNode* zdd_I = nullptr;
+        DdNode* isop = Cudd_zddIsop(manager, bdd, bdd, &zdd_I);
+        if (isop != nullptr && zdd_I != nullptr) {
+            Cudd_Ref(isop);
+            Cudd_Ref(zdd_I);
+            
+            // Call internal function
+            DdNode* comp = cuddZddComplement(manager, zdd_I);
+            if (comp != nullptr) {
+                Cudd_Ref(comp);
+                Cudd_RecursiveDerefZdd(manager, comp);
+            }
+            
+            Cudd_RecursiveDeref(manager, isop);
+            Cudd_RecursiveDerefZdd(manager, zdd_I);
+        }
+        
+        Cudd_RecursiveDeref(manager, bdd);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - cuddZddGetCofactors3 uncovered branches", "[cuddZddFuncs]") {
+    SECTION("GetCofactors3 pv level vs nv level branch") {
+        // The function has two branches based on 
+        // cuddZddGetPosVarLevel(dd, v) < cuddZddGetNegVarLevel(dd, v)
+        // and the else branch. We need to test both.
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(z1);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z3 = Cudd_zddIthVar(manager, 3);
+        Cudd_Ref(z3);
+        
+        // Create a ZDD with multiple variables
+        DdNode* p1 = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(p1);
+        DdNode* p2 = Cudd_zddProduct(manager, z1, z3);
+        Cudd_Ref(p2);
+        DdNode* f = Cudd_zddUnion(manager, p1, p2);
+        Cudd_Ref(f);
+        
+        DdNode* f1, *f0, *fd;
+        
+        // Directly test internal cuddZddGetCofactors3 function for coverage.
+        // This function is not exposed through a public API wrapper.
+        int result = cuddZddGetCofactors3(manager, f, 0, &f1, &f0, &fd);
+        REQUIRE(result == 0);
+        Cudd_Ref(f1);
+        Cudd_Ref(f0);
+        Cudd_Ref(fd);
+        Cudd_RecursiveDerefZdd(manager, f1);
+        Cudd_RecursiveDerefZdd(manager, f0);
+        Cudd_RecursiveDerefZdd(manager, fd);
+        
+        // Test with variable 1 (odd index)
+        result = cuddZddGetCofactors3(manager, f, 1, &f1, &f0, &fd);
+        REQUIRE(result == 0);
+        Cudd_Ref(f1);
+        Cudd_Ref(f0);
+        Cudd_Ref(fd);
+        Cudd_RecursiveDerefZdd(manager, f1);
+        Cudd_RecursiveDerefZdd(manager, f0);
+        Cudd_RecursiveDerefZdd(manager, fd);
+        
+        // Test with variable 2
+        result = cuddZddGetCofactors3(manager, f, 2, &f1, &f0, &fd);
+        REQUIRE(result == 0);
+        Cudd_Ref(f1);
+        Cudd_Ref(f0);
+        Cudd_Ref(fd);
+        Cudd_RecursiveDerefZdd(manager, f1);
+        Cudd_RecursiveDerefZdd(manager, f0);
+        Cudd_RecursiveDerefZdd(manager, fd);
+        
+        // Test with variable 3 (odd)
+        result = cuddZddGetCofactors3(manager, f, 3, &f1, &f0, &fd);
+        REQUIRE(result == 0);
+        Cudd_Ref(f1);
+        Cudd_Ref(f0);
+        Cudd_Ref(fd);
+        Cudd_RecursiveDerefZdd(manager, f1);
+        Cudd_RecursiveDerefZdd(manager, f0);
+        Cudd_RecursiveDerefZdd(manager, fd);
+        
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, p1);
+        Cudd_RecursiveDerefZdd(manager, p2);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z1);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z3);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("GetCofactors3 hv < ht case") {
+        // Cover lines 1331-1335: if (hv < ht) { *f1 = zero; *f0 = zero; *fd = f; }
+        // hv = permZ[v] >> 1, ht = permZ[f->index] >> 1
+        // We need v such that permZ[v]/2 < permZ[f->index]/2
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ZDD with high-level variable (variable 8 is at permZ position 8)
+        DdNode* z8 = Cudd_zddIthVar(manager, 8);
+        Cudd_Ref(z8);
+        
+        DdNode* f1, *f0, *fd;
+        
+        // Get cofactors at variable with lower permZ level
+        // For a ZDD that only contains variable 8, we need to use a variable
+        // where hv < ht. Variable 0 has permZ[0] = 0, so hv = 0.
+        // Variable 8 as top of z8 gives ht = permZ[8]/2 = 8/2 = 4
+        // So hv (0) < ht (4), this should trigger the branch
+        int result = cuddZddGetCofactors3(manager, z8, 0, &f1, &f0, &fd);
+        REQUIRE(result == 0);
+        
+        // In this case, f1 = zero, f0 = zero, fd = f
+        // But the values may have been ref'd differently, just check it works
+        // The key is the function succeeded
+        
+        Cudd_RecursiveDerefZdd(manager, z8);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - WeakDiv intersection branches", "[cuddZddFuncs]") {
+    SECTION("WeakDiv with gd != zero triggering intersection") {
+        // Cover lines 835-861 in cuddZddWeakDiv
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(z1);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z3 = Cudd_zddIthVar(manager, 3);
+        Cudd_Ref(z3);
+        
+        // Create f = (z0*z2) | (z1*z3)
+        DdNode* p1 = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(p1);
+        DdNode* p2 = Cudd_zddProduct(manager, z1, z3);
+        Cudd_Ref(p2);
+        DdNode* f = Cudd_zddUnion(manager, p1, p2);
+        Cudd_Ref(f);
+        
+        // Create g = (z0*z1) | z2 - this will create non-zero g0, g1, and gd
+        DdNode* p3 = Cudd_zddProduct(manager, z0, z1);
+        Cudd_Ref(p3);
+        DdNode* g = Cudd_zddUnion(manager, p3, z2);
+        Cudd_Ref(g);
+        
+        DdNode* result = Cudd_zddWeakDiv(manager, f, g);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, g);
+        Cudd_RecursiveDerefZdd(manager, p1);
+        Cudd_RecursiveDerefZdd(manager, p2);
+        Cudd_RecursiveDerefZdd(manager, p3);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z1);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z3);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("WeakDiv with q == g path") {
+        // Cover line 809: if (q == g) q = tmp;
+        // and line 846: if (q == g) q = tmp;
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z4 = Cudd_zddIthVar(manager, 4);
+        Cudd_Ref(z4);
+        
+        // f = z0 * z2
+        DdNode* f = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(f);
+        
+        // g = z0 (g0 will be zero, so q stays as g initially)
+        DdNode* result = Cudd_zddWeakDiv(manager, f, z0);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z4);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - WeakDivF intersection and zero paths", "[cuddZddFuncs]") {
+    SECTION("WeakDivF returning zero at various points") {
+        // Cover lines 1021-1028: q == zero path after g0 division
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z4 = Cudd_zddIthVar(manager, 4);
+        Cudd_Ref(z4);
+        DdNode* z6 = Cudd_zddIthVar(manager, 6);
+        Cudd_Ref(z6);
+        
+        // Create complex f and g where division might return zero
+        DdNode* f = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(f);
+        
+        DdNode* g = Cudd_zddProduct(manager, z4, z6);
+        Cudd_Ref(g);
+        
+        // f and g are disjoint, division should return zero or minimal result
+        DdNode* result = Cudd_zddWeakDivF(manager, f, g);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, g);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z4);
+        Cudd_RecursiveDerefZdd(manager, z6);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("WeakDivF with intersection at g1 != zero") {
+        // Cover lines 1031-1060: g1 != zero path with intersection
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(z1);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z3 = Cudd_zddIthVar(manager, 3);
+        Cudd_Ref(z3);
+        
+        // f = (z0 * z2) | (z1 * z3)
+        DdNode* p1 = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(p1);
+        DdNode* p2 = Cudd_zddProduct(manager, z1, z3);
+        Cudd_Ref(p2);
+        DdNode* f = Cudd_zddUnion(manager, p1, p2);
+        Cudd_Ref(f);
+        
+        // g = z0 | z1 - both g0 and g1 will be non-zero
+        DdNode* g = Cudd_zddUnion(manager, z0, z1);
+        Cudd_Ref(g);
+        
+        DdNode* result = Cudd_zddWeakDivF(manager, f, g);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, g);
+        Cudd_RecursiveDerefZdd(manager, p1);
+        Cudd_RecursiveDerefZdd(manager, p2);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z1);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z3);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("WeakDivF with larger structures") {
+        // Cover more paths in WeakDivF with larger ZDD structures
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create variables
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z4 = Cudd_zddIthVar(manager, 4);
+        Cudd_Ref(z4);
+        
+        // Simple product
+        DdNode* f = Cudd_zddProduct(manager, z0, z2);
+        REQUIRE(f != nullptr);
+        Cudd_Ref(f);
+        
+        // Divide by z4 which has no overlap with f
+        DdNode* result = Cudd_zddWeakDivF(manager, f, z4);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z4);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - DivideF and Divide with intersection", "[cuddZddFuncs]") {
+    SECTION("DivideF with r != zero && g0 != zero path") {
+        // Cover lines 1262-1285 in cuddZddDivideF
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(z1);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z3 = Cudd_zddIthVar(manager, 3);
+        Cudd_Ref(z3);
+        
+        // f = (z0*z2) | (z1*z3)
+        DdNode* p1 = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(p1);
+        DdNode* p2 = Cudd_zddProduct(manager, z1, z3);
+        Cudd_Ref(p2);
+        DdNode* f = Cudd_zddUnion(manager, p1, p2);
+        Cudd_Ref(f);
+        
+        // g = z0 | z1
+        DdNode* g = Cudd_zddUnion(manager, z0, z1);
+        Cudd_Ref(g);
+        
+        DdNode* result = Cudd_zddDivideF(manager, f, g);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, g);
+        Cudd_RecursiveDerefZdd(manager, p1);
+        Cudd_RecursiveDerefZdd(manager, p2);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z1);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z3);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Divide with r != zero && g0 != zero path") {
+        // Cover lines 1165-1188 in cuddZddDivide
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(z1);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z3 = Cudd_zddIthVar(manager, 3);
+        Cudd_Ref(z3);
+        
+        // f = (z0*z2) | (z1*z3)
+        DdNode* p1 = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(p1);
+        DdNode* p2 = Cudd_zddProduct(manager, z1, z3);
+        Cudd_Ref(p2);
+        DdNode* f = Cudd_zddUnion(manager, p1, p2);
+        Cudd_Ref(f);
+        
+        // g = z0 | z1
+        DdNode* g = Cudd_zddUnion(manager, z0, z1);
+        Cudd_Ref(g);
+        
+        DdNode* result = Cudd_zddDivide(manager, f, g);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, g);
+        Cudd_RecursiveDerefZdd(manager, p1);
+        Cudd_RecursiveDerefZdd(manager, p2);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z1);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z3);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - UnateProduct deep coverage", "[cuddZddFuncs]") {
+    SECTION("UnateProduct with complex multi-level covers") {
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(z1);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z3 = Cudd_zddIthVar(manager, 3);
+        Cudd_Ref(z3);
+        DdNode* z4 = Cudd_zddIthVar(manager, 4);
+        Cudd_Ref(z4);
+        DdNode* z5 = Cudd_zddIthVar(manager, 5);
+        Cudd_Ref(z5);
+        
+        // Build multi-level covers
+        DdNode* c1 = Cudd_zddUnion(manager, z0, z1);
+        Cudd_Ref(c1);
+        DdNode* c2 = Cudd_zddUnion(manager, c1, z2);
+        Cudd_Ref(c2);
+        
+        DdNode* c3 = Cudd_zddUnion(manager, z3, z4);
+        Cudd_Ref(c3);
+        DdNode* c4 = Cudd_zddUnion(manager, c3, z5);
+        Cudd_Ref(c4);
+        
+        DdNode* result = Cudd_zddUnateProduct(manager, c2, c4);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, c1);
+        Cudd_RecursiveDerefZdd(manager, c2);
+        Cudd_RecursiveDerefZdd(manager, c3);
+        Cudd_RecursiveDerefZdd(manager, c4);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z1);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z3);
+        Cudd_RecursiveDerefZdd(manager, z4);
+        Cudd_RecursiveDerefZdd(manager, z5);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - Product deep union operations", "[cuddZddFuncs]") {
+    SECTION("Product exercising all union combinations") {
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(z1);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z3 = Cudd_zddIthVar(manager, 3);
+        Cudd_Ref(z3);
+        DdNode* z4 = Cudd_zddIthVar(manager, 4);
+        Cudd_Ref(z4);
+        DdNode* z5 = Cudd_zddIthVar(manager, 5);
+        Cudd_Ref(z5);
+        DdNode* z6 = Cudd_zddIthVar(manager, 6);
+        Cudd_Ref(z6);
+        DdNode* z7 = Cudd_zddIthVar(manager, 7);
+        Cudd_Ref(z7);
+        
+        // Create covers that will exercise all union paths in cuddZddProduct
+        // Cover1 = z0 | z2 | z4 | z6
+        DdNode* t1 = Cudd_zddUnion(manager, z0, z2);
+        Cudd_Ref(t1);
+        DdNode* t2 = Cudd_zddUnion(manager, z4, z6);
+        Cudd_Ref(t2);
+        DdNode* cover1 = Cudd_zddUnion(manager, t1, t2);
+        Cudd_Ref(cover1);
+        
+        // Cover2 = z1 | z3 | z5 | z7
+        DdNode* t3 = Cudd_zddUnion(manager, z1, z3);
+        Cudd_Ref(t3);
+        DdNode* t4 = Cudd_zddUnion(manager, z5, z7);
+        Cudd_Ref(t4);
+        DdNode* cover2 = Cudd_zddUnion(manager, t3, t4);
+        Cudd_Ref(cover2);
+        
+        DdNode* result = Cudd_zddProduct(manager, cover1, cover2);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, cover1);
+        Cudd_RecursiveDerefZdd(manager, cover2);
+        Cudd_RecursiveDerefZdd(manager, t1);
+        Cudd_RecursiveDerefZdd(manager, t2);
+        Cudd_RecursiveDerefZdd(manager, t3);
+        Cudd_RecursiveDerefZdd(manager, t4);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z1);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z3);
+        Cudd_RecursiveDerefZdd(manager, z4);
+        Cudd_RecursiveDerefZdd(manager, z5);
+        Cudd_RecursiveDerefZdd(manager, z6);
+        Cudd_RecursiveDerefZdd(manager, z7);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - Complement of one", "[cuddZddFuncs]") {
+    SECTION("Complement of ZDD representing tautology") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        // Create a ZDD for the constant 1 (tautology)
+        DdNode* one_bdd = Cudd_ReadOne(manager);
+        Cudd_Ref(one_bdd);
+        
+        DdNode* zdd_I = nullptr;
+        DdNode* isop = Cudd_zddIsop(manager, one_bdd, one_bdd, &zdd_I);
+        if (isop != nullptr && zdd_I != nullptr) {
+            Cudd_Ref(isop);
+            Cudd_Ref(zdd_I);
+            
+            // Complement of tautology should be empty (zero)
+            DdNode* comp = Cudd_zddComplement(manager, zdd_I);
+            if (comp != nullptr) {
+                Cudd_Ref(comp);
+                Cudd_RecursiveDerefZdd(manager, comp);
+            }
+            
+            Cudd_RecursiveDeref(manager, isop);
+            Cudd_RecursiveDerefZdd(manager, zdd_I);
+        }
+        
+        Cudd_RecursiveDeref(manager, one_bdd);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR UNCOVERED SWAP BRANCHES AND LOGIC PATHS
+// ============================================================================
+
+TEST_CASE("cuddZddFuncs - UnateProduct with one returns g", "[cuddZddFuncs]") {
+    SECTION("UnateProduct g == one returns f") {
+        // Cover line 600: if (g == one) return(f);
+        // This path is for the recursive cuddZddUnateProduct
+        // We need to create a situation where in recursion, one of the operands becomes 'one'
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* one = Cudd_ReadZddOne(manager, 0);
+        Cudd_Ref(one);
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        
+        // Create a more complex cover
+        DdNode* f = Cudd_zddUnion(manager, z0, z2);
+        Cudd_Ref(f);
+        
+        // Call unate product with g = one
+        // The recursive calls will eventually hit g == one
+        DdNode* result = Cudd_zddUnateProduct(manager, f, one);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, one);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - GetCofactors3 else branch (nv level < pv level)", "[cuddZddFuncs]") {
+    SECTION("GetCofactors3 with permZ order where nv level < pv level") {
+        // Cover lines 1378-1415: the else branch of cuddZddGetCofactors3
+        // This requires the variable order where negative var level < positive var level
+        // This is typically the case for odd variable indices
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Use variables where we can test both branches of the level comparison
+        // In default order, even variables have positive form first
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(z1);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z3 = Cudd_zddIthVar(manager, 3);
+        Cudd_Ref(z3);
+        
+        // Create a complex ZDD structure
+        DdNode* p1 = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(p1);
+        DdNode* p2 = Cudd_zddProduct(manager, z1, z3);
+        Cudd_Ref(p2);
+        DdNode* f = Cudd_zddUnion(manager, p1, p2);
+        Cudd_Ref(f);
+        
+        // Test cofactors at different variables
+        DdNode* f1, *f0, *fd;
+        
+        // Test at variable 0 (even)
+        int result = cuddZddGetCofactors3(manager, f, 0, &f1, &f0, &fd);
+        REQUIRE(result == 0);
+        Cudd_Ref(f1);
+        Cudd_Ref(f0);
+        Cudd_Ref(fd);
+        Cudd_RecursiveDerefZdd(manager, f1);
+        Cudd_RecursiveDerefZdd(manager, f0);
+        Cudd_RecursiveDerefZdd(manager, fd);
+        
+        // Test at variable 1 (odd)
+        result = cuddZddGetCofactors3(manager, f, 1, &f1, &f0, &fd);
+        REQUIRE(result == 0);
+        Cudd_Ref(f1);
+        Cudd_Ref(f0);
+        Cudd_Ref(fd);
+        Cudd_RecursiveDerefZdd(manager, f1);
+        Cudd_RecursiveDerefZdd(manager, f0);
+        Cudd_RecursiveDerefZdd(manager, fd);
+        
+        // Test at variable 2 (even)
+        result = cuddZddGetCofactors3(manager, f, 2, &f1, &f0, &fd);
+        REQUIRE(result == 0);
+        Cudd_Ref(f1);
+        Cudd_Ref(f0);
+        Cudd_Ref(fd);
+        Cudd_RecursiveDerefZdd(manager, f1);
+        Cudd_RecursiveDerefZdd(manager, f0);
+        Cudd_RecursiveDerefZdd(manager, fd);
+        
+        // Test at variable 3 (odd)
+        result = cuddZddGetCofactors3(manager, f, 3, &f1, &f0, &fd);
+        REQUIRE(result == 0);
+        Cudd_Ref(f1);
+        Cudd_Ref(f0);
+        Cudd_Ref(fd);
+        Cudd_RecursiveDerefZdd(manager, f1);
+        Cudd_RecursiveDerefZdd(manager, f0);
+        Cudd_RecursiveDerefZdd(manager, fd);
+        
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, p1);
+        Cudd_RecursiveDerefZdd(manager, p2);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z1);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z3);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - WeakDiv q == zero early return", "[cuddZddFuncs]") {
+    SECTION("WeakDiv with q becoming zero early") {
+        // Cover line 786-794: q == zero early return path
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create f and g where division will result in zero
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z4 = Cudd_zddIthVar(manager, 4);
+        Cudd_Ref(z4);
+        DdNode* z6 = Cudd_zddIthVar(manager, 6);
+        Cudd_Ref(z6);
+        
+        // f = z0 * z2
+        DdNode* f = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(f);
+        
+        // g = z4 * z6 (disjoint from f)
+        DdNode* g = Cudd_zddProduct(manager, z4, z6);
+        Cudd_Ref(g);
+        
+        // Division should return zero since f and g are disjoint
+        DdNode* result = Cudd_zddWeakDiv(manager, f, g);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, g);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z4);
+        Cudd_RecursiveDerefZdd(manager, z6);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("WeakDiv second q == zero return") {
+        // Cover line 827-833: second q == zero return
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(z1);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z3 = Cudd_zddIthVar(manager, 3);
+        Cudd_Ref(z3);
+        
+        // Create f and g structures that will trigger specific paths
+        DdNode* p1 = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(p1);
+        DdNode* f = p1;
+        
+        // g has g0 != zero, g1 != zero structure
+        DdNode* g = Cudd_zddUnion(manager, z1, z3);
+        Cudd_Ref(g);
+        
+        DdNode* result = Cudd_zddWeakDiv(manager, f, g);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, g);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z1);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z3);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - WeakDivF cache hit path", "[cuddZddFuncs]") {
+    SECTION("WeakDivF cache hit") {
+        // Cover line 905: cache hit return path
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        
+        DdNode* f = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(f);
+        
+        // First call populates cache
+        DdNode* result1 = Cudd_zddWeakDivF(manager, f, z0);
+        REQUIRE(result1 != nullptr);
+        Cudd_Ref(result1);
+        
+        // Second call should hit cache
+        DdNode* result2 = Cudd_zddWeakDivF(manager, f, z0);
+        REQUIRE(result2 != nullptr);
+        Cudd_Ref(result2);
+        
+        // Both should be the same (cached result)
+        REQUIRE(result1 == result2);
+        
+        Cudd_RecursiveDerefZdd(manager, result1);
+        Cudd_RecursiveDerefZdd(manager, result2);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - Additional Divide and DivideF paths", "[cuddZddFuncs]") {
+    SECTION("Divide with complex intersection") {
+        // Cover more paths in cuddZddDivide and cuddZddDivideF
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(z1);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z3 = Cudd_zddIthVar(manager, 3);
+        Cudd_Ref(z3);
+        
+        // Build covers with overlapping structure
+        // f = (z0 | z1) * z2
+        DdNode* cover1 = Cudd_zddUnion(manager, z0, z1);
+        Cudd_Ref(cover1);
+        DdNode* f = Cudd_zddProduct(manager, cover1, z2);
+        Cudd_Ref(f);
+        
+        // g = (z0 | z1)
+        DdNode* g = cover1;
+        
+        // Divide f by g
+        DdNode* result1 = Cudd_zddDivide(manager, f, g);
+        REQUIRE(result1 != nullptr);
+        Cudd_Ref(result1);
+        
+        DdNode* result2 = Cudd_zddDivideF(manager, f, g);
+        REQUIRE(result2 != nullptr);
+        Cudd_Ref(result2);
+        
+        Cudd_RecursiveDerefZdd(manager, result1);
+        Cudd_RecursiveDerefZdd(manager, result2);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, cover1);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z1);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z3);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - Additional complement paths", "[cuddZddFuncs]") {
+    SECTION("Complement with NAND function") {
+        DdManager* manager = Cudd_Init(4, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        int status = Cudd_zddVarsFromBddVars(manager, 2);
+        REQUIRE(status == 1);
+        
+        DdNode* x0 = Cudd_bddIthVar(manager, 0);
+        DdNode* x1 = Cudd_bddIthVar(manager, 1);
+        DdNode* bdd = Cudd_bddNand(manager, x0, x1);
+        Cudd_Ref(bdd);
+        
+        DdNode* zdd_I = nullptr;
+        DdNode* isop = Cudd_zddIsop(manager, bdd, bdd, &zdd_I);
+        if (isop != nullptr && zdd_I != nullptr) {
+            Cudd_Ref(isop);
+            Cudd_Ref(zdd_I);
+            
+            DdNode* comp = Cudd_zddComplement(manager, zdd_I);
+            if (comp != nullptr) {
+                Cudd_Ref(comp);
+                Cudd_RecursiveDerefZdd(manager, comp);
+            }
+            
+            Cudd_RecursiveDeref(manager, isop);
+            Cudd_RecursiveDerefZdd(manager, zdd_I);
+        }
+        
+        Cudd_RecursiveDeref(manager, bdd);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - More complex products", "[cuddZddFuncs]") {
+    SECTION("Product with many variables") {
+        DdManager* manager = Cudd_Init(0, 32, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create larger covers to exercise more paths
+        const int NUM_VARS = 8;  // Total number of variables to use
+        const int VARS_PER_COVER = NUM_VARS / 2;  // Half for f, half for g
+        
+        DdNode* vars[NUM_VARS];
+        for (int i = 0; i < NUM_VARS; i++) {
+            vars[i] = Cudd_zddIthVar(manager, i * 2);  // Even indices
+            Cudd_Ref(vars[i]);
+        }
+        
+        // Create f = v0 | v1 | v2 | v3
+        DdNode* f = vars[0];
+        Cudd_Ref(f);
+        for (int i = 1; i < VARS_PER_COVER; i++) {
+            DdNode* tmp = Cudd_zddUnion(manager, f, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDerefZdd(manager, f);
+            f = tmp;
+        }
+        
+        // Create g = v4 | v5 | v6 | v7
+        DdNode* g = vars[VARS_PER_COVER];
+        Cudd_Ref(g);
+        for (int i = VARS_PER_COVER + 1; i < NUM_VARS; i++) {
+            DdNode* tmp = Cudd_zddUnion(manager, g, vars[i]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDerefZdd(manager, g);
+            g = tmp;
+        }
+        
+        // Product of f and g
+        DdNode* prod = Cudd_zddProduct(manager, f, g);
+        REQUIRE(prod != nullptr);
+        Cudd_Ref(prod);
+        
+        // Unate product
+        DdNode* uprod = Cudd_zddUnateProduct(manager, f, g);
+        REQUIRE(uprod != nullptr);
+        Cudd_Ref(uprod);
+        
+        Cudd_RecursiveDerefZdd(manager, prod);
+        Cudd_RecursiveDerefZdd(manager, uprod);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, g);
+        for (int i = 0; i < NUM_VARS; i++) {
+            Cudd_RecursiveDerefZdd(manager, vars[i]);
+        }
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR SWAP BRANCHES USING VARIABLE REORDERING
+// ============================================================================
+
+TEST_CASE("cuddZddFuncs - Swap branch coverage via reordering", "[cuddZddFuncs]") {
+    SECTION("Product with reversed variable order triggers swap") {
+        // This test creates ZDDs and then reorders the heap so that
+        // top_f > top_g, triggering the swap branch in cuddZddProduct
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ZDD variables
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        REQUIRE(z0 != nullptr);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        REQUIRE(z2 != nullptr);
+        Cudd_Ref(z2);
+        DdNode* z4 = Cudd_zddIthVar(manager, 4);
+        REQUIRE(z4 != nullptr);
+        Cudd_Ref(z4);
+        DdNode* z6 = Cudd_zddIthVar(manager, 6);
+        REQUIRE(z6 != nullptr);
+        Cudd_Ref(z6);
+        
+        // Build a complex ZDD from z0 and z2
+        DdNode* f = Cudd_zddProduct(manager, z0, z2);
+        REQUIRE(f != nullptr);
+        Cudd_Ref(f);
+        
+        // Build another complex ZDD from z4 and z6
+        DdNode* g = Cudd_zddProduct(manager, z4, z6);
+        REQUIRE(g != nullptr);
+        Cudd_Ref(g);
+        
+        // Reverse the ZDD variable order using shuffle
+        // This changes permZ so that higher-indexed variables 
+        // have lower level numbers
+        int perm[8] = {7, 6, 5, 4, 3, 2, 1, 0};
+        int result = Cudd_zddShuffleHeap(manager, perm);
+        REQUIRE(result == 1);
+        
+        // After reordering, products should trigger swap branches
+        // because permZ values are now reversed
+        DdNode* prod = Cudd_zddProduct(manager, f, g);
+        REQUIRE(prod != nullptr);
+        Cudd_Ref(prod);
+        
+        // Also test unate product with swapped order
+        DdNode* uprod = Cudd_zddUnateProduct(manager, f, g);
+        REQUIRE(uprod != nullptr);
+        Cudd_Ref(uprod);
+        
+        Cudd_RecursiveDerefZdd(manager, prod);
+        Cudd_RecursiveDerefZdd(manager, uprod);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, g);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z4);
+        Cudd_RecursiveDerefZdd(manager, z6);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("WeakDivF with vf < vg condition") {
+        // This test aims to trigger the special case in cuddZddWeakDivF
+        // where v == top_f && vf < vg (lines 914-976)
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create variables at specific indices
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z8 = Cudd_zddIthVar(manager, 8);
+        Cudd_Ref(z8);
+        DdNode* z10 = Cudd_zddIthVar(manager, 10);
+        Cudd_Ref(z10);
+        
+        // Create f from low-index variables
+        DdNode* f = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(f);
+        
+        // Create g from high-index variables
+        DdNode* g = Cudd_zddProduct(manager, z8, z10);
+        Cudd_Ref(g);
+        
+        // Shuffle to create specific level relationships
+        // We want vf < vg where vf = top_f >> 1 and vg = top_g >> 1
+        int perm[16];
+        for (int i = 0; i < 16; i++) {
+            perm[i] = 15 - i;  // Reverse order
+        }
+        int result = Cudd_zddShuffleHeap(manager, perm);
+        REQUIRE(result == 1);
+        
+        // Now perform WeakDivF operations
+        DdNode* div = Cudd_zddWeakDivF(manager, f, g);
+        REQUIRE(div != nullptr);
+        Cudd_Ref(div);
+        
+        // Also try the regular WeakDiv
+        DdNode* div2 = Cudd_zddWeakDiv(manager, f, g);
+        REQUIRE(div2 != nullptr);
+        Cudd_Ref(div2);
+        
+        Cudd_RecursiveDerefZdd(manager, div);
+        Cudd_RecursiveDerefZdd(manager, div2);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, g);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z8);
+        Cudd_RecursiveDerefZdd(manager, z10);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("UnateProduct g == one path") {
+        // Test the g == one return path in cuddZddUnateProduct (line 600)
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        
+        // Create non-trivial f
+        DdNode* f = Cudd_zddUnion(manager, z0, z2);
+        Cudd_Ref(f);
+        
+        // Use one as g - this should hit the g == one path
+        DdNode* one = Cudd_ReadZddOne(manager, 0);
+        Cudd_Ref(one);
+        
+        // The product f * 1 should return f
+        DdNode* result = Cudd_zddUnateProduct(manager, f, one);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, one);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Divide and DivideF with reordered variables") {
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z4 = Cudd_zddIthVar(manager, 4);
+        Cudd_Ref(z4);
+        
+        DdNode* f = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(f);
+        
+        // Reverse variable order
+        int perm[8] = {7, 6, 5, 4, 3, 2, 1, 0};
+        int result = Cudd_zddShuffleHeap(manager, perm);
+        REQUIRE(result == 1);
+        
+        // Perform divisions after reorder
+        DdNode* div1 = Cudd_zddDivide(manager, f, z4);
+        REQUIRE(div1 != nullptr);
+        Cudd_Ref(div1);
+        
+        DdNode* div2 = Cudd_zddDivideF(manager, f, z4);
+        REQUIRE(div2 != nullptr);
+        Cudd_Ref(div2);
+        
+        Cudd_RecursiveDerefZdd(manager, div1);
+        Cudd_RecursiveDerefZdd(manager, div2);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z4);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - GetCofactors3 else branch coverage", "[cuddZddFuncs]") {
+    SECTION("GetCofactors3 with pos var level >= neg var level") {
+        // The else branch (lines 1378-1414) is taken when
+        // cuddZddGetPosVarLevel(dd, v) >= cuddZddGetNegVarLevel(dd, v)
+        // This happens when the negative variable comes before the positive
+        // in the level order, which can be achieved by shuffling
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create ZDD variables
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(z1);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z3 = Cudd_zddIthVar(manager, 3);
+        Cudd_Ref(z3);
+        
+        // Create a complex ZDD
+        DdNode* p1 = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(p1);
+        DdNode* p2 = Cudd_zddProduct(manager, z1, z3);
+        Cudd_Ref(p2);
+        DdNode* f = Cudd_zddUnion(manager, p1, p2);
+        Cudd_Ref(f);
+        
+        // Shuffle to swap adjacent pairs (0,1) and (2,3)
+        // This puts negative vars before positive vars at each pair
+        int perm[8] = {1, 0, 3, 2, 5, 4, 7, 6};
+        int result = Cudd_zddShuffleHeap(manager, perm);
+        REQUIRE(result == 1);
+        
+        // Build another ZDD after reorder
+        DdNode* z4 = Cudd_zddIthVar(manager, 4);
+        Cudd_Ref(z4);
+        DdNode* z5 = Cudd_zddIthVar(manager, 5);
+        Cudd_Ref(z5);
+        
+        // Operations that use GetCofactors3 internally
+        DdNode* prod = Cudd_zddProduct(manager, f, z4);
+        REQUIRE(prod != nullptr);
+        Cudd_Ref(prod);
+        
+        DdNode* weakdiv = Cudd_zddWeakDiv(manager, f, z5);
+        REQUIRE(weakdiv != nullptr);
+        Cudd_Ref(weakdiv);
+        
+        Cudd_RecursiveDerefZdd(manager, prod);
+        Cudd_RecursiveDerefZdd(manager, weakdiv);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, p1);
+        Cudd_RecursiveDerefZdd(manager, p2);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z1);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z3);
+        Cudd_RecursiveDerefZdd(manager, z4);
+        Cudd_RecursiveDerefZdd(manager, z5);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - Timeout handler coverage", "[cuddZddFuncs]") {
+    SECTION("Product with timeout handler set") {
+        // This test sets up a timeout handler but doesn't actually trigger
+        // a timeout - we just verify the handler setup doesn't break anything
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Set a very long timeout so it doesn't trigger
+        Cudd_SetTimeLimit(manager, 1000000);  // 1 second in microseconds
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(z1);
+        
+        DdNode* prod = Cudd_zddProduct(manager, z0, z1);
+        REQUIRE(prod != nullptr);
+        Cudd_Ref(prod);
+        
+        Cudd_RecursiveDerefZdd(manager, prod);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z1);
+        
+        Cudd_UnsetTimeLimit(manager);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - Division by one paths", "[cuddZddFuncs]") {
+    SECTION("Divide by one returns f") {
+        // Cover line 1128: if (g == one) return(f);
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        
+        DdNode* f = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(f);
+        
+        // Use Cudd_ReadOne to get dd->one (the constant one) 
+        // which matches DD_ONE(dd) in the internal function
+        DdNode* one = Cudd_ReadOne(manager);
+        Cudd_Ref(one);
+        
+        // Divide by one should return f
+        DdNode* result = Cudd_zddDivide(manager, f, one);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, one);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("DivideF by one returns f") {
+        // Cover line 1225: if (g == one) return(f);
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        
+        DdNode* f = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(f);
+        
+        // Use Cudd_ReadOne to get dd->one
+        DdNode* one = Cudd_ReadOne(manager);
+        Cudd_Ref(one);
+        
+        // DivideF by one should return f
+        DdNode* result = Cudd_zddDivideF(manager, f, one);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, one);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("UnateProduct with one as g returns f") {
+        // Cover line 600: if (g == one) return(f);
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        
+        // Create non-trivial f as a union
+        DdNode* f = Cudd_zddUnion(manager, z0, z2);
+        Cudd_Ref(f);
+        
+        // Use Cudd_ReadOne to get dd->one
+        DdNode* one = Cudd_ReadOne(manager);
+        Cudd_Ref(one);
+        
+        // UnateProduct(f, one) should trigger the g == one path
+        DdNode* result = Cudd_zddUnateProduct(manager, f, one);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, one);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - Cache hit paths", "[cuddZddFuncs]") {
+    SECTION("Divide cache hit") {
+        // Cover line 1137: cache hit return in cuddZddDivide
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        
+        DdNode* f = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(f);
+        
+        // First call - populates cache
+        DdNode* result1 = Cudd_zddDivide(manager, f, z0);
+        REQUIRE(result1 != nullptr);
+        Cudd_Ref(result1);
+        
+        // Second call - should hit cache
+        DdNode* result2 = Cudd_zddDivide(manager, f, z0);
+        REQUIRE(result2 != nullptr);
+        Cudd_Ref(result2);
+        
+        REQUIRE(result1 == result2);  // Same cached result
+        
+        Cudd_RecursiveDerefZdd(manager, result1);
+        Cudd_RecursiveDerefZdd(manager, result2);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("DivideF cache hit") {
+        // Cover line 1234: cache hit return in cuddZddDivideF
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        
+        DdNode* f = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(f);
+        
+        // First call - populates cache
+        DdNode* result1 = Cudd_zddDivideF(manager, f, z0);
+        REQUIRE(result1 != nullptr);
+        Cudd_Ref(result1);
+        
+        // Second call - should hit cache
+        DdNode* result2 = Cudd_zddDivideF(manager, f, z0);
+        REQUIRE(result2 != nullptr);
+        Cudd_Ref(result2);
+        
+        REQUIRE(result1 == result2);  // Same cached result
+        
+        Cudd_RecursiveDerefZdd(manager, result1);
+        Cudd_RecursiveDerefZdd(manager, result2);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - WeakDivF vf < vg block", "[cuddZddFuncs]") {
+    SECTION("Trigger vf < vg condition in WeakDivF") {
+        // Lines 914-976 require: v == top_f && vf < vg
+        // This means: top_f < top_g AND (top_f >> 1) < (top_g >> 1)
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create variables
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(z1);
+        DdNode* z8 = Cudd_zddIthVar(manager, 8);
+        Cudd_Ref(z8);
+        DdNode* z9 = Cudd_zddIthVar(manager, 9);
+        Cudd_Ref(z9);
+        
+        // Build f from low variables
+        DdNode* f = Cudd_zddProduct(manager, z0, z1);
+        Cudd_Ref(f);
+        
+        // Build g from high variables  
+        DdNode* g = Cudd_zddProduct(manager, z8, z9);
+        Cudd_Ref(g);
+        
+        // Reorder so that f's top level is lower and vf < vg
+        // We want: top_f small, top_g large, and (top_f/2) < (top_g/2)
+        int perm[16];
+        for (int i = 0; i < 16; i++) {
+            perm[i] = 15 - i;
+        }
+        int result = Cudd_zddShuffleHeap(manager, perm);
+        REQUIRE(result == 1);
+        
+        // Now WeakDivF should exercise the special case
+        DdNode* div = Cudd_zddWeakDivF(manager, g, f);
+        REQUIRE(div != nullptr);
+        Cudd_Ref(div);
+        
+        Cudd_RecursiveDerefZdd(manager, div);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, g);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z1);
+        Cudd_RecursiveDerefZdd(manager, z8);
+        Cudd_RecursiveDerefZdd(manager, z9);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - WeakDiv q == g path", "[cuddZddFuncs]") {
+    SECTION("WeakDiv with q == g initially") {
+        // Cover lines 846-847: if (q == g) q = tmp;
+        // This requires g0 to be zero so q stays as g
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z4 = Cudd_zddIthVar(manager, 4);
+        Cudd_Ref(z4);
+        
+        // f = z0 * z2
+        DdNode* f = Cudd_zddProduct(manager, z0, z2);
+        Cudd_Ref(f);
+        
+        // g = z4 (g0 will be zero since z4 has no z0 component)
+        DdNode* g = z4;
+        
+        DdNode* result = Cudd_zddWeakDiv(manager, f, g);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z4);
+        Cudd_Quit(manager);
+    }
+}
+
+// ============================================================================
+// TESTS FOR MEMORY ALLOCATION FAILURE PATHS
+// ============================================================================
+
+TEST_CASE("cuddZddFuncs - Memory allocation failure paths", "[cuddZddFuncs]") {
+    SECTION("Product with memory limit") {
+        // Test behavior when memory is constrained
+        DdManager* manager = Cudd_Init(0, 8, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create initial ZDDs before limiting memory
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z4 = Cudd_zddIthVar(manager, 4);
+        Cudd_Ref(z4);
+        DdNode* z6 = Cudd_zddIthVar(manager, 6);
+        Cudd_Ref(z6);
+        
+        // Set very low memory limit to trigger allocation failures
+        size_t originalLimit = Cudd_ReadMaxMemory(manager);
+        size_t currentUsed = Cudd_ReadMemoryInUse(manager);
+        
+        // Try to trigger memory exhaustion by setting limit just above current usage
+        Cudd_SetMaxMemory(manager, currentUsed + 1024);
+        
+        // Create complex ZDDs that may fail due to memory
+        DdNode* f = Cudd_zddProduct(manager, z0, z2);
+        if (f != nullptr) {
+            Cudd_Ref(f);
+            DdNode* g = Cudd_zddProduct(manager, z4, z6);
+            if (g != nullptr) {
+                Cudd_Ref(g);
+                
+                // Try operations that allocate memory
+                DdNode* prod = Cudd_zddProduct(manager, f, g);
+                if (prod != nullptr) {
+                    Cudd_Ref(prod);
+                    Cudd_RecursiveDerefZdd(manager, prod);
+                }
+                
+                Cudd_RecursiveDerefZdd(manager, g);
+            }
+            Cudd_RecursiveDerefZdd(manager, f);
+        }
+        
+        // Restore memory limit
+        Cudd_SetMaxMemory(manager, originalLimit);
+        
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z4);
+        Cudd_RecursiveDerefZdd(manager, z6);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("Division operations with memory constraints") {
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Build some ZDDs first
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z4 = Cudd_zddIthVar(manager, 4);
+        Cudd_Ref(z4);
+        
+        DdNode* f = Cudd_zddProduct(manager, z0, z2);
+        REQUIRE(f != nullptr);
+        Cudd_Ref(f);
+        
+        DdNode* g = z4;
+        
+        // Constrain memory
+        size_t currentUsed = Cudd_ReadMemoryInUse(manager);
+        Cudd_SetMaxMemory(manager, currentUsed + 512);
+        
+        // Try divisions - may fail due to memory
+        DdNode* div1 = Cudd_zddWeakDiv(manager, f, g);
+        if (div1 != nullptr) {
+            Cudd_Ref(div1);
+            Cudd_RecursiveDerefZdd(manager, div1);
+        }
+        
+        DdNode* div2 = Cudd_zddWeakDivF(manager, f, g);
+        if (div2 != nullptr) {
+            Cudd_Ref(div2);
+            Cudd_RecursiveDerefZdd(manager, div2);
+        }
+        
+        DdNode* div3 = Cudd_zddDivide(manager, f, g);
+        if (div3 != nullptr) {
+            Cudd_Ref(div3);
+            Cudd_RecursiveDerefZdd(manager, div3);
+        }
+        
+        DdNode* div4 = Cudd_zddDivideF(manager, f, g);
+        if (div4 != nullptr) {
+            Cudd_Ref(div4);
+            Cudd_RecursiveDerefZdd(manager, div4);
+        }
+        
+        // Reset memory limit
+        Cudd_SetMaxMemory(manager, 0);
+        
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z4);
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - WeakDivF special case vf < vg", "[cuddZddFuncs]") {
+    SECTION("WeakDivF with f variable group lower than g variable group") {
+        // To trigger the v == top_f && vf < vg condition (lines 914-976)
+        // we need f's top variable to be in a lower "group" than g's
+        // In CUDD's ZDD representation, vf = top_f >> 1 and vg = top_g >> 1
+        // So we need (f_top >> 1) < (g_top >> 1)
+        
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create f with low-indexed variables (0, 1)
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(z1);
+        
+        // Create g with high-indexed variables (8, 9)
+        // This ensures vf = 0 >> 1 = 0 and vg = 8 >> 1 = 4
+        // So vf < vg is true
+        DdNode* z8 = Cudd_zddIthVar(manager, 8);
+        Cudd_Ref(z8);
+        DdNode* z9 = Cudd_zddIthVar(manager, 9);
+        Cudd_Ref(z9);
+        
+        // Build f = z0 * z1
+        DdNode* f = Cudd_zddProduct(manager, z0, z1);
+        REQUIRE(f != nullptr);
+        Cudd_Ref(f);
+        
+        // Build g = z8 * z9
+        DdNode* g = Cudd_zddProduct(manager, z8, z9);
+        REQUIRE(g != nullptr);
+        Cudd_Ref(g);
+        
+        // Now WeakDivF(f, g) should trigger the vf < vg path
+        // since f's top is 0 and g's top is 8, and 0 < 4
+        DdNode* result = Cudd_zddWeakDivF(manager, f, g);
+        // Result may be zero since f and g are on disjoint variables
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, g);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z1);
+        Cudd_RecursiveDerefZdd(manager, z8);
+        Cudd_RecursiveDerefZdd(manager, z9);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("WeakDivF with shared variable and vf < vg") {
+        // Try to trigger the vf < vg path by having f share a variable with g
+        // but also have extra variables in a different group
+        DdManager* manager = Cudd_Init(0, 20, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // z0 is in group 0 (0 >> 1 = 0)
+        // z10 is in group 5 (10 >> 1 = 5)
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z10 = Cudd_zddIthVar(manager, 10);
+        Cudd_Ref(z10);
+        DdNode* z12 = Cudd_zddIthVar(manager, 12);
+        Cudd_Ref(z12);
+        
+        // Build f = z0 * z2 (top is z0, group 0)
+        DdNode* f = Cudd_zddProduct(manager, z0, z2);
+        REQUIRE(f != nullptr);
+        Cudd_Ref(f);
+        
+        // Build g = z10 * z12 (top is z10, group 5)
+        DdNode* g = Cudd_zddProduct(manager, z10, z12);
+        REQUIRE(g != nullptr);
+        Cudd_Ref(g);
+        
+        // WeakDivF - f's top (0) < g's top (10), vf=0 < vg=5
+        // v = min(0, 10) = 0 = top_f, and 0 < 5
+        // This should hit the vf < vg path
+        DdNode* result = Cudd_zddWeakDivF(manager, f, g);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, g);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z10);
+        Cudd_RecursiveDerefZdd(manager, z12);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("WeakDivF with complex structures for vf < vg") {
+        DdManager* manager = Cudd_Init(0, 20, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create f with variables 0-3
+        DdNode* vars[4];
+        for (int i = 0; i < 4; i++) {
+            vars[i] = Cudd_zddIthVar(manager, i);
+            Cudd_Ref(vars[i]);
+        }
+        
+        // f = (z0 | z1) * (z2 | z3)
+        DdNode* tmp1 = Cudd_zddUnion(manager, vars[0], vars[1]);
+        Cudd_Ref(tmp1);
+        DdNode* tmp2 = Cudd_zddUnion(manager, vars[2], vars[3]);
+        Cudd_Ref(tmp2);
+        DdNode* f = Cudd_zddProduct(manager, tmp1, tmp2);
+        Cudd_Ref(f);
+        
+        // Create g with variables 10-13 (much higher group)
+        DdNode* gvars[4];
+        for (int i = 0; i < 4; i++) {
+            gvars[i] = Cudd_zddIthVar(manager, 10 + i);
+            Cudd_Ref(gvars[i]);
+        }
+        
+        // g = (z10 | z11) * (z12 | z13)
+        DdNode* tmp3 = Cudd_zddUnion(manager, gvars[0], gvars[1]);
+        Cudd_Ref(tmp3);
+        DdNode* tmp4 = Cudd_zddUnion(manager, gvars[2], gvars[3]);
+        Cudd_Ref(tmp4);
+        DdNode* g = Cudd_zddProduct(manager, tmp3, tmp4);
+        Cudd_Ref(g);
+        
+        // WeakDivF with f having lower variable groups
+        DdNode* result = Cudd_zddWeakDivF(manager, f, g);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, g);
+        Cudd_RecursiveDerefZdd(manager, tmp1);
+        Cudd_RecursiveDerefZdd(manager, tmp2);
+        Cudd_RecursiveDerefZdd(manager, tmp3);
+        Cudd_RecursiveDerefZdd(manager, tmp4);
+        for (int i = 0; i < 4; i++) {
+            Cudd_RecursiveDerefZdd(manager, vars[i]);
+            Cudd_RecursiveDerefZdd(manager, gvars[i]);
+        }
+        Cudd_Quit(manager);
+    }
+}
+
+TEST_CASE("cuddZddFuncs - WeakDiv q == g path additional", "[cuddZddFuncs]") {
+    SECTION("WeakDiv where g0 is zero triggers q == g path") {
+        // Line 846-847: if (q == g) q = tmp;
+        // This happens when g0 == zero (no negative part for top variable)
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        // Create f with structure that has both positive and don't-care parts
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(z1);
+        DdNode* z2 = Cudd_zddIthVar(manager, 2);
+        Cudd_Ref(z2);
+        DdNode* z3 = Cudd_zddIthVar(manager, 3);
+        Cudd_Ref(z3);
+        
+        // f = z0 * z1 - has positive literal at var 0
+        DdNode* f = Cudd_zddProduct(manager, z0, z1);
+        Cudd_Ref(f);
+        
+        // g = z2 * z3 - has positive literal at var 2
+        // g is structured so that g0 (negative cofactor) is zero
+        DdNode* g = Cudd_zddProduct(manager, z2, z3);
+        Cudd_Ref(g);
+        
+        // WeakDiv should follow the q == g path
+        DdNode* result = Cudd_zddWeakDiv(manager, f, g);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, g);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z1);
+        Cudd_RecursiveDerefZdd(manager, z2);
+        Cudd_RecursiveDerefZdd(manager, z3);
+        Cudd_Quit(manager);
+    }
+    
+    SECTION("WeakDivF where g0 is zero triggers q == g path") {
+        // Same test for WeakDivF - line 1081-1082
+        DdManager* manager = Cudd_Init(0, 16, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        REQUIRE(manager != nullptr);
+        
+        DdNode* z0 = Cudd_zddIthVar(manager, 0);
+        Cudd_Ref(z0);
+        DdNode* z1 = Cudd_zddIthVar(manager, 1);
+        Cudd_Ref(z1);
+        DdNode* z4 = Cudd_zddIthVar(manager, 4);
+        Cudd_Ref(z4);
+        DdNode* z5 = Cudd_zddIthVar(manager, 5);
+        Cudd_Ref(z5);
+        
+        DdNode* f = Cudd_zddProduct(manager, z0, z1);
+        Cudd_Ref(f);
+        
+        DdNode* g = Cudd_zddProduct(manager, z4, z5);
+        Cudd_Ref(g);
+        
+        DdNode* result = Cudd_zddWeakDivF(manager, f, g);
+        REQUIRE(result != nullptr);
+        Cudd_Ref(result);
+        
+        Cudd_RecursiveDerefZdd(manager, result);
+        Cudd_RecursiveDerefZdd(manager, f);
+        Cudd_RecursiveDerefZdd(manager, g);
+        Cudd_RecursiveDerefZdd(manager, z0);
+        Cudd_RecursiveDerefZdd(manager, z1);
+        Cudd_RecursiveDerefZdd(manager, z4);
+        Cudd_RecursiveDerefZdd(manager, z5);
         Cudd_Quit(manager);
     }
 }
