@@ -400,6 +400,11 @@ cuddLinearInPlace(
 	/* last is always assigned in the for loop because there is at
 	** least one key */
 	assert(last != NULL);
+#else
+	/* Defensive check for static analysis: last is guaranteed to be assigned
+	** because table->subtables[x].keys != 0, meaning the loop will process
+	** at least one slot. This check should never trigger in practice. */
+	if (last == NULL) return(0);
 #endif
 	last->next = NULL;
 

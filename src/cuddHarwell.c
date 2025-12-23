@@ -356,7 +356,8 @@ Cudd_addHarwell(
     if (nrhs == 0) {
 	*n = ncol;
     } else {
-	*n = (1 << (lny - 1)) + nrhs;
+	/* Ensure lny is at least 1 before shifting to avoid undefined behavior */
+	*n = (lny > 0) ? ((1 << (lny - 1)) + nrhs) : nrhs;
     }
     
     /* Read structure data */
@@ -493,7 +494,8 @@ Cudd_addHarwell(
 
     /* Read right-hand sides */
     for (j=0; j<nrhs; j++) {
-	v = j + (1<< (lny-1));
+	/* Ensure lny is at least 1 before shifting to avoid undefined behavior */
+	v = (lny > 0) ? (j + (1 << (lny-1))) : j;
 	cubey = one; cuddRef(cubey);
 	for (nv = lny - 1; nv>=0; nv--) {
 	    if (v & 1) {

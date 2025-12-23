@@ -990,7 +990,13 @@ cuddGarbageCollect(
 	} while (++k < DD_MEM_CHUNK);
 	memListTrav = nxtNode;
     }
-    sentry->next = NULL;
+    /* Defensive check for static analysis: sentry is assigned when the loop
+    ** finds nodes with ref == 0 (dead nodes). During garbage collection, there
+    ** should always be at least one dead node, so this check should never fail.
+    ** However, we add it for robustness and to satisfy static analysis. */
+    if (sentry != NULL) {
+	sentry->next = NULL;
+    }
 #endif
 #endif
 
